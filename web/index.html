@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10121b">
+  <meta name="description" content="Your private, read-only Google Drive image gallery, beautifully organized.">
+  <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg">
+  <link rel="apple-touch-icon" href="./icons/icon-180.png">
+  <link rel="stylesheet" href="./styles.css">
+  <title>Jack's Image Vault</title>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" aria-label="Primary sidebar">
+      <div class="brand">
+        <img src="./icons/icon.svg" class="brand-icon" alt="">
+        <div><strong>JACK'S VAULT</strong><span>IMAGE LIBRARY</span></div>
+      </div>
+      <div class="nav-label">EXPLORE</div>
+      <nav class="nav" id="navigation" aria-label="Library views">
+        <button class="nav-item active" data-view="home"><span class="nav-icon">▤</span>Overview</button>
+        <button class="nav-item" data-view="all"><span class="nav-icon">▦</span>All images <span class="nav-count" id="allCount">—</span></button>
+        <button class="nav-item" data-view="memes"><span class="nav-icon">☺</span>Memes</button>
+        <button class="nav-item" data-view="photos"><span class="nav-icon">▧</span>Photos</button>
+        <button class="nav-item" data-view="favorites"><span class="nav-icon">♡</span>Favorites</button>
+        <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review</button>
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-safety"><span class="safety-dot"></span> READ-ONLY ACCESS</div>
+      <p class="sidebar-caption">Your original Drive files and folders remain untouched.</p>
+      <button class="side-settings" id="sidebarSettings" type="button">⚙ &nbsp; Connection settings</button>
+      <button class="side-settings" id="sidebarUpdates" type="button">↻ &nbsp; App updates</button>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div class="location">YOUR DRIVE <span>/</span> <strong>IMAGE VAULT</strong></div>
+        <div class="top-actions">
+          <span class="connection-status" id="connectionStatus"><i></i> Preview mode</span>
+          <button class="btn quiet" id="updatesButton" type="button" title="Check updates and install local patch files">↻ <span>Updates</span></button>
+          <button class="btn quiet install-top" id="installButton" type="button" title="Install this gallery as a Windows or Android app">↓ <span>Install app</span></button>
+          <button class="btn quiet" id="settingsButton" type="button" title="Google connection settings">⚙</button>
+          <button class="btn primary" id="connectButton" type="button">Connect Drive</button>
+          <button class="btn quiet hidden" id="disconnectButton" type="button">Disconnect</button>
+        </div>
+      </header>
+
+      <main id="main" class="main">
+        <div class="alert hidden" id="alert" role="status"></div>
+        <section id="homeView" class="view">
+          <div class="hero">
+            <div class="hero-copy">
+              <p class="eyebrow"><span class="eyebrow-dot"></span> A NEW HOME FOR YOUR COLLECTIONS</p>
+              <h1>All your images.<br><em>One beautiful space.</em></h1>
+              <p class="hero-description">Your memes, photographs and memories, transformed into a gallery worth exploring. Same Drive files. A completely different view.</p>
+              <div class="hero-actions">
+                <button class="btn primary large" id="exploreButton" type="button">Explore gallery <span aria-hidden="true">→</span></button>
+                <button class="btn outline large" id="heroConnectButton" type="button">Connect your Drive</button>
+              </div>
+            </div>
+            <div class="hero-art" aria-hidden="true">
+              <div class="art-card art-card-back"><span>✷</span></div>
+              <div class="art-card art-card-mid"><span>✦</span></div>
+              <div class="art-card art-card-front"><span>▧</span></div>
+              <div class="art-glow"></div>
+            </div>
+          </div>
+          <div class="stats" id="stats">
+            <div class="stat"><span>◈</span><strong id="statImages">—</strong><small>Indexed images</small></div>
+            <div class="stat"><span>☺</span><strong id="statMemes">—</strong><small>Meme images</small></div>
+            <div class="stat"><span>▧</span><strong id="statPhotos">—</strong><small>Personal photos</small></div>
+            <div class="stat"><span>✓</span><strong id="statDescribed">—</strong><small>Visually described</small></div>
+          </div>
+          <div class="section-heading"><div><p class="eyebrow">BROWSE BY COLLECTION</p><h2>Featured collections</h2></div><button class="btn quiet" id="seeAllButton" type="button">View all <span>→</span></button></div>
+          <div class="collection-grid" id="featuredCollections"></div>
+          <div class="bottom-grid">
+            <div class="info-card"><div class="info-icon">⌕</div><h3>Find the right image, instantly.</h3><p>Search by filename, description, category, or tags in your existing inventory. Unreviewed pictures are labeled clearly.</p></div>
+            <div class="info-card"><div class="info-icon">◷</div><h3>A safer way to organize.</h3><p>Review missing descriptions, browse by capture date, and open original files in Drive without modifying a single image.</p></div>
+          </div>
+          <p class="privacy-note">This gallery never uploads, edits, moves, deletes or reshares Drive content. Private images are fetched only in your signed-in browser session.</p>
+        </section>
+
+        <section id="galleryView" class="view hidden">
+          <div class="gallery-heading"><div><p class="eyebrow" id="galleryEyebrow">YOUR PRIVATE GALLERY</p><h1 id="galleryTitle">All images</h1><p id="galleryDescription">Browse every collection in one place.</p></div><div class="gallery-counters"><span class="result-count" id="resultCount">—</span><span class="preview-stat" id="previewStatus">Previews start when visible</span><button class="btn outline hidden" type="button" id="retryFailedButton">↻ Retry failed</button></div></div>
+          <div class="filters">
+            <label class="searchbox"><span>⌕</span><input type="search" id="searchInput" placeholder="Search images, moments, tags…" autocomplete="off" aria-label="Search images"><kbd>/</kbd></label>
+            <select class="select" id="sortSelect" aria-label="Sort images"><option value="name">Name A–Z</option><option value="date-desc">Newest capture</option><option value="date-asc">Oldest capture</option><option value="review">Reviewed first</option></select>
+            <button class="btn square" id="layoutButton" type="button" aria-label="Toggle list view" title="Toggle grid / list view">☷</button>
+          </div>
+          <div id="folderChips" class="chips" aria-label="Collection filters"></div>
+          <div id="galleryNotice" class="gallery-notice hidden"></div>
+          <div id="galleryGrid" class="image-grid" aria-live="polite"></div>
+          <div id="loadMoreArea" class="load-more"></div>
+        </section>
+      </main>
+      <footer class="footer"><span>JACK'S IMAGE VAULT <b>•</b> READ-ONLY PWA</span><span id="footerStatus">Local preview · No private data stored</span></footer>
+    </div>
+  </div>
+
+  <dialog id="settingsDialog" class="dialog settings-dialog" aria-labelledby="settingsTitle">
+    <form id="settingsForm">
+      <div class="dialog-header"><div><p class="eyebrow">PRIVATE CONNECTION</p><h2 id="settingsTitle">Google Drive setup</h2></div><button class="icon-button" id="settingsClose" type="button" aria-label="Close settings">×</button></div>
+      <p class="dialog-copy">This installable app uses your own Google OAuth client. Only a client ID and the existing inventory spreadsheet ID are needed. No API keys or passwords belong here.</p>
+      <label class="field-label" for="clientIdInput">Google OAuth web client ID</label>
+      <input class="field" id="clientIdInput" type="text" autocomplete="off" spellcheck="false" placeholder="123456789-abc…apps.googleusercontent.com" required>
+      <label class="field-label" for="sheetIdInput">Image inventory spreadsheet ID</label>
+      <input class="field" id="sheetIdInput" type="text" autocomplete="off" spellcheck="false" placeholder="From your Image Library Intelligence sheet URL" required>
+      <label class="remember"><input id="rememberConfig" type="checkbox" checked> Remember these two IDs on this device</label>
+      <p class="field-help">The OAuth client must list <code id="originText"></code> under <strong>Authorized JavaScript origins</strong>. Google Sheets API and Drive API must be enabled. Use read-only scopes. Sign-in always requires your approval.</p>
+      <div class="dialog-actions"><button class="btn outline" id="cancelSettings" type="button">Cancel</button><button class="btn primary" type="submit">Save connection settings</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="imageDialog" class="dialog image-dialog" aria-label="Image details">
+    <div class="modal-header"><span id="modalLocation">IMAGE DETAILS</span><div class="modal-buttons"><button class="icon-button" id="prevImage" type="button" aria-label="Previous image">←</button><button class="icon-button" id="nextImage" type="button" aria-label="Next image">→</button><button class="icon-button" id="closeImage" type="button" aria-label="Close image details">×</button></div></div>
+    <div class="modal-body"><div class="modal-picture" id="modalPicture"></div><div class="modal-details"><span class="eyebrow" id="modalCollection">COLLECTION</span><h2 id="modalTitle"></h2><p id="modalDescription"></p><dl id="modalMeta"></dl><p class="preview-details" id="previewDetails"></p><div class="modal-footer-actions"><button class="btn outline hidden" id="retryPreview" type="button">↻ Retry preview</button><button class="btn outline" id="favoriteImage" type="button">♡ Favorite</button><a class="btn primary" id="openDriveLink" target="_blank" rel="noopener noreferrer">Open in Drive ↗</a></div></div></div>
+  </dialog>
+
+  <dialog id="updatesDialog" class="dialog updates-dialog" aria-labelledby="updatesTitle">
+    <div class="dialog-header"><div><p class="eyebrow">YOUR APP, YOUR UPDATES</p><h2 id="updatesTitle">App updates</h2></div><button class="icon-button" id="updatesClose" type="button" aria-label="Close updates">×</button></div>
+    <p class="dialog-copy">Apply a patch ZIP made here in ChatGPT, or use a public GitHub release. Every update is checked before installation. No Google tokens or images are sent to GitHub.</p>
+    <div class="update-version"><span>Installed version</span><strong id="appVersion">Checking…</strong></div>
+    <p class="update-message" id="updateStatusMessage" role="status">Checking update system…</p>
+    <div class="update-section">
+      <h3>GitHub release updates</h3>
+      <label class="field-label" for="updateRepo">Public repository (owner/repo)</label>
+      <input class="field" id="updateRepo" type="text" autocomplete="off" spellcheck="false" placeholder="yourusername/jacks-image-vault">
+      <p class="field-help">The app checks this repository about once a day, but never installs an update without asking you. Release assets must be named <code>jacks-image-vault-patch.zip</code>.</p>
+      <div class="update-buttons"><button class="btn quiet" id="saveRepoButton" type="button">Save repository</button><button class="btn outline" id="updateCheckButton" type="button">Check GitHub</button><button class="btn primary" id="githubInstallButton" type="button" disabled>Install update</button></div>
+      <p class="update-note" id="releaseStatus">No GitHub release checked yet.</p>
+    </div>
+    <div class="update-section">
+      <h3>Install a local patch</h3>
+      <p class="field-help">Choose a <code>jacks-image-vault-patch.zip</code> we build here. You can keep it anywhere on your PC. The app validates version, file list, and SHA-256 checksums before applying it.</p>
+      <input class="field" type="file" accept=".zip,application/zip" id="localPatchFile">
+      <div class="update-buttons"><button class="btn primary" id="localInstallButton" type="button">Verify &amp; install ZIP</button></div>
+    </div>
+    <div class="update-section">
+      <h3>Recovery</h3>
+      <p class="field-help">If a patch causes problems, restore the previous UI or the built-in v2.0.0 screen. Neither option changes your Drive files or saved connection IDs.</p>
+      <div class="update-buttons"><button class="btn outline" id="rollbackButton" type="button">Roll back one version</button><button class="btn outline" id="resetButton" type="button">Restore built-in UI</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="installDialog" class="dialog install-dialog" aria-labelledby="installTitle"><div class="dialog-header"><h2 id="installTitle">Install Image Vault</h2><button class="icon-button" id="installClose" type="button" aria-label="Close installation help">×</button></div><p class="dialog-copy">In Microsoft Edge or Google Chrome, open the menu and choose <strong>Apps → Install this site as an app</strong> or <strong>Cast, save and share → Install page as app</strong>. Some versions also show an Install icon in the address bar.</p><p class="dialog-copy">A web app needs an <strong>HTTPS address</strong> or <strong>localhost</strong>. Opening this HTML from a ZIP or file folder will not make it installable. For daily use, publish the app shell to a trusted HTTPS host; keep all personal images in Google Drive.</p><button class="btn primary" id="installOkay" type="button">Got it</button></dialog>
+
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="./app.js" defer></script>
+</body>
+</html>

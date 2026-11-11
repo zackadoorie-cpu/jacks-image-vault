@@ -1,0 +1,36 @@
+name: Build and publish Image Vault update
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run updater security tests
+        run: go test -v ./...
+      - name: Build unsigned Windows EXE and versioned UI patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-H windowsgui -s -w -X main.builtinVersion=${VERSION}" -o "dist/Jacks_Image_Vault_${VERSION}.exe" .
+          python3 make_patch.py --version "$VERSION" --web web --output dist/jacks-image-vault-patch.zip --notes "UI update from GitHub release ${GITHUB_REF_NAME}"
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+      - name: Publish GitHub release with named updater asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "Jack's Image Vault ${GITHUB_REF_NAME}" \
+            --generate-notes

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Jack's Image Vault icon">
+ <defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1D2036"/><stop offset="1" stop-color="#0B0D19"/></linearGradient>
+  <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#DAC7FF"/><stop offset="1" stop-color="#8F76ED"/></linearGradient>
+  <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7FD4E5"/><stop offset="1" stop-color="#5364BC"/></linearGradient>
+ </defs>
+ <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+ <circle cx="378" cy="125" r="157" fill="#9A79DD" opacity=".09"/>
+ <rect x="114" y="158" width="240" height="238" rx="26" fill="#365C7C" stroke="#A3BAF1" stroke-width="10" transform="rotate(-12 114 158)"/>
+ <rect x="179" y="113" width="220" height="243" rx="25" fill="#694E89" stroke="#F0D7F8" stroke-width="10" transform="rotate(9 179 113)"/>
+ <rect x="139" y="135" width="234" height="240" rx="29" fill="url(#purple)" stroke="#F0E8FF" stroke-width="9"/>
+ <circle cx="214" cy="219" r="25" fill="#F0E8FF" opacity=".94"/>
+ <path d="M165 332l62-79 43 46 33-32 44 65H165z" fill="#322B65" opacity=".9"/>
+ <path d="M380 83l12 29 29 12-29 12-12 29-12-29-29-12 29-12z" fill="#D9C0FF"/>
+ <circle cx="365" cy="188" r="6" fill="#DDD0FF"/>
+</svg>

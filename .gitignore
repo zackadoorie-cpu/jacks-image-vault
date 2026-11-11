@@ -1,0 +1,11 @@
+# Never commit OAuth tokens, client secrets, exports, photographs, or local patch state.
+.env
+*.secret
+*credentials*
+*token*
+local-data/
+user-data/
+private/
+*.exe
+*.zip
+.DS_Store
