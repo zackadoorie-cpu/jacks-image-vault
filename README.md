@@ -32,23 +32,21 @@ The executable is **unsigned**. Windows SmartScreen may show a warning. Only run
 
 Patches replace only the **web interface files** (HTML, CSS, JS, icons, and service worker). They **cannot modify the Go EXE or native updater code**. Native changes still require a new EXE. Patch installation **does not change Google Drive files, OAuth settings or favorites**. It will reload the page, so you may need to sign in again.
 
-## Configure GitHub release updates
+## Configure GitHub release updates (no Git commands required)
 
-1. Create a **public** repository, for example `your-user/jacks-image-vault`. Only the app-shell source code is published. **Do not upload a private manifest, a Drive export, personal photos, your spreadsheet ID, OAuth access tokens, or client secrets.**
-2. Upload the contents of this source folder to your repository. The included `.github/workflows/release.yml` automatically builds the EXE and local patch ZIP after you push a version tag, then publishes a GitHub Release.
-3. For an initial release, tag the source `v2.0.0`. To publish a new update, change your UI files, then create a new tag, e.g. `v2.0.1`. Example commands:
+The repository is set up at [zackadoorie-cpu/jacks-image-vault](https://github.com/zackadoorie-cpu/jacks-image-vault).
 
-   ```bash
-   git add .
-   git commit -m "Improve Image Vault thumbnails"
-   git tag v2.0.1
-   git push origin main --tags
-   ```
+1. Open [GitHub Actions → Build and publish Image Vault update](https://github.com/zackadoorie-cpu/jacks-image-vault/actions/workflows/release.yml).
+2. Choose **Run workflow**, keep branch **main**, enter a version newer than the installed app, e.g. **2.0.1**, and confirm **Run workflow**.
+3. The workflow tests the app, builds a Windows EXE, produces a validated `jacks-image-vault-patch.zip`, and publishes a GitHub Release with checksums.
+4. Wait for the workflow to show a green check, then inspect the download links under [Releases](https://github.com/zackadoorie-cpu/jacks-image-vault/releases). If the workflow fails, inspect its job logs; do not assume a release exists.
+5. In the installed v2 app, open **Updates**, enter `zackadoorie-cpu/jacks-image-vault`, choose **Save repository**, and then **Check GitHub**. Select **Install update** and approve if a newer release is available.
 
-4. Wait for GitHub Actions to complete and verify the Release contains an asset called **`jacks-image-vault-patch.zip`**.
-5. In Image Vault → **Updates**, enter `your-user/jacks-image-vault`, choose **Save repository**, and **Check GitHub**. When a newer valid release is available, choose **Install update** and approve it.
+Use a new version number for each publication. The existing `v2.0.0` app cannot offer an update to itself; start with `2.0.1`. Later source updates should be reviewed and tested before publishing `2.0.2`, and so on.
 
-The app uses the public GitHub API. Private repository release downloads are not supported; no GitHub personal access token is required or stored. Requests go only to GitHub's HTTPS endpoints. File hashes are verified against the ZIP manifest and GitHub's release asset digest when present. These checks detect accidental corruption, but **do not provide publisher authentication against a compromised GitHub release or malicious patch author**. Install only releases from a repository you control and trust.
+The repository is **public**, but Drive images and inventory are not included. **Never upload private photo files, spreadsheet exports, OAuth access tokens, Google client secrets, or personal settings.**
+
+The app accesses public GitHub releases over HTTPS; a GitHub access token is not required. SHA-256 checksums protect against accidental corruption but do not authenticate a malicious or compromised release publisher. Install updates only from a repository you control and trust.
 
 ### Future patches generated in ChatGPT
 
