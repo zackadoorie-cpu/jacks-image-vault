@@ -170,3 +170,27 @@ test('full sync of 5,000 items completes with bounded 1,000-file Drive pages',as
   assert.equal(calls.length,5);
   assert.equal(h.state.scanning,false);
 });
+
+test('a moved file overrides its old folder when the source folder was not scanned',async()=>{
+  const {h}=harness(async()=>ok({files:[]}));
+  const item=file(100);
+  h.state.inventory=[inv(item,'Memes/OldUnscanned')];
+  h.state.images=[...h.state.inventory];
+  h.state.syncedFolders.set('Memes/NewScanned',[item]);
+  h.mergeLiveFolders();
+  assert.equal(h.state.images.length,1);
+  assert.equal(h.state.images[0].folder,'Memes/NewScanned');
+});
+
+test('failed spreadsheet refresh clears private data from previous session',async()=>{
+  const {h}=harness(async()=>fail(403,'insufficientFilePermissions'));
+  h.state.config={sheetId:'spreadsheet012345678',clientId:'1234-test.apps.googleusercontent.com'};
+  h.state.inventory=[inv(file(1),'Memes/Private')];
+  h.state.images=[...h.state.inventory];
+  h.state.folderSources=[folder('Memes/Private')];
+  await h.loadLiveIndex();
+  assert.equal(h.state.connected,false);
+  assert.equal(h.state.inventory.length,0);
+  assert.equal(h.state.folderSources.length,0);
+  assert.ok(h.state.images.every(x=>x.demo===true));
+});
