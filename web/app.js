@@ -312,14 +312,18 @@
     }while(pageToken);
     return files;
   }
-  function mergeLiveFolders(){
+  function mergeLiveFolders(recentPaths=new Set()){
     const scanned=new Set(state.syncedFolders.keys());
     const originals=new Map(state.inventory.map(item=>[item.id,item]));
     // Live locations win even if the source folder's scan failed or was not yet completed.
     const liveIDs=new Set([...state.syncedFolders.values()].flatMap(files=>files.map(file=>file.id)));
     const combined=state.inventory.filter(item=>!scanned.has(item.folder)&&!liveIDs.has(item.id));
     const usedIDs=new Set(combined.map(item=>item.id));
-    for(const [path, files] of state.syncedFolders){
+    // When a folder scan failed, older cached locations must not override newer
+    // successful observations of moved files in another folder.
+    const ordered=[...state.syncedFolders.entries()].sort((a,b)=>
+      Number(recentPaths.has(b[0]))-Number(recentPaths.has(a[0])));
+    for(const [path, files] of ordered){
       for(const file of files){
         // A file moved between indexed folders keeps its identity, but must get its new folder.
         if(usedIDs.has(file.id))continue;
@@ -385,7 +389,7 @@
     try{
       await Promise.all([worker(),worker(),worker()]);
       if(!active())return;
-      if(scannedPaths.size){mergeLiveFolders();state.lastScanAt=new Date().toISOString();}
+      if(scannedPaths.size){mergeLiveFolders(scannedPaths);state.lastScanAt=new Date().toISOString();}
       const current=[...scannedPaths].map(path=>state.health.get(path)).filter(Boolean);
       const added=current.reduce((n,f)=>n+f.added.length,0);
       const missing=current.reduce((n,f)=>n+f.missing.length,0);
