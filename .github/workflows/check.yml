@@ -1,0 +1,26 @@
+name: Validate Image Vault changes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Go unit and security tests
+        run: go test ./...
+      - name: Check JavaScript
+        run: node --check web/app.js
+      - name: Check patch builder
+        run: python3 -m py_compile make_patch.py
+      - name: Ensure Windows build compiles
+        run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/Jacks_Image_Vault.exe .
