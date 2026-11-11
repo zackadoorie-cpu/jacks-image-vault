@@ -24,11 +24,12 @@
       <div class="nav-label">EXPLORE</div>
       <nav class="nav" id="navigation" aria-label="Library views">
         <button class="nav-item active" data-view="home"><span class="nav-icon">▤</span>Overview</button>
-        <button class="nav-item" data-view="all"><span class="nav-icon">▦</span>All images <span class="nav-count" id="allCount">—</span></button>
+        <button class="nav-item" data-view="all"><span class="nav-icon">▦</span>All media <span class="nav-count" id="allCount">—</span></button>
         <button class="nav-item" data-view="memes"><span class="nav-icon">☺</span>Memes</button>
         <button class="nav-item" data-view="photos"><span class="nav-icon">▧</span>Photos</button>
         <button class="nav-item" data-view="favorites"><span class="nav-icon">♡</span>Favorites</button>
         <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review</button>
+        <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-safety"><span class="safety-dot"></span> READ-ONLY ACCESS</div>
@@ -42,6 +43,7 @@
         <div class="location">YOUR DRIVE <span>/</span> <strong>IMAGE VAULT</strong></div>
         <div class="top-actions">
           <span class="connection-status" id="connectionStatus"><i></i> Preview mode</span>
+          <button class="btn quiet hidden" id="syncButton" type="button" title="Compare known folders with Google Drive, read-only">↻ <span>Sync Drive</span></button>
           <button class="btn quiet" id="updatesButton" type="button" title="Check updates and install local patch files">↻ <span>Updates</span></button>
           <button class="btn quiet install-top" id="installButton" type="button" title="Install this gallery as a Windows or Android app">↓ <span>Install app</span></button>
           <button class="btn quiet" id="settingsButton" type="button" title="Google connection settings">⚙</button>
@@ -56,7 +58,7 @@
           <div class="hero">
             <div class="hero-copy">
               <p class="eyebrow"><span class="eyebrow-dot"></span> A NEW HOME FOR YOUR COLLECTIONS</p>
-              <h1>All your images.<br><em>One beautiful space.</em></h1>
+              <h1>All your media.<br><em>One beautiful space.</em></h1>
               <p class="hero-description">Your memes, photographs and memories, transformed into a gallery worth exploring. Same Drive files. A completely different view.</p>
               <div class="hero-actions">
                 <button class="btn primary large" id="exploreButton" type="button">Explore gallery <span aria-hidden="true">→</span></button>
@@ -71,9 +73,9 @@
             </div>
           </div>
           <div class="stats" id="stats">
-            <div class="stat"><span>◈</span><strong id="statImages">—</strong><small>Indexed images</small></div>
-            <div class="stat"><span>☺</span><strong id="statMemes">—</strong><small>Meme images</small></div>
-            <div class="stat"><span>▧</span><strong id="statPhotos">—</strong><small>Personal photos</small></div>
+            <div class="stat"><span>◈</span><strong id="statImages">—</strong><small>Indexed media files</small></div>
+            <div class="stat"><span>☺</span><strong id="statMemes">—</strong><small>Meme media</small></div>
+            <div class="stat"><span>▧</span><strong id="statPhotos">—</strong><small>Photo collection media</small></div>
             <div class="stat"><span>✓</span><strong id="statDescribed">—</strong><small>Visually described</small></div>
           </div>
           <div class="section-heading"><div><p class="eyebrow">BROWSE BY COLLECTION</p><h2>Featured collections</h2></div><button class="btn quiet" id="seeAllButton" type="button">View all <span>→</span></button></div>
@@ -86,9 +88,10 @@
         </section>
 
         <section id="galleryView" class="view hidden">
-          <div class="gallery-heading"><div><p class="eyebrow" id="galleryEyebrow">YOUR PRIVATE GALLERY</p><h1 id="galleryTitle">All images</h1><p id="galleryDescription">Browse every collection in one place.</p></div><div class="gallery-counters"><span class="result-count" id="resultCount">—</span><span class="preview-stat" id="previewStatus">Previews start when visible</span><button class="btn outline hidden" type="button" id="retryFailedButton">↻ Retry failed</button></div></div>
+          <div class="gallery-heading"><div><p class="eyebrow" id="galleryEyebrow">YOUR PRIVATE GALLERY</p><h1 id="galleryTitle">All media</h1><p id="galleryDescription">Browse every collection in one place.</p></div><div class="gallery-counters"><span class="result-count" id="resultCount">—</span><span class="preview-stat" id="previewStatus">Previews start when visible</span><button class="btn outline hidden" type="button" id="retryFailedButton">↻ Retry failed</button></div></div>
           <div class="filters">
-            <label class="searchbox"><span>⌕</span><input type="search" id="searchInput" placeholder="Search images, moments, tags…" autocomplete="off" aria-label="Search images"><kbd>/</kbd></label>
+            <label class="searchbox"><span>⌕</span><input type="search" id="searchInput" placeholder="Search images, videos, moments, tags…" autocomplete="off" aria-label="Search media"><kbd>/</kbd></label>
+            <select class="select" id="mediaTypeSelect" aria-label="File type"><option value="all">All media</option><option value="image">Images</option><option value="video">Videos</option><option value="pdf">PDFs</option></select>
             <select class="select" id="sortSelect" aria-label="Sort images"><option value="name">Name A–Z</option><option value="date-desc">Newest capture</option><option value="date-asc">Oldest capture</option><option value="review">Reviewed first</option></select>
             <button class="btn square" id="layoutButton" type="button" aria-label="Toggle list view" title="Toggle grid / list view">☷</button>
           </div>
@@ -96,6 +99,17 @@
           <div id="galleryNotice" class="gallery-notice hidden"></div>
           <div id="galleryGrid" class="image-grid" aria-live="polite"></div>
           <div id="loadMoreArea" class="load-more"></div>
+        </section>
+
+        <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
+          <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original inventory against the live files in your known folders. Nothing is edited in Drive or in the spreadsheet.</p></div><button id="healthScanButton" class="btn primary" type="button">↻ Scan now</button></div>
+          <div class="health-summary" id="healthSummary">Connect Drive to inspect the indexed folders.</div>
+          <div class="health-summary" id="syncStatus" role="status" aria-live="polite">Sync has not run yet.</div>
+          <h2 class="health-heading">Recent differences</h2>
+          <ul class="health-differences" id="healthChanges"><li>Run a scan to check for changes.</li></ul>
+          <h2 class="health-heading">Known folders</h2>
+          <div class="health-table-wrap"><table class="health-table"><thead><tr><th>Folder</th><th>Inventory</th><th>Live</th><th>Change</th></tr></thead><tbody id="healthRows"></tbody></table></div>
+          <p class="privacy-note">Scan compares up to 33 folders known to the spreadsheet, with API pagination. New items are shown in this session only. Video playback downloads a small preview only after you select Play video.</p>
         </section>
       </main>
       <footer class="footer"><span>JACK'S IMAGE VAULT <b>•</b> READ-ONLY PWA</span><span id="footerStatus">Local preview · No private data stored</span></footer>
@@ -116,9 +130,9 @@
     </form>
   </dialog>
 
-  <dialog id="imageDialog" class="dialog image-dialog" aria-label="Image details">
+  <dialog id="imageDialog" class="dialog image-dialog" aria-label="Media details">
     <div class="modal-header"><span id="modalLocation">IMAGE DETAILS</span><div class="modal-buttons"><button class="icon-button" id="prevImage" type="button" aria-label="Previous image">←</button><button class="icon-button" id="nextImage" type="button" aria-label="Next image">→</button><button class="icon-button" id="closeImage" type="button" aria-label="Close image details">×</button></div></div>
-    <div class="modal-body"><div class="modal-picture" id="modalPicture"></div><div class="modal-details"><span class="eyebrow" id="modalCollection">COLLECTION</span><h2 id="modalTitle"></h2><p id="modalDescription"></p><dl id="modalMeta"></dl><p class="preview-details" id="previewDetails"></p><div class="modal-footer-actions"><button class="btn outline hidden" id="retryPreview" type="button">↻ Retry preview</button><button class="btn outline" id="favoriteImage" type="button">♡ Favorite</button><a class="btn primary" id="openDriveLink" target="_blank" rel="noopener noreferrer">Open in Drive ↗</a></div></div></div>
+    <div class="modal-body"><div class="modal-picture" id="modalPicture"></div><div class="modal-details"><span class="eyebrow" id="modalCollection">COLLECTION</span><h2 id="modalTitle"></h2><p id="modalDescription"></p><dl id="modalMeta"></dl><p class="preview-details" id="previewDetails"></p><div class="modal-footer-actions"><button class="btn outline hidden" id="retryPreview" type="button">↻ Retry preview</button><button class="btn outline hidden" id="playVideoButton" type="button">▶ Play video</button><button class="btn outline" id="favoriteImage" type="button">♡ Favorite</button><a class="btn primary" id="openDriveLink" target="_blank" rel="noopener noreferrer">Open in Drive ↗</a></div></div></div>
   </dialog>
 
   <dialog id="updatesDialog" class="dialog updates-dialog" aria-labelledby="updatesTitle">
