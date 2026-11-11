@@ -194,3 +194,15 @@ test('failed spreadsheet refresh clears private data from previous session',asyn
   assert.equal(h.state.folderSources.length,0);
   assert.ok(h.state.images.every(x=>x.demo===true));
 });
+
+test('newly scanned folder wins over stale cached location of a moved file',async()=>{
+  const {h}=harness(async()=>ok({files:[]}));
+  const item=file(160);
+  h.state.inventory=[inv(item,'Memes/Old')];
+  h.state.images=[...h.state.inventory];
+  h.state.syncedFolders.set('Memes/Old',[item]); // stale cached scan
+  h.state.syncedFolders.set('Memes/New',[item]); // this folder was freshly scanned
+  h.mergeLiveFolders(new Set(['Memes/New']));
+  assert.equal(h.state.images.length,1);
+  assert.equal(h.state.images[0].folder,'Memes/New');
+});
