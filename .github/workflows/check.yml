@@ -20,6 +20,8 @@ jobs:
         run: go test ./...
       - name: Check JavaScript
         run: node --check web/app.js
+      - name: Run Drive sync and media stress tests
+        run: node --test tests/*.test.cjs
       - name: Check patch builder
         run: python3 -m py_compile make_patch.py
       - name: Ensure Windows build compiles
