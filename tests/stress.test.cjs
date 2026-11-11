@@ -206,3 +206,24 @@ test('newly scanned folder wins over stale cached location of a moved file',asyn
   assert.equal(h.state.images.length,1);
   assert.equal(h.state.images[0].folder,'Memes/New');
 });
+
+test('33 folders and 8,250 files are scanned with at most three concurrent Drive requests',async()=>{
+  const folders=Array.from({length:33},(_,i)=>folder('Memes/Folder'+i,'folder'+String(i).padStart(10,'0')));
+  let active=0,peak=0;
+  const {h,calls}=harness(async(url)=>{
+    active++;peak=Math.max(peak,active);
+    await Promise.resolve();
+    active--;
+    const q=new URL(url).searchParams.get('q');
+    const group=Number(q.match(/folder(\d+)/)?.[1]||0);
+    return ok({files:Array.from({length:250},(_,i)=>file(group*1000+i))});
+  });
+  h.state.folderSources=folders;
+  h.state.inventory=[];h.state.images=[];
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.images.length,8250);
+  assert.equal(h.state.health.size,33);
+  assert.equal(calls.length,33);
+  assert.ok(peak<=3,'too many Drive requests in flight: '+peak);
+  assert.ok(calls.every(x=>x.options.method==='GET'),'scanner must remain read-only');
+});
