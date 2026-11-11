@@ -466,9 +466,12 @@
     $('statMemes').textContent=count(state.images.filter(x=>folderKind(x.folder)==='memes').length);
     $('statPhotos').textContent=count(state.images.filter(x=>folderKind(x.folder)==='photos').length);
     $('statDescribed').textContent=count(state.images.filter(x=>!!x.description).length);
+    // Featured collections are selected from the private inventory at runtime.
+    // Never bake personal folder names into a public GitHub application bundle.
     const featured = state.connected ? [
-      'Memes/Pepes','Memes/Wojaks','Jacks Photos/Israel 2025','Jacks Photos/Old Rhinebeck (2026)'
-    ].map(path=>state.folders.find(f=>f.path===path)).filter(Boolean) : [
+      ...state.folders.filter(f=>f.kind==='memes').slice(0,2),
+      ...state.folders.filter(f=>f.kind==='photos').slice(0,2)
+    ] : [
       {path:'Preview/Memes',name:'Meme collections',kind:'memes',count:0},
       {path:'Preview/Photos',name:'Photo albums',kind:'photos',count:0},
       {path:'Preview/Explore',name:'Discover',kind:'memes',count:0},
