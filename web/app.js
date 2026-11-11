@@ -240,7 +240,14 @@
       buildFolderIndex(); updateStatus(); render(); clearAlert();
       alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
       scheduleScans();
-    } catch (error) {clearThumbnailCache(); state.images=DEMO;state.connected = false;buildFolderIndex();updateStatus();render();alertUser(`Could not load the library: ${error.message || error}`, 'error');}
+    } catch (error) {
+      // An unsuccessful refresh must not leave the previous user's private index in memory.
+      stopScans();clearThumbnailCache();
+      state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;
+      state.images=DEMO;state.connected=false;state.folder='all';state.page=1;
+      buildFolderIndex();updateStatus();render();
+      alertUser(`Could not load the library: ${error.message || error}`,'error');
+    }
     finally {btn.disabled = false; btn.textContent = 'Connect Drive';}
   }
 
@@ -308,7 +315,9 @@
   function mergeLiveFolders(){
     const scanned=new Set(state.syncedFolders.keys());
     const originals=new Map(state.inventory.map(item=>[item.id,item]));
-    const combined=state.inventory.filter(item=>!scanned.has(item.folder));
+    // Live locations win even if the source folder's scan failed or was not yet completed.
+    const liveIDs=new Set([...state.syncedFolders.values()].flatMap(files=>files.map(file=>file.id)));
+    const combined=state.inventory.filter(item=>!scanned.has(item.folder)&&!liveIDs.has(item.id));
     const usedIDs=new Set(combined.map(item=>item.id));
     for(const [path, files] of state.syncedFolders){
       for(const file of files){
