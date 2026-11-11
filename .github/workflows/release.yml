@@ -37,6 +37,8 @@ jobs:
           fi
       - name: Run updater security tests
         run: go test -v ./...
+      - name: Run Drive sync and media stress tests
+        run: node --test tests/*.test.cjs
       - name: Check JavaScript and patch builder
         run: |
           node --check web/app.js
