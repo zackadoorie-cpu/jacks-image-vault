@@ -1,4 +1,4 @@
-/* Jack's Image Vault v2.0 — read-only Drive browser with opt-in local app-shell updates. */
+/* Jack's Image Vault v2.0.2 — read-only Drive browser with opt-in local app-shell updates. */
 'use strict';
 (() => {
   const $ = id => document.getElementById(id);
@@ -51,6 +51,16 @@
     updater: null,
     updateRepo: readUpdateRepo(),
     remoteRelease: null,
+    mediaType: 'all',
+    inventory: [], // Spreadsheet snapshot. Never mutated by Drive sync.
+    folderSources: [], // Known Drive folder IDs from the user's private Folders sheet.
+    syncedFolders: new Map(), // Live metadata held in memory for this session only.
+    health: new Map(),
+    lastScanAt: null,
+    scanning: false,
+    scanTimer: null,
+    videoObjectUrl: null,
+    videoController: null,
   };
   const safeId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{10,}$/.test(id);
   const format = n => Number(n || 0).toLocaleString('en-US');
@@ -65,6 +75,11 @@
     if (text.includes('rhinebeck')) return {kind:'rhinebeck',icon:'✈'};
     return {kind:'generic',icon:'✦'};
   };
+  const mediaKind = item => item.mime?.startsWith('video/') ? 'video' : item.mime === 'application/pdf' ? 'pdf' : 'image';
+  const supportedMedia = mime => mime?.startsWith('image/') || mime?.startsWith('video/') || mime === 'application/pdf';
+  const humanBytes = n => n ? `${(n / 1024 / 1024).toFixed(1)} MB` : 'Unknown size';
+  const SCAN_INTERVAL = 15 * 60 * 1000;
+  const MAX_VIDEO_PREVIEW = 32 * 1024 * 1024;
   const linkToDrive = item => safeId(item?.id) ? `https://drive.google.com/file/d/${encodeURIComponent(item.id)}/view` : '';
   function readSettings() {
     try {const p = JSON.parse(localStorage.getItem(SHELL_STORAGE) || '{}'); return {clientId:p.clientId || '', sheetId:p.sheetId || ''};}
@@ -89,7 +104,8 @@
     $('disconnectButton').classList.toggle('hidden', !state.connected);
     $('heroConnectButton').classList.toggle('hidden', state.connected);
     $('allCount').textContent = state.connected ? format(state.images.length) : '—';
-    $('footerStatus').textContent = state.connected ? 'Live metadata · Images stay in memory only' : 'Preview · Connect to browse private files';
+    $('footerStatus').textContent = state.connected ? 'Private media metadata · Read-only Drive access' : 'Preview · Connect to browse private files';
+    $('syncButton').classList.toggle('hidden', !state.connected);
   }
   function showSettings() {
     $('clientIdInput').value = state.config.clientId;
@@ -160,19 +176,34 @@
     if (!blob) return response.json();
     const headerSize = Number(response.headers.get('content-length') || 0);
     if (maxBytes && headerSize > maxBytes) {await response.body?.cancel(); throw new Error('Image is too large for a quick preview.');}
-    const data = await response.blob();
-    if (maxBytes && data.size > maxBytes) throw new Error('Image is too large for a quick preview.');
-    return data;
+    if (!maxBytes || !response.body) {
+      const data = await response.blob();
+      if (maxBytes && data.size > maxBytes) throw new Error('Media is too large for a preview. Open in Drive.');
+      return data;
+    }
+    const reader = response.body.getReader(), chunks = [];
+    let bytes = 0;
+    try {
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > maxBytes) throw new Error('Media is too large for a preview. Open in Drive.');
+        chunks.push(value);
+      }
+    } catch (error) {await reader.cancel().catch(()=>{});throw error;}
+    return new Blob(chunks, {type:response.headers.get('content-type') || 'application/octet-stream'});
   }
   async function loadLiveIndex() {
     const btn = $('connectButton'); btn.disabled = true; btn.textContent = 'Reading library…';
     try {
       const id = encodeURIComponent(state.config.sheetId);
-      const ranges = ["'Search Index'!A1:M2500", "'Manifest'!A1:L2500"];
+      const ranges = ["'Search Index'!A1:M2500", "'Manifest'!A1:L2500", "'Folders'!A1:G250"];
       const params = ranges.map(x => `ranges=${encodeURIComponent(x)}`).join('&');
       const data = await googleGet(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchGet?${params}&valueRenderOption=FORMATTED_VALUE`);
       const index = data.valueRanges?.[0]?.values || [];
       const manifest = data.valueRanges?.[1]?.values || [];
+      const folders = data.valueRanges?.[2]?.values || [];
       if ((index[0] || [])[0] !== 'Collection' || (manifest[0] || [])[0] !== 'Collection') throw new Error('This spreadsheet does not have the expected Search Index and Manifest headers.');
       const byId = new Map();
       for (const r of manifest.slice(1)) {
@@ -182,17 +213,143 @@
       const found = new Set();
       for (const r of index.slice(1)) {
         const id = r[10]; const source = byId.get(id);
-        if (!safeId(id) || !source || !source.mime.startsWith('image/') || found.has(id)) continue;
+        if (!safeId(id) || !source || !supportedMedia(source.mime) || found.has(id)) continue;
         found.add(id);
         images.push({id,collection:r[0]||'',folder:r[1]||'',name:r[2]||'Untitled image',description:r[4]||'',tags:r[5]||'',captureDate:r[7]||'',review:r[9]||'',confidence:r[11]||'',category:r[12]||'',mime:source.mime,size:source.size,url:linkToDrive({id}),demo:false});
       }
-      if (!images.length) throw new Error('No matching image rows were found. Check the inventory spreadsheet ID.');
+      if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
+      state.inventory = images;
+      state.folderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
+        .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0)}));
+      state.syncedFolders.clear();state.health.clear();state.lastScanAt=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       buildFolderIndex(); updateStatus(); render(); clearAlert();
-      alertUser(`${format(images.length)} images loaded from your read-only Drive inventory. Original files were not changed.`, 'success');
+      alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
+      scheduleScans();
     } catch (error) {clearThumbnailCache(); state.images=DEMO;state.connected = false;buildFolderIndex();updateStatus();render();alertUser(`Could not load the library: ${error.message || error}`, 'error');}
     finally {btn.disabled = false; btn.textContent = 'Connect Drive';}
   }
+
+  function stopScans() {
+    if (state.scanTimer) clearInterval(state.scanTimer);
+    state.scanTimer=null;
+  }
+  function scheduleScans() {
+    stopScans();
+    // The initial gallery renders immediately; scan later so thumbnails get priority.
+    setTimeout(()=>{
+      if(state.connected && document.visibilityState!=='hidden' && !state.lastScanAt) syncWithDrive({quiet:true});
+    }, 12000);
+    state.scanTimer=setInterval(()=>{
+      if(state.connected && document.visibilityState!=='hidden' && !state.scanning && Date.now()<state.expiry) syncWithDrive({quiet:true});
+    }, SCAN_INTERVAL);
+  }
+  async function listKnownFolder(folder) {
+    const files=[];
+    let pageToken='';
+    do {
+      const q=`'${folder.id}' in parents and trashed = false`;
+      const params=new URLSearchParams({q,fields:'nextPageToken,files(id,name,mimeType,size,modifiedTime,thumbnailLink)',pageSize:'1000',supportsAllDrives:'true',includeItemsFromAllDrives:'true'});
+      if(pageToken)params.set('pageToken',pageToken);
+      const url=`https://www.googleapis.com/drive/v3/files?${params.toString()}`;
+      let data,attempt=0;
+      while(true){
+        try{data=await googleGet(url);break;}
+        catch(error){
+          if(++attempt>=3 || !/rate limiting|HTTP 5\d\d/.test(String(error.message)))throw error;
+          await new Promise(resolve=>setTimeout(resolve,attempt*800));
+        }
+      }
+      for(const f of data.files||[])if(safeId(f.id) && supportedMedia(f.mimeType))files.push(f);
+      pageToken=data.nextPageToken||'';
+      if(files.length>20000)throw new Error('Folder scan size limit exceeded.');
+    } while(pageToken);
+    return files;
+  }
+  function mergeLiveFolders(){
+    const scanned=new Set(state.syncedFolders.keys());
+    const originals=new Map(state.inventory.map(item=>[item.id,item]));
+    const combined=state.inventory.filter(item=>!scanned.has(item.folder));
+    for(const [path, files] of state.syncedFolders){
+      for(const file of files){
+        const base=originals.get(file.id);
+        combined.push(base ? {...base,name:file.name||base.name,mime:file.mimeType||base.mime,size:Number(file.size||base.size)} : {
+          id:file.id,collection:folderKind(path)==='memes'?'Memes':'Jacks Photos',folder:path,
+          name:file.name||'Untitled media',description:'',tags:'',captureDate:'',review:'New in Drive',
+          confidence:'',category:'',mime:file.mimeType,size:Number(file.size||0),url:linkToDrive(file),demo:false,newInDrive:true
+        });
+      }
+    }
+    state.images=combined;
+    state.page=1;
+    buildFolderIndex();updateStatus();render();
+  }
+  function updateScanSummary(message,error=false){
+    $('syncStatus').textContent=message;
+    $('syncStatus').classList.toggle('error',error);
+  }
+  async function syncWithDrive({quiet=false}={}){
+    if(state.scanning||!state.connected)return;
+    if(!state.folderSources.length){updateScanSummary('No indexed folder IDs found in the Folders sheet.',true);return;}
+    if(Date.now()>=state.expiry){if(!quiet)updateScanSummary('Google sign-in expired. Reconnect Drive.',true);return;}
+    state.scanning=true;
+    $('syncButton').disabled=true;$('healthScanButton').disabled=true;
+    const scannedPaths=new Set(), failures=[];
+    const folderQueue=state.folderSources.slice();
+    let done=0;
+    async function worker(){
+      while(folderQueue.length){
+        const folder=folderQueue.shift();
+        try{
+          const files=await listKnownFolder(folder);
+          // Only reconcile a folder after every page was received successfully.
+          state.syncedFolders.set(folder.path,files);
+          scannedPaths.add(folder.path);
+          const known=state.inventory.filter(x=>x.folder===folder.path);
+          const knownIDs=new Set(known.map(x=>x.id)), currentIDs=new Set(files.map(f=>f.id));
+          state.health.set(folder.path,{
+            folder:folder.path,sourceCount:known.length,driveCount:files.length,
+            added:files.filter(f=>!knownIDs.has(f.id)).map(f=>({id:f.id,name:f.name,mime:f.mimeType})),
+            missing:known.filter(f=>!currentIDs.has(f.id)).map(f=>({id:f.id,name:f.name,mime:f.mime})),
+            checkedAt:new Date().toISOString()
+          });
+        }catch(error){failures.push(`${folder.path}: ${error.message||error}`);}
+        finally{done++;updateScanSummary(`Checking Drive folders… ${done}/${state.folderSources.length}`);}
+      }
+    }
+    try{
+      await Promise.all([worker(),worker(),worker()]);
+      if(scannedPaths.size){mergeLiveFolders();state.lastScanAt=new Date().toISOString();}
+      const health=[...state.health.values()];
+      const added=health.reduce((n,f)=>n+f.added.length,0);
+      const missing=health.reduce((n,f)=>n+f.missing.length,0);
+      const summary=`Checked ${scannedPaths.size}/${state.folderSources.length} folders · ${added} new · ${missing} missing from original inventory${failures.length?` · ${failures.length} failed`:''}`;
+      updateScanSummary(summary,!!failures.length);
+      if(!quiet)alertUser(summary,failures.length?'error':'success');
+    }finally{
+      state.scanning=false;$('syncButton').disabled=false;$('healthScanButton').disabled=false;
+      if(state.view==='health')renderHealth();
+    }
+  }
+  function renderHealth(){
+    const data=[...state.health.values()];
+    const added=data.reduce((n,x)=>n+x.added.length,0), missing=data.reduce((n,x)=>n+x.missing.length,0);
+    $('healthSummary').textContent=state.lastScanAt ?
+      `Last checked ${new Date(state.lastScanAt).toLocaleString()} · ${data.length}/${state.folderSources.length} folders · ${added} new · ${missing} missing` :
+      `Inventory snapshot: ${format(state.inventory.length)} files in ${state.folderSources.length} known folders. Select Scan now to compare Drive.`;
+    const rows=state.folderSources.map(folder=>{
+      const row=state.health.get(folder.path);
+      const status=row?`${row.added.length} new · ${row.missing.length} missing`:'Not scanned';
+      return `<tr><td>${escapeHTML(folderName(folder.path))}</td><td>${format(row?.sourceCount??state.inventory.filter(x=>x.folder===folder.path).length)}</td><td>${row?format(row.driveCount):'—'}</td><td>${escapeHTML(status)}</td></tr>`;
+    });
+    $('healthRows').innerHTML=rows.join('');
+    const changed=data.filter(x=>x.added.length||x.missing.length);
+    $('healthChanges').innerHTML=changed.length ? changed.map(folder=>{
+      const lines=[...folder.added.map(f=>`<li><span class="health-added">NEW</span> ${escapeHTML(f.name)} <small>${escapeHTML(folderName(folder.folder))}</small></li>`),...folder.missing.map(f=>`<li><span class="health-missing">MISSING</span> ${escapeHTML(f.name)} <small>${escapeHTML(folderName(folder.folder))}</small></li>`)];
+      return lines.join('');
+    }).join('') : '<li>No file differences recorded in scanned folders.</li>';
+  }
+
   function clearThumbnailCache() {
     state.galleryEpoch++;
     state.thumbJobs = [];
@@ -206,6 +363,7 @@
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
+    stopScans();stopVideo();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.lastScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
@@ -222,11 +380,12 @@
   function displayPage(view) {
     state.view=view; state.folder='all';state.page=1;
     $('homeView').classList.toggle('hidden',view!=='home');
-    $('galleryView').classList.toggle('hidden',view==='home');
+    $('galleryView').classList.toggle('hidden',view==='home'||view==='health');
+    $('healthView').classList.toggle('hidden',view!=='health');
     document.querySelectorAll('[data-view]').forEach(btn=>{const active=btn.dataset.view===view; btn.classList.toggle('active',active);if(active)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');});
     render();window.scrollTo({top:0,behavior:'smooth'});
   }
-  function render() {if(state.view==='home') renderHome();else renderGallery();}
+  function render() {if(state.view==='home') renderHome();else if(state.view==='health')renderHealth();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
     $('statImages').textContent=count(state.images.length);
@@ -243,7 +402,7 @@
     ];
     $('featuredCollections').innerHTML = featured.map(folder=>{
       const style=folderStyle(folder.path);
-      return `<button class="collection-card" data-collection="${escapeHTML(folder.path)}" type="button"><div class="collection-art ${style.kind}"><span>${escapeHTML(style.icon)}</span></div><div class="collection-content"><strong>${escapeHTML(folder.name)} ↗</strong><small>${state.connected ? `${format(folder.count)} indexed images` : 'Connect Drive to browse'}</small></div></button>`;
+      return `<button class="collection-card" data-collection="${escapeHTML(folder.path)}" type="button"><div class="collection-art ${style.kind}"><span>${escapeHTML(style.icon)}</span></div><div class="collection-content"><strong>${escapeHTML(folder.name)} ↗</strong><small>${state.connected ? `${format(folder.count)} media files` : 'Connect Drive to browse'}</small></div></button>`;
     }).join('');
     $('featuredCollections').querySelectorAll('[data-collection]').forEach(btn=>btn.addEventListener('click',()=>{
       const folder=state.folders.find(f=>f.path===btn.dataset.collection);
@@ -259,6 +418,7 @@
       if(state.view==='favorites' && !state.favorites.has(image.id))return false;
       if(state.view==='review' && image.description.trim())return false;
       if(state.folder!=='all' && image.folder!==state.folder)return false;
+      if(state.mediaType!=='all' && mediaKind(image)!==state.mediaType)return false;
       if(!term)return true;
       return [image.folder,image.name,image.description,image.tags,image.captureDate,image.category].join(' ').toLocaleLowerCase().includes(term);
     });
@@ -270,7 +430,7 @@
     });
     return arr;
   }
-  function galleryTitle() {return ({all:'All images',memes:'Meme gallery',photos:'Photo archive',favorites:'Your favorites',review:'Needs review'})[state.view]||'Gallery';}
+  function galleryTitle() {return ({all:'All media',memes:'Meme gallery',photos:'Photo archive',favorites:'Your favorites',review:'Needs review'})[state.view]||'Gallery';}
   function renderGallery() {
     const title=galleryTitle();$('galleryTitle').textContent=title;
     $('galleryEyebrow').textContent=state.connected?'YOUR PRIVATE LIBRARY':'DESIGN PREVIEW';
@@ -282,7 +442,7 @@
     $('folderChips').innerHTML = `<button class="chip-filter ${state.folder==='all'?'active':''}" data-folder="all">All collections</button>` + available.map(f=>`<button class="chip-filter ${state.folder===f.path?'active':''}" data-folder="${escapeHTML(f.path)}">${escapeHTML(f.name)} <span>${format(f.count)}</span></button>`).join('');
     $('folderChips').querySelectorAll('[data-folder]').forEach(btn=>btn.onclick=()=>{state.folder=btn.dataset.folder;state.page=1;renderGallery();});
     state.filtered=filterImages();const items=state.filtered.slice(0,state.page*state.pageSize);
-    $('resultCount').textContent=`${format(state.filtered.length)} ${state.connected?'images':'samples'}`;
+    $('resultCount').textContent=`${format(state.filtered.length)} ${state.connected?'files':'samples'}`;
     const notice=$('galleryNotice');notice.classList.toggle('hidden',state.connected);
     if(!state.connected) notice.textContent='Preview mode only. No private photo or file IDs are bundled with this application.';
     // Cancel queued work for images no longer on screen instead of wasting API quota.
@@ -291,7 +451,7 @@
       if (visibleIds.has(job.id)) return true;
       state.loadingThumbs.delete(job.id);return false;
     });
-    if(!items.length){$('galleryGrid').innerHTML=`<div class="empty-state"><span>⌕</span><strong>No images found</strong><p>${state.view==='favorites'?'Favorite an image in its detail view to collect it here.':'Try a different search or collection, or connect your Drive.'}</p></div>`;}
+    if(!items.length){$('galleryGrid').innerHTML=`<div class="empty-state"><span>⌕</span><strong>No media found</strong><p>${state.view==='favorites'?'Favorite an image in its detail view to collect it here.':'Try a different search or collection, or connect your Drive.'}</p></div>`;}
     else $('galleryGrid').innerHTML=items.map(tileHTML).join('');
     $('galleryGrid').querySelectorAll('[data-open-image]').forEach(btn=>btn.addEventListener('click',()=>openImage(btn.dataset.openImage,btn)));
     $('galleryGrid').querySelectorAll('[data-favorite]').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();toggleFavorite(btn.dataset.favorite);renderGallery();}));
@@ -301,17 +461,17 @@
     updatePreviewStats();
   }
   function updatePreviewStats() {
-    const visible=state.filtered.slice(0,state.page*state.pageSize);
+    const visible=state.filtered.slice(0,state.page*state.pageSize).filter(x=>mediaKind(x)!=='pdf');
     const cached=visible.filter(x=>state.thumbCache.has(x.id)).length;
     const failed=visible.filter(x=>state.thumbErrors.has(x.id)).length;
     $('previewStatus').textContent=state.connected ? `${cached} of ${visible.length} previews ready${failed?` · ${failed} unavailable`:''}` : '';
     $('retryFailedButton').classList.toggle('hidden',!state.connected||!failed);
   }
   function tileHTML(item) {
-    const style=folderStyle(item.folder), favorite=state.favorites.has(item.id);
+    const style=folderStyle(item.folder), favorite=state.favorites.has(item.id), kind=mediaKind(item);
     const date=item.captureDate?item.captureDate.slice(0,10):folderName(item.folder);
     const error=state.thumbErrors.get(item.id);
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':error?'Preview unavailable · open for retry':'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?'Preview unavailable · open for retry':'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':kind==='video'?'VIDEO':kind==='pdf'?'PDF':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   function observeThumbs() {
     state.observer?.disconnect();
@@ -335,7 +495,7 @@
     for(const btn of all)state.observer.observe(btn);
   }
   function requestThumb(item,{priority=false,mediaOnly=false,force=false}={}) {
-    if(!state.connected || item.demo || !state.accessToken)return;
+    if(!state.connected || item.demo || !state.accessToken || mediaKind(item)==='pdf')return;
     if(force){state.thumbErrors.delete(item.id);const old=state.thumbCache.get(item.id);if(old?.objectUrl)URL.revokeObjectURL(old.src);state.thumbCache.delete(item.id);}
     if(!mediaOnly&&state.thumbCache.has(item.id)){paintThumb(item.id,state.thumbCache.get(item.id));return;}
     const existing=state.loadingThumbs.get(item.id);
@@ -379,6 +539,10 @@
   function requestFallbackAfterJob(job,error){
     // Queue fallback only after this job completes; it must not download all originals at once.
     state.loadingThumbs.delete(job.id);
+    if(mediaKind(job.item)!=='image') {
+      state.thumbErrors.set(job.id,'Preview unavailable; open item to play or view it.');
+      paintThumb(job.id,null);return;
+    }
     if(job.token===state.accessToken&&(!job.controller.signal.aborted||job.controller.signal.reason==='timeout')) {
       queueMicrotask(()=>requestThumb(job.item,{priority:!!state.activeImage&&state.activeImage.id===job.id,mediaOnly:true}));
     } else if(error)state.thumbErrors.set(job.id,String(error.message||error));
@@ -418,7 +582,8 @@
     state.thumbCache.delete(id);
     const text='Google thumbnail unavailable. Trying a small authenticated preview…';
     for(const btn of document.querySelectorAll('[data-open-image]'))if(btn.dataset.openImage===id){const small=btn.querySelector('.tile-placeholder small');if(small)small.textContent=text;}
-    requestThumb(item,{priority:state.activeImage?.id===id,mediaOnly:true});
+    if(mediaKind(item)==='image')requestThumb(item,{priority:state.activeImage?.id===id,mediaOnly:true});
+    else {state.thumbErrors.set(id,'Preview unavailable; open item to play or view it.');paintThumb(id,null);}
   }
   function paintThumb(id,entry) {
     for(const btn of document.querySelectorAll('[data-open-image]')) {
@@ -445,7 +610,7 @@
   }
   function openImage(id,origin) {
     const item=state.filtered.find(x=>x.id===id);if(!item)return;
-    state.returnFocus=origin||null;state.activeImage=item;
+    stopVideo();state.returnFocus=origin||null;state.activeImage=item;
     populateImageDialog();
     if(!$('imageDialog').open)$('imageDialog').showModal();
     if(state.connected)requestThumb(item,{priority:true});
@@ -459,25 +624,58 @@
     const fields=[['Tags',item.tags||'Not indexed'],['Capture date',item.captureDate||'Unknown or unverified'],['Review',item.review||'Not reviewed'],['Visual confidence',item.confidence||'Not provided']];
     $('modalMeta').innerHTML=fields.map(([key,val])=>`<dt>${escapeHTML(key)}</dt><dd>${escapeHTML(val)}</dd>`).join('');
     const link=$('openDriveLink');link.href=linkToDrive(item)||'#';link.classList.toggle('hidden',!linkToDrive(item));
-    $('favoriteImage').disabled=item.demo;updateFavoriteButton();renderModalPicture();
+    $('favoriteImage').disabled=item.demo;updateFavoriteButton();
+    $('playVideoButton').classList.toggle('hidden',mediaKind(item)!=='video'||item.demo);
+    renderModalPicture();
   }
   function renderModalPicture() {
     const item=state.activeImage;if(!item)return;
     const entry=state.thumbCache.get(item.id);
-    const style=folderStyle(item.folder), error=state.thumbErrors.get(item.id);
-    $('retryPreview').classList.toggle('hidden',item.demo||!error);
-    $('previewDetails').textContent=error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
-    $('modalPicture').innerHTML=entry?`<img src="${escapeHTML(entry.src)}" alt="${escapeHTML(item.description||item.name)}">`:`<div class="tile-placeholder"><span class="placeholder-symbol">${escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':error?'Preview unavailable; use Retry or Open in Drive':'Preview loading…'}</small></div>`;
+    const style=folderStyle(item.folder), error=state.thumbErrors.get(item.id), kind=mediaKind(item);
+    $('retryPreview').classList.toggle('hidden',item.demo||!error||kind!=='image');
+    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · select Play video for a local preview (up to 32 MB)` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
+    if(kind==='video' && state.videoObjectUrl) return; // Preserve active player across thumbnail updates.
+    $('modalPicture').innerHTML=entry?`<img src="${escapeHTML(entry.src)}" alt="${escapeHTML(item.description||item.name)}">`:`<div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${kind==='video'?'Use Play video to stream a private preview':kind==='pdf'?'Open in Drive to view the document':item.demo?'Design preview':error?'Preview unavailable; use Retry or Open in Drive':'Preview loading…'}</small></div>`;
     const pic=$('modalPicture').querySelector('img');
     if(pic)pic.onerror=()=>{if(entry.kind==='signed')handleSignedImageFailure(item.id);else{state.thumbErrors.set(item.id,'Image format not supported by browser');paintThumb(item.id,null);}};
   }
   function updateFavoriteButton(){const on=state.favorites.has(state.activeImage?.id);$('favoriteImage').textContent=on?'♥ Favorited':'♡ Favorite';}
+  function stopVideo(){
+    state.videoController?.abort();state.videoController=null;
+    const el=$('modalPicture').querySelector('video');if(el)el.pause();
+    if(state.videoObjectUrl)URL.revokeObjectURL(state.videoObjectUrl);
+    state.videoObjectUrl=null;
+  }
+  async function playVideo(){
+    const item=state.activeImage;
+    if(!item||mediaKind(item)!=='video')return;
+    if(item.size>MAX_VIDEO_PREVIEW){$('previewDetails').textContent='Video exceeds 32 MB. Use Open in Drive to play it.';return;}
+    stopVideo();
+    const controller=new AbortController();state.videoController=controller;
+    $('playVideoButton').disabled=true;
+    $('previewDetails').textContent='Loading private video preview…';
+    try{
+      const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
+      const blob=await googleGet(url,{blob:true,maxBytes:MAX_VIDEO_PREVIEW,signal:controller.signal});
+      if(state.activeImage?.id!==item.id||controller.signal.aborted)return;
+      if(!blob.type.startsWith('video/')&&!item.mime.startsWith('video/'))throw Error('The file is not a playable video.');
+      state.videoObjectUrl=URL.createObjectURL(blob);
+      $('modalPicture').innerHTML='';
+      const video=document.createElement('video');video.src=state.videoObjectUrl;video.controls=true;video.playsInline=true;video.autoplay=true;video.preload='metadata';
+      video.setAttribute('aria-label',item.name);
+      video.onerror=()=>{$('previewDetails').textContent='Your browser cannot play this video codec. Open in Drive instead.';};
+      $('modalPicture').appendChild(video);
+      video.play().catch(()=>{});
+      $('previewDetails').textContent='Video loaded locally for this viewing session · no Drive changes';
+    }catch(error){if(!controller.signal.aborted)$('previewDetails').textContent=`Cannot preview video: ${error.message}. Open in Drive instead.`;}
+    finally{$('playVideoButton').disabled=false;}
+  }
   function stepImage(direction) {
     if(!state.activeImage)return;
     const at=state.filtered.findIndex(x=>x.id===state.activeImage.id);const next=state.filtered[at+direction];
-    if(next){state.activeImage=next;populateImageDialog();if(state.connected)requestThumb(next,{priority:true});}
+    if(next){stopVideo();state.activeImage=next;populateImageDialog();if(state.connected)requestThumb(next,{priority:true});}
   }
-  function closeImage(){if($('imageDialog').open)$('imageDialog').close();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();}
+  function closeImage(){stopVideo();if($('imageDialog').open)$('imageDialog').close();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();}
   function installApp() {if(state.installPrompt){const event=state.installPrompt;state.installPrompt=null;event.prompt();event.userChoice?.catch(()=>{});}else $('installDialog').showModal();}
   function showUpdateMessage(message,error=false){const el=$('updateStatusMessage');el.textContent=message;el.classList.toggle('error',error);}
   function updateRepoValue(){return $('updateRepo').value.trim();}
@@ -584,13 +782,17 @@
     $('installButton').onclick=installApp;$('installClose').onclick=()=>$('installDialog').close();$('installOkay').onclick=()=>$('installDialog').close();
     $('exploreButton').onclick=()=>displayPage('all');$('seeAllButton').onclick=()=>displayPage('all');
     $('searchInput').oninput=event=>{state.search=event.target.value;state.page=1;renderGallery();};
+    $('mediaTypeSelect').onchange=event=>{state.mediaType=event.target.value;state.page=1;renderGallery();};
+    $('syncButton').onclick=()=>syncWithDrive();
+    $('healthScanButton').onclick=()=>syncWithDrive();
     $('sortSelect').onchange=event=>{state.sort=event.target.value;renderGallery();};
     $('layoutButton').onclick=()=>{state.layout=state.layout==='grid'?'list':'grid';renderGallery();};
     $('closeImage').onclick=closeImage;$('prevImage').onclick=()=>stepImage(-1);$('nextImage').onclick=()=>stepImage(1);
+    $('playVideoButton').onclick=playVideo;
     $('favoriteImage').onclick=()=>{if(!state.activeImage?.demo){toggleFavorite(state.activeImage.id);renderGallery();}};
     $('retryPreview').onclick=()=>{if(state.activeImage){requestThumb(state.activeImage,{priority:true,force:true});renderModalPicture();}};
     $('retryFailedButton').onclick=()=>{for(const item of state.filtered.slice(0,state.page*state.pageSize)){if(state.thumbErrors.has(item.id))requestThumb(item,{force:true});}updatePreviewStats();};
-    $('imageDialog').addEventListener('close',()=>{state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();});
+    $('imageDialog').addEventListener('close',()=>{stopVideo();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();});
     window.addEventListener('keydown',event=>{
       if($('imageDialog').open){if(event.key==='ArrowLeft'){event.preventDefault();stepImage(-1);}if(event.key==='ArrowRight'){event.preventDefault();stepImage(1);}return;}
       if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)){
@@ -598,6 +800,9 @@
       }
     });
     window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();state.installPrompt=event;});
+    document.addEventListener('visibilitychange',()=>{
+      if(document.visibilityState==='visible'&&state.connected&&!state.scanning&&state.lastScanAt&&Date.now()-new Date(state.lastScanAt).getTime()>SCAN_INTERVAL&&Date.now()<state.expiry)syncWithDrive({quiet:true});
+    });
     window.addEventListener('appinstalled',()=>{state.installPrompt=null;alertUser('Image Vault installed. You can launch it from your Windows Start menu or taskbar.', 'success');});
   }
   function init() {
