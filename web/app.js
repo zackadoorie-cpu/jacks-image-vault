@@ -59,6 +59,10 @@
     lastScanAt: null,
     scanning: false,
     scanTimer: null,
+    scanDelayTimer: null,
+    scanController: null,
+    scanGeneration: 0,
+    scanFailures: new Map(),
     videoObjectUrl: null,
     videoController: null,
   };
@@ -167,11 +171,19 @@
     if (!['www.googleapis.com', 'sheets.googleapis.com'].includes(host)) throw new Error('Blocked non-Google API request.');
     const response = await fetch(url, {method:'GET',mode:'cors',credentials:'omit',headers:{'Authorization':`Bearer ${state.accessToken}`},cache:'no-store',referrerPolicy:'no-referrer',signal});
     if (!response.ok) {
-      let message = `Google returned HTTP ${response.status}`;
-      if (response.status === 401) {state.expiry=0;updateStatus();message = 'Your Google session expired. Choose Connect Drive again.';}
-      if (response.status === 403) message = 'Google denied read access. Check this account and the enabled API.';
-      if (response.status === 429) message = 'Google is rate limiting previews. We will retry shortly.';
-      throw new Error(message);
+      const detail=await response.json().catch(()=>({}));
+      const reason=detail?.error?.errors?.[0]?.reason || detail?.error?.status || '';
+      const temporaryQuota = response.status===403 && ['rateLimitExceeded','userRateLimitExceeded'].includes(reason);
+      const retryable = temporaryQuota || response.status===429 || response.status>=500;
+      let message=`Google returned HTTP ${response.status}`;
+      if(response.status===401){state.expiry=0;updateStatus();message='Your Google session expired. Choose Connect Drive again.';}
+      else if(temporaryQuota||response.status===429)message='Google is temporarily rate limiting requests.';
+      else if(response.status===403)message='Google denied read access. Check this account and the enabled API.';
+      const error=new Error(message);
+      error.httpStatus=response.status;
+      error.reason=reason;
+      error.retryable=retryable;
+      throw error;
     }
     if (!blob) return response.json();
     const headerSize = Number(response.headers.get('content-length') || 0);
@@ -195,10 +207,12 @@
     return new Blob(chunks, {type:response.headers.get('content-type') || 'application/octet-stream'});
   }
   async function loadLiveIndex() {
+    // Invalidate previous scans before loading a refreshed spreadsheet snapshot.
+    stopScans();
     const btn = $('connectButton'); btn.disabled = true; btn.textContent = 'Reading library…';
     try {
       const id = encodeURIComponent(state.config.sheetId);
-      const ranges = ["'Search Index'!A1:M2500", "'Manifest'!A1:L2500", "'Folders'!A1:G250"];
+      const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G"];
       const params = ranges.map(x => `ranges=${encodeURIComponent(x)}`).join('&');
       const data = await googleGet(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchGet?${params}&valueRenderOption=FORMATTED_VALUE`);
       const index = data.valueRanges?.[0]?.values || [];
@@ -221,7 +235,7 @@
       state.inventory = images;
       state.folderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
         .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0)}));
-      state.syncedFolders.clear();state.health.clear();state.lastScanAt=null;
+      state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       buildFolderIndex(); updateStatus(); render(); clearAlert();
       alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
@@ -231,57 +245,87 @@
   }
 
   function stopScans() {
-    if (state.scanTimer) clearInterval(state.scanTimer);
-    state.scanTimer=null;
+    if(state.scanTimer)clearInterval(state.scanTimer);
+    if(state.scanDelayTimer)clearTimeout(state.scanDelayTimer);
+    state.scanTimer=null;state.scanDelayTimer=null;
+    state.scanGeneration++;
+    state.scanController?.abort();
+    state.scanController=null;
+    state.scanning=false;
+    $('syncButton').disabled=false;
+    $('healthScanButton').disabled=false;
   }
   function scheduleScans() {
     stopScans();
-    // The initial gallery renders immediately; scan later so thumbnails get priority.
-    setTimeout(()=>{
-      if(state.connected && document.visibilityState!=='hidden' && !state.lastScanAt) syncWithDrive({quiet:true});
-    }, 12000);
+    // Defer metadata scanning to give visible thumbnail requests priority.
+    state.scanDelayTimer=setTimeout(()=>{
+      state.scanDelayTimer=null;
+      if(state.connected&&document.visibilityState!=='hidden'&&!state.lastScanAt)syncWithDrive({quiet:true});
+    },12000);
     state.scanTimer=setInterval(()=>{
-      if(state.connected && document.visibilityState!=='hidden' && !state.scanning && Date.now()<state.expiry) syncWithDrive({quiet:true});
-    }, SCAN_INTERVAL);
+      if(state.connected&&document.visibilityState!=='hidden'&&!state.scanning&&Date.now()<state.expiry)syncWithDrive({quiet:true});
+    },SCAN_INTERVAL);
   }
-  async function listKnownFolder(folder) {
-    const files=[];
-    let pageToken='';
+  async function listKnownFolder(folder,signal) {
+    const files=[], seenIDs=new Set(), seenPages=new Set();
+    let pageToken='',pageCount=0,rawCount=0;
     do {
+      if(signal?.aborted)throw new Error('Scan cancelled');
+      if(++pageCount>40)throw new Error('Folder exceeded safe pagination limit (40 pages).');
       const q=`'${folder.id}' in parents and trashed = false`;
-      const params=new URLSearchParams({q,fields:'nextPageToken,files(id,name,mimeType,size,modifiedTime,thumbnailLink)',pageSize:'1000',supportsAllDrives:'true',includeItemsFromAllDrives:'true'});
+      const params=new URLSearchParams({
+        q,fields:'nextPageToken,incompleteSearch,files(id,name,mimeType,size,modifiedTime)',
+        pageSize:'1000',supportsAllDrives:'true',includeItemsFromAllDrives:'true'
+      });
       if(pageToken)params.set('pageToken',pageToken);
       const url=`https://www.googleapis.com/drive/v3/files?${params.toString()}`;
       let data,attempt=0;
-      while(true){
-        try{data=await googleGet(url);break;}
-        catch(error){
-          if(++attempt>=3 || !/rate limiting|HTTP 5\d\d/.test(String(error.message)))throw error;
-          await new Promise(resolve=>setTimeout(resolve,attempt*800));
+      while(true) {
+        try{data=await googleGet(url,{signal});break;}
+        catch(error) {
+          if(signal?.aborted||!error.retryable||++attempt>=4)throw error;
+          // Bounded exponential backoff. Permanent 403s are never retried.
+          await new Promise(resolve=>setTimeout(resolve,Math.min(2500,400*2**(attempt-1))));
         }
       }
-      for(const f of data.files||[])if(safeId(f.id) && supportedMedia(f.mimeType))files.push(f);
-      pageToken=data.nextPageToken||'';
-      if(files.length>20000)throw new Error('Folder scan size limit exceeded.');
-    } while(pageToken);
+      if(signal?.aborted)throw new Error('Scan cancelled');
+      if(data.incompleteSearch)throw new Error('Google returned an incomplete folder listing; previous results retained.');
+      const pageFiles=data.files||[];
+      rawCount+=pageFiles.length;
+      if(rawCount>20000)throw new Error('Folder scan size limit exceeded.');
+      for(const f of pageFiles){
+        if(safeId(f.id)&&supportedMedia(f.mimeType)&&!seenIDs.has(f.id)){
+          files.push(f);seenIDs.add(f.id);
+        }
+      }
+      const next=data.nextPageToken||'';
+      if(next&&seenPages.has(next))throw new Error('Google repeated a pagination token; previous results retained.');
+      if(next)seenPages.add(next);
+      pageToken=next;
+    }while(pageToken);
     return files;
   }
   function mergeLiveFolders(){
     const scanned=new Set(state.syncedFolders.keys());
     const originals=new Map(state.inventory.map(item=>[item.id,item]));
     const combined=state.inventory.filter(item=>!scanned.has(item.folder));
+    const usedIDs=new Set(combined.map(item=>item.id));
     for(const [path, files] of state.syncedFolders){
       for(const file of files){
+        // A file moved between indexed folders keeps its identity, but must get its new folder.
+        if(usedIDs.has(file.id))continue;
+        usedIDs.add(file.id);
         const base=originals.get(file.id);
-        combined.push(base ? {...base,name:file.name||base.name,mime:file.mimeType||base.mime,size:Number(file.size||base.size)} : {
-          id:file.id,collection:folderKind(path)==='memes'?'Memes':'Jacks Photos',folder:path,
+        combined.push(base ? {...base,folder:path,collection:folderKind(path)==='memes'?'Memes':'Jacks Photos',
+          name:file.name||base.name,mime:file.mimeType||base.mime,size:Number(file.size??base.size)}
+        : {id:file.id,collection:folderKind(path)==='memes'?'Memes':'Jacks Photos',folder:path,
           name:file.name||'Untitled media',description:'',tags:'',captureDate:'',review:'New in Drive',
-          confidence:'',category:'',mime:file.mimeType,size:Number(file.size||0),url:linkToDrive(file),demo:false,newInDrive:true
-        });
+          confidence:'',category:'',mime:file.mimeType,size:Number(file.size||0),
+          url:linkToDrive(file),demo:false,newInDrive:true});
       }
     }
     state.images=combined;
-    state.page=1;
+    // Do not unexpectedly jump the user back to page one during background refresh.
     buildFolderIndex();updateStatus();render();
   }
   function updateScanSummary(message,error=false){
@@ -292,54 +336,71 @@
     if(state.scanning||!state.connected)return;
     if(!state.folderSources.length){updateScanSummary('No indexed folder IDs found in the Folders sheet.',true);return;}
     if(Date.now()>=state.expiry){if(!quiet)updateScanSummary('Google sign-in expired. Reconnect Drive.',true);return;}
+    const generation=++state.scanGeneration;
+    const controller=new AbortController();
+    const active=()=>state.connected&&state.scanGeneration===generation&&!controller.signal.aborted;
+    state.scanController=controller;
     state.scanning=true;
     $('syncButton').disabled=true;$('healthScanButton').disabled=true;
-    const scannedPaths=new Set(), failures=[];
+    const scannedPaths=new Set(),failures=[];
+    state.scanFailures.clear();
     const folderQueue=state.folderSources.slice();
     let done=0;
     async function worker(){
-      while(folderQueue.length){
+      while(folderQueue.length && active()){
         const folder=folderQueue.shift();
         try{
-          const files=await listKnownFolder(folder);
-          // Only reconcile a folder after every page was received successfully.
+          const files=await listKnownFolder(folder,controller.signal);
+          if(!active())return;
+          // A folder updates only after ALL pages completed successfully.
           state.syncedFolders.set(folder.path,files);
           scannedPaths.add(folder.path);
           const known=state.inventory.filter(x=>x.folder===folder.path);
-          const knownIDs=new Set(known.map(x=>x.id)), currentIDs=new Set(files.map(f=>f.id));
+          const knownIDs=new Set(known.map(x=>x.id)),currentIDs=new Set(files.map(f=>f.id));
           state.health.set(folder.path,{
             folder:folder.path,sourceCount:known.length,driveCount:files.length,
             added:files.filter(f=>!knownIDs.has(f.id)).map(f=>({id:f.id,name:f.name,mime:f.mimeType})),
             missing:known.filter(f=>!currentIDs.has(f.id)).map(f=>({id:f.id,name:f.name,mime:f.mime})),
             checkedAt:new Date().toISOString()
           });
-        }catch(error){failures.push(`${folder.path}: ${error.message||error}`);}
-        finally{done++;updateScanSummary(`Checking Drive folders… ${done}/${state.folderSources.length}`);}
+        }catch(error) {
+          if(!active())return;
+          const message=error?.message||String(error);
+          failures.push(`${folder.path}: ${message}`);
+          state.scanFailures.set(folder.path,message);
+        }finally{
+          if(active()) {done++;updateScanSummary(`Checking Drive folders… ${done}/${state.folderSources.length}`);}
+        }
       }
     }
     try{
       await Promise.all([worker(),worker(),worker()]);
+      if(!active())return;
       if(scannedPaths.size){mergeLiveFolders();state.lastScanAt=new Date().toISOString();}
-      const health=[...state.health.values()];
-      const added=health.reduce((n,f)=>n+f.added.length,0);
-      const missing=health.reduce((n,f)=>n+f.missing.length,0);
+      const current=[...scannedPaths].map(path=>state.health.get(path)).filter(Boolean);
+      const added=current.reduce((n,f)=>n+f.added.length,0);
+      const missing=current.reduce((n,f)=>n+f.missing.length,0);
       const summary=`Checked ${scannedPaths.size}/${state.folderSources.length} folders · ${added} new · ${missing} missing from original inventory${failures.length?` · ${failures.length} failed`:''}`;
       updateScanSummary(summary,!!failures.length);
       if(!quiet)alertUser(summary,failures.length?'error':'success');
     }finally{
-      state.scanning=false;$('syncButton').disabled=false;$('healthScanButton').disabled=false;
-      if(state.view==='health')renderHealth();
+      if(active()){
+        state.scanning=false;state.scanController=null;
+        $('syncButton').disabled=false;$('healthScanButton').disabled=false;
+        if(state.view==='health')renderHealth();
+      }
     }
   }
   function renderHealth(){
-    const data=[...state.health.values()];
+    const data=[...state.health.values()].filter(x=>!state.scanFailures.has(x.folder));
     const added=data.reduce((n,x)=>n+x.added.length,0), missing=data.reduce((n,x)=>n+x.missing.length,0);
     $('healthSummary').textContent=state.lastScanAt ?
       `Last checked ${new Date(state.lastScanAt).toLocaleString()} · ${data.length}/${state.folderSources.length} folders · ${added} new · ${missing} missing` :
       `Inventory snapshot: ${format(state.inventory.length)} files in ${state.folderSources.length} known folders. Select Scan now to compare Drive.`;
     const rows=state.folderSources.map(folder=>{
       const row=state.health.get(folder.path);
-      const status=row?`${row.added.length} new · ${row.missing.length} missing`:'Not scanned';
+      const failure=state.scanFailures.get(folder.path);
+      const status=failure?`Scan failed: ${failure}`:row?`${row.added.length} new · ${row.missing.length} missing`:'Not scanned';
       return `<tr><td>${escapeHTML(folderName(folder.path))}</td><td>${format(row?.sourceCount??state.inventory.filter(x=>x.folder===folder.path).length)}</td><td>${row?format(row.driveCount):'—'}</td><td>${escapeHTML(status)}</td></tr>`;
     });
     $('healthRows').innerHTML=rows.join('');
@@ -363,7 +424,7 @@
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
-    stopScans();stopVideo();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.lastScanAt=null;
+    stopScans();stopVideo();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
