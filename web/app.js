@@ -69,7 +69,11 @@
     remoteRelease: null,
     mediaType: 'all',
     inventory: [], // Spreadsheet snapshot. Never mutated by Drive sync.
-    folderSources: [], // Known Drive folder IDs from the user's private Folders sheet.
+    folderSources: [], // Live folders, including newly discovered nested folders.
+    baseFolderSources: [], // Stable, read-only folder baseline from the private spreadsheet.
+    libraryRoots: [], // Verified Drive root folders, never hard-coded.
+    lastDiscoveryAt: null,
+    discoveryError: null,
     syncedFolders: new Map(), // Live metadata held in memory for this session only.
     health: new Map(),
     lastScanAt: null,
@@ -94,7 +98,7 @@
   const format = n => Number(n || 0).toLocaleString('en-US');
   const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const folderName = folder => String(folder || '').split('/').slice(-1)[0];
-  const folderKind = folder => String(folder || '').startsWith('Memes/') ? 'memes' : 'photos';
+  const folderKind = folder => String(folder || '')==='Memes'||String(folder || '').startsWith('Memes/') ? 'memes' : 'photos';
   const folderStyle = folder => {
     const text = folder.toLowerCase();
     if (text.includes('pepe')) return {kind:'pepe',icon:'☺'};
@@ -109,6 +113,9 @@
   const SCAN_INTERVAL = 15 * 60 * 1000;
   const FULL_SCAN_INTERVAL = 24 * 60 * 60 * 1000;
   const MAX_AMBIGUOUS_LOOKUPS = 25;
+  const MAX_DISCOVERED_FOLDERS = 300;
+  const MAX_DISCOVERY_DEPTH = 8;
+  const MAX_DISCOVERED_MEDIA = 20000;
   const MAX_VIDEO_PREVIEW = 32 * 1024 * 1024;
   const MAX_GIF_PREVIEW = 20 * 1024 * 1024;
   const MAX_POSTER_VIDEO = 12 * 1024 * 1024;
@@ -367,8 +374,10 @@
       }
       if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
       state.inventory = images;
-      state.folderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
-        .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0)}));
+      state.baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
+        .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0),inventoryPath:r[1],discovered:false}));
+      state.folderSources=state.baseFolderSources.slice();
+      state.libraryRoots=[];state.lastDiscoveryAt=null;state.discoveryError=null;
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       if(restoreSyncCache())mergeLiveFolders();
@@ -382,7 +391,7 @@
     } catch (error) {
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
-      state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+      state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
       state.images=DEMO;state.connected=false;state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
@@ -392,7 +401,8 @@
 
   function syncCacheSignature(){
     // The cache is tied to this inventory's exact known folders.
-    return state.folderSources.map(f=>f.path+':'+f.id).join('|');
+    return (state.baseFolderSources.length?state.baseFolderSources:state.folderSources)
+      .map(f=>f.path+':'+f.id).sort().join('|');
   }
   function clearLocalSyncCache(){
     try{localStorage.removeItem(SYNC_CACHE_STORAGE);}catch{}
@@ -401,8 +411,11 @@
     if(!state.driveIdentity||!state.changeToken||state.syncedFolders.size!==state.folderSources.length)return;
     // Only metadata and Drive's change cursor are stored locally. Never store
     // private file contents, Google bearer tokens or cached image bytes.
-    const cache={schema:3,sheetId:state.config.sheetId,driveIdentity:state.driveIdentity,signature:syncCacheSignature(),
-      savedAt:Date.now(),fullScanAt:state.lastFullScanAt,token:state.changeToken,
+    const cache={schema:4,sheetId:state.config.sheetId,driveIdentity:state.driveIdentity,signature:syncCacheSignature(),
+      savedAt:Date.now(),fullScanAt:state.lastFullScanAt,discoveredAt:state.lastDiscoveryAt,token:state.changeToken,
+      roots:state.libraryRoots.map(root=>({id:root.id,path:root.path})),
+      sources:state.folderSources.map(f=>({id:f.id,path:f.path,
+        inventoryPath:f.inventoryPath||null,missing:!!f.missing,discovered:!!f.discovered})),
       folders:[...state.syncedFolders].map(([path,files])=>({path,files:files.map(f=>({
         id:f.id,name:f.name,mimeType:f.mimeType,size:f.size||0,modifiedTime:f.modifiedTime||''
       }))}))};
@@ -417,17 +430,39 @@
       if(!raw||raw.length>MAX_SYNC_CACHE)return false;
       data=JSON.parse(raw);
     }catch{return false;}
-    if(!state.driveIdentity||!data||data.schema!==3||data.driveIdentity!==state.driveIdentity||
+    if(!state.driveIdentity||!data||data.schema!==4||data.driveIdentity!==state.driveIdentity||
       data.sheetId!==state.config.sheetId||data.signature!==syncCacheSignature())return false;
     if(!Number.isFinite(data.savedAt)||Date.now()-data.savedAt>30*24*60*60*1000||data.savedAt>Date.now()+60*1000)return false;
     if(typeof data.token!=='string'||!data.token||data.token.length>2048||!Array.isArray(data.folders))return false;
     const verifiedAt=Date.parse(data.fullScanAt);
     if(!Number.isFinite(verifiedAt)||verifiedAt>data.savedAt+60000||verifiedAt>Date.now()+60000)return false;
-    if(data.folders.length!==state.folderSources.length)return false;
-    const allowed=new Set(state.folderSources.map(f=>f.path)), map=new Map();
+    const roots=Array.isArray(data.roots)?data.roots:[];
+    const sources=Array.isArray(data.sources)?data.sources:[];
+    const baseline=state.baseFolderSources.length?state.baseFolderSources:state.folderSources;
+    const baseIds=new Set(baseline.map(f=>f.id)),seenBase=new Set();
+    const allowedPaths=new Set(),seenIds=new Set();
+    if(sources.length<baseline.length||sources.length>MAX_DISCOVERED_FOLDERS+baseline.length+2)return false;
+    if(roots.length>2)return false;
+    if(state.baseFolderSources.length&&!roots.length)return false;
+    for(const root of roots){
+      if(!root||!safeId(root.id)||!['Memes','Jacks Photos'].includes(root.path))return false;
+    }
+    for(const source of sources){
+      if(!source||!safeId(source.id)||typeof source.path!=='string'||source.path.length>300||
+         !(source.path==='Memes'||source.path==='Jacks Photos'||source.path.startsWith('Memes/')||source.path.startsWith('Jacks Photos/'))||
+         allowedPaths.has(source.path)||seenIds.has(source.id))return false;
+      allowedPaths.add(source.path);seenIds.add(source.id);
+      if(baseIds.has(source.id)){
+        const base=baseline.find(f=>f.id===source.id);
+        if(source.inventoryPath!==base.path)return false;
+        seenBase.add(source.id);
+      }else if(source.inventoryPath)return false;
+    }
+    if(seenBase.size!==baseIds.size||data.folders.length!==sources.length)return false;
+    const map=new Map();
     let total=0;
     for(const entry of data.folders){
-      if(!entry||!allowed.has(entry.path)||map.has(entry.path)||!Array.isArray(entry.files))return false;
+      if(!entry||!allowedPaths.has(entry.path)||map.has(entry.path)||!Array.isArray(entry.files))return false;
       const files=[];
       for(const f of entry.files){
         if(!safeId(f.id)||typeof f.name!=='string'||f.name.length>512||!supportedMedia(f.mimeType))return false;
@@ -436,6 +471,9 @@
       }
       map.set(entry.path,files);
     }
+    state.folderSources=sources.map(f=>({...f}));
+    state.libraryRoots=roots.map(root=>({...root}));
+    state.lastDiscoveryAt=typeof data.discoveredAt==='string'?data.discoveredAt:null;
     state.syncedFolders=map;
     state.changeToken=data.token;
     state.lastFullScanAt=new Date(verifiedAt).toISOString();
@@ -446,7 +484,9 @@
   function refreshFolderHealth(path){
     const files=state.syncedFolders.get(path);
     if(!files)return;
-    const known=state.inventory.filter(x=>x.folder===path);
+    const source=state.folderSources.find(f=>f.path===path);
+    const inventoryPath=source?.inventoryPath||path;
+    const known=state.inventory.filter(x=>x.folder===inventoryPath);
     const knownIDs=new Set(known.map(x=>x.id)),currentIDs=new Set(files.map(x=>x.id));
     state.health.set(path,{
       folder:path,sourceCount:known.length,driveCount:files.length,
@@ -527,10 +567,12 @@
   }
   function mergeLiveFolders(recentPaths=new Set()){
     const scanned=new Set(state.syncedFolders.keys());
+    const scannedInventoryPaths=new Set(state.folderSources
+      .filter(source=>scanned.has(source.path)).map(source=>source.inventoryPath||source.path));
     const originals=new Map(state.inventory.map(item=>[item.id,item]));
     // Live locations win even if the source folder's scan failed or was not yet completed.
     const liveIDs=new Set([...state.syncedFolders.values()].flatMap(files=>files.map(file=>file.id)));
-    const combined=state.inventory.filter(item=>!scanned.has(item.folder)&&!liveIDs.has(item.id));
+    const combined=state.inventory.filter(item=>!scannedInventoryPaths.has(item.folder)&&!liveIDs.has(item.id));
     const usedIDs=new Set(combined.map(item=>item.id));
     // When a folder scan failed, older cached locations must not override newer
     // successful observations of moved files in another folder.
@@ -802,7 +844,7 @@
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
     saveBrowsingPosition();
-    stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+    stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
