@@ -308,7 +308,7 @@
     if(!effectiveDescription(item).trim()||item.newInDrive||
        /(?:needs review|not reviewed|unreviewed|awaiting review|pending review)/.test(sourceStatus))
       return 'pending';
-    return /(?:visually reviewed|reviewed by|review complete|verified by|approved|^verified\\b|^reviewed\\b)/.test(sourceStatus)?
+    return /(?:visually reviewed|reviewed by|review complete|verified by|approved|^verified\b|^reviewed\b)/.test(sourceStatus)?
       'source-reviewed':'pending';
   }
   function reviewCounts(){
