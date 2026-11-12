@@ -1,4 +1,4 @@
-/* Jack's Image Vault v2.0.2 — read-only Drive browser with opt-in local app-shell updates. */
+/* Jack's Image Vault — read-only Drive browser with verified local and GitHub updates. */
 'use strict';
 (() => {
   const $ = id => document.getElementById(id);
@@ -8,6 +8,7 @@
   const UPDATE_CHECK_STORAGE = 'jack-vault-last-update-check-v2';
   const DENSITY_STORAGE = 'jack-vault-gallery-density-v1';
   const APP_PREFS_STORAGE = 'jack-vault-app-preferences-v1';
+  const BROWSE_STORAGE = 'jack-vault-resume-position-v1';
   const SYNC_CACHE_STORAGE = 'jack-vault-readonly-sync-cache-v1';
   const MAX_SYNC_CACHE = 1800000;
   const SCOPES = 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly';
@@ -42,6 +43,9 @@
     page: 1,
     pageSize: startingPrefs.batchSize,
     autoLoad: startingPrefs.autoLoad,
+    rememberBrowsing: startingPrefs.rememberBrowsing,
+    browseSaveTimer: null,
+    resumeScrollY: null,
     renderedCount: 0,
     autoLoadObserver: null,
     autoLoadPending: false,
@@ -81,6 +85,9 @@
     videoObjectUrl: null,
     videoController: null,
     playingMediaId: null,
+    posterController: null,
+    posterWorkingId: null,
+    posterError: new Map(),
   };
   const safeId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{10,}$/.test(id);
   const format = n => Number(n || 0).toLocaleString('en-US');
@@ -101,6 +108,7 @@
   const SCAN_INTERVAL = 15 * 60 * 1000;
   const MAX_VIDEO_PREVIEW = 32 * 1024 * 1024;
   const MAX_GIF_PREVIEW = 20 * 1024 * 1024;
+  const MAX_POSTER_VIDEO = 12 * 1024 * 1024;
   const isGIF = item => (item?.mime||'').toLowerCase()==='image/gif';
   const linkToDrive = item => safeId(item?.id) ? `https://drive.google.com/file/d/${encodeURIComponent(item.id)}/view` : '';
   function readSettings() {
@@ -116,13 +124,15 @@
     try{
       const raw=JSON.parse(localStorage.getItem(APP_PREFS_STORAGE)||'{}');
       return {autoLoad:typeof raw.autoLoad==='boolean'?raw.autoLoad:true,
-        batchSize:[16,32,48].includes(raw.batchSize)?raw.batchSize:32};
-    }catch{return {autoLoad:true,batchSize:32};}
+        batchSize:[16,32,48].includes(raw.batchSize)?raw.batchSize:32,
+        rememberBrowsing:typeof raw.rememberBrowsing==='boolean'?raw.rememberBrowsing:true};
+    }catch{return {autoLoad:true,batchSize:32,rememberBrowsing:true};}
   }
   function showPreferences(){
     $('prefAutoLoad').checked=state.autoLoad;
     $('prefBatchSize').value=String(state.pageSize);
     $('prefDensity').value=state.density;
+    $('prefRememberBrowsing').checked=state.rememberBrowsing;
     $('preferencesDialog').showModal();
   }
   function savePreferences(event){
@@ -130,18 +140,79 @@
     const autoLoad=$('prefAutoLoad').checked;
     const batchSize=Number($('prefBatchSize').value);
     const density=$('prefDensity').value;
+    const rememberBrowsing=$('prefRememberBrowsing').checked;
     if(![16,32,48].includes(batchSize)||!['compact','comfortable','large'].includes(density))return;
     const shown=state.renderedCount;
     state.autoLoad=autoLoad;
     state.pageSize=batchSize;
     state.density=density;
+    state.rememberBrowsing=rememberBrowsing;
+    if(!rememberBrowsing)clearBrowsingPosition();
     state.page=Math.max(1,Math.ceil(shown/batchSize));
     try{
-      localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({autoLoad,batchSize}));
+      localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({autoLoad,batchSize,rememberBrowsing}));
       localStorage.setItem(DENSITY_STORAGE,density);
     }catch{alertUser('App preferences could not be saved to this device. They will apply for this session.', 'error');}
     $('preferencesDialog').close();
-    if(state.view!=='home'&&state.view!=='health')renderGallery();
+    if(state.view!=='home'&&state.view!=='health'){
+      renderGallery();
+      if(rememberBrowsing)scheduleBrowseSave();
+    }
+  }
+  function clearBrowsingPosition(){
+    if(state.browseSaveTimer)clearTimeout(state.browseSaveTimer);
+    state.browseSaveTimer=null;
+    try{localStorage.removeItem(BROWSE_STORAGE);}catch{}
+  }
+  function browsingView(){return ['all','memes','photos','favorites','review'].includes(state.view);}
+  function saveBrowsingPosition(){
+    if(state.browseSaveTimer)clearTimeout(state.browseSaveTimer);
+    state.browseSaveTimer=null;
+    if(!state.connected||!state.rememberBrowsing||!state.driveIdentity||!browsingView())return;
+    const position={
+      schema:1,account:state.driveIdentity,sheetId:state.config.sheetId,savedAt:Date.now(),
+      view:state.view,folder:state.folder,search:state.search.slice(0,200),
+      sort:state.sort,mediaType:state.mediaType,layout:state.layout,
+      page:Math.max(1,Math.min(20,state.page)),
+      scrollY:Math.max(0,Math.min(100000,Math.floor(window.scrollY||window.pageYOffset||0)))
+    };
+    try{localStorage.setItem(BROWSE_STORAGE,JSON.stringify(position));}catch{}
+  }
+  function scheduleBrowseSave(){
+    if(!state.connected||!state.rememberBrowsing||!browsingView())return;
+    if(state.browseSaveTimer)clearTimeout(state.browseSaveTimer);
+    state.browseSaveTimer=setTimeout(saveBrowsingPosition,350);
+  }
+  function restoreBrowsingPosition(){
+    if(!state.rememberBrowsing||!state.driveIdentity)return false;
+    let saved;
+    try{saved=JSON.parse(localStorage.getItem(BROWSE_STORAGE)||'null');}catch{return false;}
+    if(!saved||saved.schema!==1||saved.account!==state.driveIdentity||
+       saved.sheetId!==state.config.sheetId||!['all','memes','photos','favorites','review'].includes(saved.view)||
+       !Number.isFinite(saved.savedAt)||saved.savedAt>Date.now()+60000||
+       Date.now()-saved.savedAt>30*24*60*60*1000)return false;
+    state.view=saved.view;
+    state.folder=typeof saved.folder==='string'&&(saved.folder==='all'||state.folders.some(f=>f.path===saved.folder))?saved.folder:'all';
+    state.search=typeof saved.search==='string'?saved.search.slice(0,200):'';
+    state.sort=['name','date-desc','date-asc','review'].includes(saved.sort)?saved.sort:'name';
+    state.mediaType=['all','image','video','pdf'].includes(saved.mediaType)?saved.mediaType:'all';
+    state.layout=['grid','list'].includes(saved.layout)?saved.layout:'grid';
+    state.page=Number.isInteger(saved.page)?Math.max(1,Math.min(20,saved.page)):1;
+    state.resumeScrollY=Number.isFinite(saved.scrollY)?Math.max(0,Math.min(100000,saved.scrollY)):0;
+    $('searchInput').value=state.search;
+    $('sortSelect').value=state.sort;
+    $('mediaTypeSelect').value=state.mediaType;
+    return true;
+  }
+  function finishBrowsingRestore(){
+    if(state.resumeScrollY===null)return;
+    const y=state.resumeScrollY;
+    state.resumeScrollY=null;
+    setTimeout(()=>window.scrollTo({top:y,behavior:'instant'}),80);
+  }
+  function updateScrollControls(){
+    const active=state.connected&&browsingView()&&(window.scrollY||window.pageYOffset||0)>650;
+    $('backToTop').classList.toggle('hidden',!active);
   }
   function readFavorites() {
     try {const f = JSON.parse(localStorage.getItem(FAVORITES_STORAGE) || '[]'); return Array.isArray(f) ? f.filter(safeId) : [];}
@@ -298,7 +369,11 @@
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       if(restoreSyncCache())mergeLiveFolders();
-      buildFolderIndex(); updateStatus(); render(); clearAlert();
+      buildFolderIndex(); updateStatus();
+      const resumed=restoreBrowsingPosition();
+      displayPage(resumed?state.view:'home',{reset:false,scroll:false});
+      if(resumed)finishBrowsingRestore();
+      clearAlert();
       alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
       scheduleScans();
     } catch (error) {
@@ -654,7 +729,8 @@
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
-    stopScans();stopVideo();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+    saveBrowsingPosition();
+    stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
@@ -668,19 +744,25 @@
     }
     state.folders = [...map.values()].sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name));
   }
-  function displayPage(view) {
+  function displayPage(view,{reset=true,scroll=true}={}) {
+    if(state.connected&&browsingView())saveBrowsingPosition();
     if(view==='home'||view==='health'){
       state.autoLoadObserver?.disconnect();
       state.autoLoadObserver=null;
       state.galleryRevision++;
     }
-    state.view=view; state.folder='all';state.folderQuery='';state.page=1;
-    if($('folderSearch'))$('folderSearch').value='';
+    state.view=view;
+    if(reset){
+      state.folder='all';state.folderQuery='';state.page=1;
+      if($('folderSearch'))$('folderSearch').value='';
+    }
     $('homeView').classList.toggle('hidden',view!=='home');
     $('galleryView').classList.toggle('hidden',view==='home'||view==='health');
     $('healthView').classList.toggle('hidden',view!=='health');
     document.querySelectorAll('[data-view]').forEach(btn=>{const active=btn.dataset.view===view; btn.classList.toggle('active',active);if(active)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');});
-    render();window.scrollTo({top:0,behavior:'smooth'});
+    render();
+    if(scroll)window.scrollTo({top:0,behavior:'smooth'});
+    updateScrollControls();
   }
   function render() {if(state.view==='home') renderHome();else if(state.view==='health')renderHealth();else renderGallery();}
   function renderHome() {
@@ -774,6 +856,8 @@
     $('galleryGrid').insertAdjacentHTML('beforeend',added.map(tileHTML).join(''));
     state.renderedCount=next;
     state.page=Math.max(1,Math.ceil(next/state.pageSize));
+    $('browseProgress').textContent=`Showing ${format(next)} of ${format(state.filtered.length)}`;
+    scheduleBrowseSave();
     const previews=[...$('galleryGrid').querySelectorAll('[data-open-image]')].slice(previous);
     const hearts=[...$('galleryGrid').querySelectorAll('[data-favorite]')].slice(previous);
     bindGalleryTileEvents(previews,hearts);
@@ -814,6 +898,7 @@
     state.filtered=filterImages();const items=state.filtered.slice(0,state.page*state.pageSize);
     state.renderedCount=items.length;
     $('resultCount').textContent=`${format(state.filtered.length)} ${state.connected?'files':'samples'}`;
+    $('browseProgress').textContent=`Showing ${format(items.length)} of ${format(state.filtered.length)}`;
     const notice=$('galleryNotice');notice.classList.toggle('hidden',state.connected);
     if(!state.connected) notice.textContent='Preview mode only. No private photo or file IDs are bundled with this application.';
     // Cancel queued work for images no longer on screen instead of wasting API quota.
@@ -831,6 +916,7 @@
     observeThumbs();
     updateLoadMoreArea();
     updatePreviewStats();
+    scheduleBrowseSave();
   }
   function updatePreviewStats() {
     const visible=state.filtered.slice(0,state.page*state.pageSize).filter(x=>mediaKind(x)!=='pdf');
@@ -1194,6 +1280,11 @@
     $('preferencesClose').onclick=()=>$('preferencesDialog').close();
     $('preferencesCancel').onclick=()=>$('preferencesDialog').close();
     $('preferencesForm').onsubmit=savePreferences;
+    $('clearBrowseHistory').onclick=()=>{
+      clearBrowsingPosition();
+      $('clearBrowseHistory').textContent='Saved position cleared ✓';
+      setTimeout(()=>$('clearBrowseHistory').textContent='Forget saved browsing position',1800);
+    };
     $('preferencesConnection').onclick=()=>{
       $('preferencesDialog').close();
       showSettings();
@@ -1234,6 +1325,12 @@
     $('retryPreview').onclick=()=>{if(state.activeImage){requestThumb(state.activeImage,{priority:true,force:true});renderModalPicture();}};
     $('retryFailedButton').onclick=()=>{for(const item of state.filtered.slice(0,state.page*state.pageSize)){if(state.thumbErrors.has(item.id))requestThumb(item,{force:true});}updatePreviewStats();};
     $('imageDialog').addEventListener('close',()=>{stopVideo();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();});
+    $('backToTop').onclick=()=>window.scrollTo({top:0,behavior:'smooth'});
+    window.addEventListener('scroll',()=>{
+      updateScrollControls();
+      scheduleBrowseSave();
+    },{passive:true});
+    window.addEventListener('pagehide',saveBrowsingPosition);
     window.addEventListener('keydown',event=>{
       if($('imageDialog').open){if(event.key==='ArrowLeft'){event.preventDefault();stepImage(-1);}if(event.key==='ArrowRight'){event.preventDefault();stepImage(1);}return;}
       if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)){
