@@ -64,7 +64,10 @@ function harness({withObserver=true}={}){
     navigator:{},document:{visibilityState:'visible',getElementById:el,querySelectorAll:()=>[]},
     window:{scrollTo(){}},
   };
-  if(withObserver)context.IntersectionObserver=FakeObserver;
+  if(withObserver){
+    context.IntersectionObserver=FakeObserver;
+    context.window.IntersectionObserver=FakeObserver;
+  }
   vm.runInNewContext(code,context,{filename:'app.js'});
   const h=context.__galleryTests;
   h.state.view='all';
