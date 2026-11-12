@@ -317,6 +317,7 @@ test('verified metadata cache restores across app sessions without saving media 
   h.state.inventory=[inv(item,known.path)];
   h.state.syncedFolders.set(known.path,[item]);
   h.state.changeToken='cursor-3';
+  h.state.lastFullScanAt=new Date().toISOString();
   h.rememberSyncCache();
   const raw=[...storage.values()].join('');
   assert.match(raw,/cursor-3/);
@@ -387,6 +388,7 @@ test('a second Google account cannot restore the first account’s local metadat
   h.state.inventory=[inv(item,known.path)];
   h.state.syncedFolders.set(known.path,[item]);
   h.state.changeToken='cursor-1';
+  h.state.lastFullScanAt=new Date().toISOString();
   h.rememberSyncCache();
   h.state.syncedFolders.clear();
   h.state.driveIdentity='permission000000002';
@@ -433,4 +435,144 @@ test('small local video frame generation produces a cached poster without Drive 
   assert.equal(h.state.thumbCache.get(item.id)?.kind,'generated');
   assert.equal(h.state.posterController,null);
   assert.ok(!h.state.posterError.has(item.id));
+});
+
+
+test('incremental sync hides a deleted PDF without changing the inventory snapshot',async()=>{
+  const known=folder('Memes/PDFs');
+  const pdf=file(710,'application/pdf');
+  const {h,calls}=harness(async(url)=>{
+    assert.match(url,/\/changes\?/);
+    return ok({changes:[{fileId:pdf.id,removed:true}],newStartPageToken:'cursor-2'});
+  });
+  h.state.folderSources=[known];
+  h.state.inventory=[inv(pdf,known.path)];
+  h.state.images=[...h.state.inventory];
+  h.state.syncedFolders.set(known.path,[pdf]);
+  h.state.changeToken='cursor-1';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.images.length,0,'deleted PDF should leave the visible gallery');
+  assert.equal(h.state.inventory.length,1,'original Sheets snapshot remains read-only');
+  assert.equal(h.state.health.get(known.path).missing.length,1);
+  assert.equal(h.state.changeToken,'cursor-2');
+  assert.equal(calls.length,1);
+  assert.ok(calls.every(c=>c.options.method==='GET'));
+});
+
+test('trash events without parents hide the item and advance the cursor',async()=>{
+  const known=folder('Memes/Trashed');
+  const pdf=file(720,'application/pdf');
+  const {h,calls}=harness(async()=>ok({
+    changes:[{fileId:pdf.id,removed:false,file:{id:pdf.id,mimeType:'application/pdf',trashed:true}}],
+    newStartPageToken:'cursor-2'
+  }));
+  h.state.folderSources=[known];h.state.inventory=[inv(pdf,known.path)];
+  h.state.images=[...h.state.inventory];h.state.syncedFolders.set(known.path,[pdf]);h.state.changeToken='cursor-1';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.images.length,0);
+  assert.equal(calls.length,1,'trashed files must not require parent lookups');
+});
+
+test('known file with omitted parents and files.get 404 is removed safely',async()=>{
+  const known=folder('Memes/Deleted');
+  const pdf=file(730,'application/pdf');
+  const {h,calls}=harness(async(url)=>{
+    if(url.includes('/changes?'))return ok({
+      changes:[{fileId:pdf.id,removed:false,file:{id:pdf.id,mimeType:'application/pdf'}}],
+      newStartPageToken:'cursor-2'
+    });
+    assert.match(url,/\/files\//);
+    return fail(404,'notFound');
+  });
+  h.state.folderSources=[known];h.state.inventory=[inv(pdf,known.path)];
+  h.state.images=[...h.state.inventory];h.state.syncedFolders.set(known.path,[pdf]);h.state.changeToken='cursor-1';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.images.length,0);
+  assert.equal(h.state.changeToken,'cursor-2');
+  assert.equal(calls.length,2);
+});
+
+test('missing parent data for unrelated Drive files does not block changes',async()=>{
+  const known=folder('Memes/Kept');
+  const image=file(740);
+  const {h,calls}=harness(async()=>ok({
+    changes:[{fileId:'unrelatedfile0001',removed:false,file:{id:'unrelatedfile0001',mimeType:'text/plain'}}],
+    newStartPageToken:'cursor-2'
+  }));
+  h.state.folderSources=[known];h.state.inventory=[inv(image,known.path)];
+  h.state.images=[...h.state.inventory];h.state.syncedFolders.set(known.path,[image]);h.state.changeToken='cursor-1';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.images.length,1);
+  assert.equal(h.state.changeToken,'cursor-2');
+  assert.equal(calls.length,1);
+});
+
+test('known file missing parents is verified by files.get and retained if still indexed',async()=>{
+  const known=folder('Memes/StillHere');
+  const image=file(750);
+  const {h,calls}=harness(async(url)=>{
+    if(url.includes('/changes?'))return ok({
+      changes:[{fileId:image.id,removed:false,file:{id:image.id,mimeType:image.mimeType}}],
+      newStartPageToken:'cursor-2'
+    });
+    return ok({...image,parents:[known.id],trashed:false});
+  });
+  h.state.folderSources=[known];h.state.inventory=[inv(image,known.path)];
+  h.state.images=[...h.state.inventory];h.state.syncedFolders.set(known.path,[image]);h.state.changeToken='cursor-1';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.images.length,1);
+  assert.equal(h.state.changeToken,'cursor-2');
+  assert.equal(calls.length,2);
+});
+
+test('ambiguous known file automatically triggers full reconciliation and excludes missing PDF',async()=>{
+  const known=folder('Memes/Verify');
+  const pdf=file(760,'application/pdf');
+  const {h,calls}=harness(async(url)=>{
+    if(url.includes('/changes?'))return ok({
+      changes:[{fileId:pdf.id,removed:false,file:{id:pdf.id,mimeType:pdf.mimeType}}],
+      newStartPageToken:'cursor-2'
+    });
+    if(url.includes('/files/'))return ok({id:pdf.id,mimeType:pdf.mimeType}); // still no parents
+    if(url.includes('/files?'))return ok({files:[]});
+    assert.fail('Unexpected Drive endpoint: '+url);
+  });
+  h.state.folderSources=[known];h.state.inventory=[inv(pdf,known.path)];
+  h.state.images=[...h.state.inventory];h.state.syncedFolders.set(known.path,[pdf]);h.state.changeToken='cursor-1';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.images.length,0);
+  assert.equal(h.state.health.get(known.path).missing.length,1);
+  assert.equal(h.state.changeToken,'cursor-0','new full-scan baseline cursor should replace uncertain token');
+  assert.ok(calls.some(c=>c.url.includes('/files?')),'should rescan folder after incomplete metadata');
+});
+
+test('invalid changes token falls back to a full read-only Drive comparison',async()=>{
+  const known=folder('Memes/Expired');
+  const pdf=file(770,'application/pdf');
+  const {h,calls}=harness(async(url)=>{
+    if(url.includes('/changes?'))return fail(410,'pageTokenExpired');
+    if(url.includes('/files?'))return ok({files:[]});
+    assert.fail('Unexpected endpoint: '+url);
+  });
+  h.state.folderSources=[known];h.state.inventory=[inv(pdf,known.path)];
+  h.state.images=[...h.state.inventory];h.state.syncedFolders.set(known.path,[pdf]);h.state.changeToken='old-cursor';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.images.length,0);
+  assert.equal(h.state.changeToken,'cursor-0');
+  assert.ok(calls.some(c=>c.url.includes('/files?')));
+});
+
+test('one failed incremental request must not change file visibility or advance token',async()=>{
+  const known=folder('Memes/Atomic');
+  const file1=file(780),pdf=file(781,'application/pdf');
+  const {h}=harness(async(url)=>{
+    const page=new URL(url).searchParams.get('pageToken');
+    if(page==='cursor-1')return ok({changes:[{fileId:pdf.id,removed:true}],nextPageToken:'cursor-2'});
+    return fail(403,'insufficientFilePermissions');
+  });
+  h.state.folderSources=[known];h.state.inventory=[inv(file1,known.path),inv(pdf,known.path)];
+  h.state.images=[...h.state.inventory];h.state.syncedFolders.set(known.path,[file1,pdf]);h.state.changeToken='cursor-1';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.images.length,2);
+  assert.equal(h.state.changeToken,'cursor-1');
 });
