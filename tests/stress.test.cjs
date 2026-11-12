@@ -42,6 +42,8 @@ function harness(onFetch, {instantTimeout=true}={}) {
   };
   ctx.google = ctx.window.google;
   ctx.fetch = async (url, options={}) => {
+    // Starting a changes cursor is independent of the paginated files.list mock.
+    if(String(url).includes('/changes/startPageToken'))return ok({startPageToken:'cursor-0'});
     calls.push({url:String(url),options});
     return onFetch(String(url),options,calls.length);
   };
