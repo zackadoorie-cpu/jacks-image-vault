@@ -92,24 +92,29 @@
           <div class="filters">
             <label class="searchbox"><span>⌕</span><input type="search" id="searchInput" placeholder="Search images, videos, moments, tags…" autocomplete="off" aria-label="Search media"><kbd>/</kbd></label>
             <select class="select" id="mediaTypeSelect" aria-label="File type"><option value="all">All media</option><option value="image">Images</option><option value="video">Videos</option><option value="pdf">PDFs</option></select>
+            <select class="select" id="densitySelect" aria-label="Gallery density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option><option value="large">Large tiles</option></select>
             <select class="select" id="sortSelect" aria-label="Sort images"><option value="name">Name A–Z</option><option value="date-desc">Newest capture</option><option value="date-asc">Oldest capture</option><option value="review">Reviewed first</option></select>
             <button class="btn square" id="layoutButton" type="button" aria-label="Toggle list view" title="Toggle grid / list view">☷</button>
           </div>
-          <div id="folderChips" class="chips" aria-label="Collection filters"></div>
+          <div class="collection-picker" role="group" aria-label="Collection filters">
+            <label class="collection-search"><span aria-hidden="true">⌕</span><input id="folderSearch" type="search" placeholder="Find a collection…" aria-label="Find a collection" autocomplete="off"></label>
+            <select id="folderSelect" class="select collection-select" aria-label="Choose collection"><option value="all">All collections</option></select>
+            <span id="folderPickerCount" class="collection-count" role="status" aria-live="polite"></span>
+          </div>
           <div id="galleryNotice" class="gallery-notice hidden"></div>
           <div id="galleryGrid" class="image-grid" aria-live="polite"></div>
           <div id="loadMoreArea" class="load-more"></div>
         </section>
 
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
-          <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original inventory against the live files in your known folders. Nothing is edited in Drive or in the spreadsheet.</p></div><button id="healthScanButton" class="btn primary" type="button">↻ Scan now</button></div>
+          <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original inventory against the live files in your known folders. Nothing is edited in Drive or in the spreadsheet.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Full rescan</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
           <div class="health-summary" id="healthSummary">Connect Drive to inspect the indexed folders.</div>
           <div class="health-summary" id="syncStatus" role="status" aria-live="polite">Sync has not run yet.</div>
           <h2 class="health-heading">Recent differences</h2>
           <ul class="health-differences" id="healthChanges"><li>Run a scan to check for changes.</li></ul>
           <h2 class="health-heading">Known folders</h2>
           <div class="health-table-wrap"><table class="health-table"><thead><tr><th>Folder</th><th>Inventory</th><th>Live</th><th>Change</th></tr></thead><tbody id="healthRows"></tbody></table></div>
-          <p class="privacy-note">Scan compares up to 33 folders known to the spreadsheet, with API pagination. New items are shown in this session only. Video playback downloads a small preview only after you select Play video.</p>
+          <p class="privacy-note">Initial sync compares known folders with Drive; later checks use Drive changes where available. Only file metadata and a changes cursor may be cached on this device, never image bytes or Google tokens. Clear the cache anytime. Media files play only when requested.</p>
         </section>
       </main>
       <footer class="footer"><span>JACK'S IMAGE VAULT <b>•</b> READ-ONLY PWA</span><span id="footerStatus">Local preview · No private data stored</span></footer>
