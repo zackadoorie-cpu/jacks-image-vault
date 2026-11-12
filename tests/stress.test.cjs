@@ -234,3 +234,121 @@ test('33 folders and 8,250 files are scanned with at most three concurrent Drive
   assert.ok(peak<=3,'too many Drive requests in flight: '+peak);
   assert.ok(calls.every(x=>x.options.method==='GET'),'scanner must remain read-only');
 });
+
+
+test('incremental cursor checks use changes.list instead of rescanning all folders',async()=>{
+  const known=folder('Memes/Animated');
+  const initial=file(1,'image/gif');
+  const added=file(2,'video/webm');
+  let scans=0;
+  const {h,calls}=harness(async(url)=>{
+    if(url.includes('/changes?'))return ok({
+      changes:[{fileId:added.id,removed:false,file:{...added,parents:[known.id]}}],
+      newStartPageToken:'cursor-1'
+    });
+    scans++;
+    return ok({files:[initial]});
+  });
+  h.state.inventory=[inv(initial,known.path)];
+  h.state.images=[...h.state.inventory];
+  h.state.folderSources=[known];
+  h.state.syncedFolders.set(known.path,[initial]);
+  h.state.changeToken='cursor-0';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(scans,0);
+  assert.equal(calls.length,1);
+  assert.equal(h.state.changeToken,'cursor-1');
+  assert.equal(h.state.images.length,2);
+  assert.equal(h.state.images.find(x=>x.id===added.id).mime,'video/webm');
+});
+
+test('changes pagination applies moves and removals only after final page',async()=>{
+  const a=folder('Memes/Old','folder00000000001'),b=folder('Memes/New','folder00000000002');
+  const moved=file(1),deleted=file(2);
+  const {h,calls}=harness(async(url)=>{
+    const p=new URL(url).searchParams.get('pageToken');
+    if(p==='cursor-0')return ok({changes:[
+      {fileId:moved.id,removed:false,file:{...moved,parents:[b.id]}}
+    ],nextPageToken:'cursor-1'});
+    assert.equal(p,'cursor-1');
+    return ok({changes:[{fileId:deleted.id,removed:true}],newStartPageToken:'cursor-2'});
+  });
+  h.state.folderSources=[a,b];
+  h.state.inventory=[inv(moved,a.path),inv(deleted,a.path)];
+  h.state.images=[...h.state.inventory];
+  h.state.syncedFolders.set(a.path,[moved,deleted]);
+  h.state.syncedFolders.set(b.path,[]);
+  h.state.changeToken='cursor-0';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(calls.length,2);
+  assert.equal(h.state.changeToken,'cursor-2');
+  assert.equal(h.state.images.length,1);
+  assert.equal(h.state.images[0].folder,b.path);
+});
+
+test('failed incremental pagination leaves cursor and private folder snapshot untouched',async()=>{
+  const known=folder('Memes/Atomic');
+  const item=file(1);
+  const {h}=harness(async(url)=>{
+    const page=new URL(url).searchParams.get('pageToken');
+    if(page==='cursor-0')return ok({
+      changes:[{fileId:item.id,removed:true}],nextPageToken:'cursor-1'
+    });
+    return fail(403,'insufficientFilePermissions');
+  });
+  h.state.folderSources=[known];
+  h.state.inventory=[inv(item,known.path)];
+  h.state.images=[...h.state.inventory];
+  h.state.syncedFolders.set(known.path,[item]);
+  h.state.changeToken='cursor-0';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.changeToken,'cursor-0');
+  assert.equal(h.state.images.length,1);
+  assert.equal(h.state.syncedFolders.get(known.path).length,1);
+});
+
+test('verified metadata cache restores across app sessions without saving media or tokens',()=>{
+  const known=folder('Memes/Cached');
+  const item=file(1,'image/gif');
+  const {h,storage}=harness(async()=>ok({files:[]}));
+  h.state.config.sheetId='spreadsheet012345678';
+  h.state.folderSources=[known];
+  h.state.inventory=[inv(item,known.path)];
+  h.state.syncedFolders.set(known.path,[item]);
+  h.state.changeToken='cursor-3';
+  h.rememberSyncCache();
+  const raw=[...storage.values()].join('');
+  assert.match(raw,/cursor-3/);
+  assert.ok(!raw.includes('test-token-not-a-real-credential'));
+  assert.ok(!raw.includes('data:image'));
+  h.state.syncedFolders.clear();h.state.changeToken=null;
+  assert.equal(h.restoreSyncCache(),true);
+  assert.equal(h.state.syncedFolders.get(known.path).length,1);
+  assert.equal(h.state.changeToken,'cursor-3');
+});
+
+test('animated GIF opens its original on demand and cleans up when closed',async()=>{
+  const item={...inv(file(12,'image/gif'),'Memes/Animated'),size:400};
+  const {h,els,ctx,calls}=harness(async()=>new Response(Buffer.from('GIF89a'),{
+    status:200,headers:{'content-type':'application/octet-stream'}
+  }));
+  h.state.activeImage=item;
+  await h.playVideo();
+  assert.equal(calls.length,1);
+  assert.equal(els.get('modalPicture').lastChild.tagName,'IMG');
+  assert.ok(h.state.videoObjectUrl);
+  assert.equal(h.state.playingMediaId,item.id);
+  h.stopVideo();
+  assert.equal(h.state.videoObjectUrl,null);
+  assert.equal(h.state.playingMediaId,null);
+});
+
+test('unsupported WebM codec provides Drive fallback without a full file download',async()=>{
+  const item={...inv(file(13,'video/webm'),'Memes/Webms'),size:400};
+  const {h,ctx,calls,els}=harness(async()=>ok({}));
+  ctx.document.createElement=tag=>({canPlayType:()=>'',setAttribute(){},play(){return Promise.resolve();}});
+  h.state.activeImage=item;
+  await h.playVideo();
+  assert.equal(calls.length,0);
+  assert.match(els.get('previewDetails').textContent,/cannot play|Open in Drive/);
+});
