@@ -79,6 +79,7 @@
     scanController: null,
     scanGeneration: 0,
     scanFailures: new Map(),
+    syncErrorVisible: false,
     changeToken: null,
     driveIdentity: null,
     lastFullScanAt: null,
@@ -106,6 +107,8 @@
   const supportedMedia = mime => mime?.startsWith('image/') || mime?.startsWith('video/') || mime === 'application/pdf';
   const humanBytes = n => n ? `${(n / 1024 / 1024).toFixed(1)} MB` : 'Unknown size';
   const SCAN_INTERVAL = 15 * 60 * 1000;
+  const FULL_SCAN_INTERVAL = 24 * 60 * 60 * 1000;
+  const MAX_AMBIGUOUS_LOOKUPS = 25;
   const MAX_VIDEO_PREVIEW = 32 * 1024 * 1024;
   const MAX_GIF_PREVIEW = 20 * 1024 * 1024;
   const MAX_POSTER_VIDEO = 12 * 1024 * 1024;
@@ -398,8 +401,8 @@
     if(!state.driveIdentity||!state.changeToken||state.syncedFolders.size!==state.folderSources.length)return;
     // Only metadata and Drive's change cursor are stored locally. Never store
     // private file contents, Google bearer tokens or cached image bytes.
-    const cache={schema:2,sheetId:state.config.sheetId,driveIdentity:state.driveIdentity,signature:syncCacheSignature(),
-      savedAt:Date.now(),token:state.changeToken,
+    const cache={schema:3,sheetId:state.config.sheetId,driveIdentity:state.driveIdentity,signature:syncCacheSignature(),
+      savedAt:Date.now(),fullScanAt:state.lastFullScanAt,token:state.changeToken,
       folders:[...state.syncedFolders].map(([path,files])=>({path,files:files.map(f=>({
         id:f.id,name:f.name,mimeType:f.mimeType,size:f.size||0,modifiedTime:f.modifiedTime||''
       }))}))};
@@ -414,10 +417,12 @@
       if(!raw||raw.length>MAX_SYNC_CACHE)return false;
       data=JSON.parse(raw);
     }catch{return false;}
-    if(!state.driveIdentity||!data||data.schema!==2||data.driveIdentity!==state.driveIdentity||
+    if(!state.driveIdentity||!data||data.schema!==3||data.driveIdentity!==state.driveIdentity||
       data.sheetId!==state.config.sheetId||data.signature!==syncCacheSignature())return false;
     if(!Number.isFinite(data.savedAt)||Date.now()-data.savedAt>30*24*60*60*1000||data.savedAt>Date.now()+60*1000)return false;
     if(typeof data.token!=='string'||!data.token||data.token.length>2048||!Array.isArray(data.folders))return false;
+    const verifiedAt=Date.parse(data.fullScanAt);
+    if(!Number.isFinite(verifiedAt)||verifiedAt>data.savedAt+60000||verifiedAt>Date.now()+60000)return false;
     if(data.folders.length!==state.folderSources.length)return false;
     const allowed=new Set(state.folderSources.map(f=>f.path)), map=new Map();
     let total=0;
@@ -433,8 +438,8 @@
     }
     state.syncedFolders=map;
     state.changeToken=data.token;
-    state.lastFullScanAt=new Date(data.savedAt).toISOString();
-    state.lastScanAt=state.lastFullScanAt;
+    state.lastFullScanAt=new Date(verifiedAt).toISOString();
+    state.lastScanAt=new Date(data.savedAt).toISOString();
     for(const folder of state.folderSources)refreshFolderHealth(folder.path);
     return true;
   }
@@ -475,7 +480,10 @@
       if(state.connected&&document.visibilityState!=='hidden'&&!state.lastScanAt)syncWithDrive({quiet:true});
     },12000);
     state.scanTimer=setInterval(()=>{
-      if(state.connected&&document.visibilityState!=='hidden'&&!state.scanning&&Date.now()<state.expiry)syncWithDrive({quiet:true});
+      if(!state.connected||document.visibilityState==='hidden'||state.scanning||Date.now()>=state.expiry)return;
+      const verified=Date.parse(state.lastFullScanAt||'');
+      const due=!Number.isFinite(verified)||Date.now()-verified>=FULL_SCAN_INTERVAL;
+      syncWithDrive({quiet:true,full:due});
     },SCAN_INTERVAL);
   }
   async function listKnownFolder(folder,signal) {
