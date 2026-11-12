@@ -9,6 +9,9 @@
   const DENSITY_STORAGE = 'jack-vault-gallery-density-v1';
   const APP_PREFS_STORAGE = 'jack-vault-app-preferences-v1';
   const BROWSE_STORAGE = 'jack-vault-resume-position-v1';
+  const REVIEW_STORAGE = 'jack-vault-local-reviews-v1';
+  const MAX_REVIEW_BYTES = 2600000;
+  const MAX_REVIEW_ITEMS = 15000;
   const SYNC_CACHE_STORAGE = 'jack-vault-readonly-sync-cache-v1';
   const MAX_SYNC_CACHE = 1800000;
   const SCOPES = 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly';
@@ -63,6 +66,9 @@
     maxConcurrentThumbs: 5,
     observer: null,
     favorites: new Set(readFavorites()),
+    reviewEdits: new Map(),
+    reviewFilter: 'pending',
+    reviewDirty: false,
     installPrompt: null,
     updater: null,
     updateRepo: readUpdateRepo(),
@@ -225,6 +231,195 @@
     const active=state.connected&&browsingView()&&(window.scrollY||window.pageYOffset||0)>650;
     $('backToTop').classList.toggle('hidden',!active);
   }
+
+  function reviewStorageKey(){
+    if(!state.driveIdentity||!state.config.sheetId)return '';
+    return REVIEW_STORAGE+'-'+state.driveIdentity+'-'+state.config.sheetId;
+  }
+  function validateReviewEntry(value){
+    if(!value||typeof value!=='object'||Array.isArray(value))return null;
+    const description=value.description, tags=value.tags, status=value.status;
+    if(typeof description!=='string'||description.length>2000||
+       typeof tags!=='string'||tags.length>400||
+       !['draft','deferred','reviewed'].includes(status))return null;
+    if(status==='reviewed'&&!description.trim())return null;
+    if(!Number.isFinite(value.updatedAt)||value.updatedAt<0||value.updatedAt>Date.now()+60000)return null;
+    return {description,tags,status,updatedAt:value.updatedAt};
+  }
+  function parseReviewBackup(raw){
+    if(typeof raw!=='string'||raw.length>MAX_REVIEW_BYTES)throw new Error('Review backup is too large.');
+    let data;
+    try{data=JSON.parse(raw);}catch{throw new Error('Review backup is not valid JSON.');}
+    if(!data||data.schema!==1||data.account!==state.driveIdentity||
+       data.sheetId!==state.config.sheetId||!Array.isArray(data.items)||
+       data.items.length>MAX_REVIEW_ITEMS)throw new Error('This review backup is not for the current Drive account and inventory.');
+    const next=new Map();
+    for(const pair of data.items){
+      if(!Array.isArray(pair)||pair.length!==2||!safeId(pair[0])||next.has(pair[0]))
+        throw new Error('Review backup contains invalid or duplicate file identifiers.');
+      const validated=validateReviewEntry(pair[1]);
+      if(!validated)throw new Error('Review backup contains an invalid review record.');
+      next.set(pair[0],validated);
+    }
+    return next;
+  }
+  function reviewPayload(map){
+    return JSON.stringify({schema:1,account:state.driveIdentity,
+      sheetId:state.config.sheetId,exportedAt:new Date().toISOString(),items:[...map]});
+  }
+  function loadReviewNotes(){
+    state.reviewEdits=new Map();
+    const key=reviewStorageKey();
+    if(!key)return;
+    try{
+      const raw=localStorage.getItem(key);
+      if(raw)state.reviewEdits=parseReviewBackup(raw);
+      return null;
+    }catch(error){
+      return 'Saved reviews could not be read: '+error.message+'. Review storage was left unchanged.';
+    }
+  }
+  function writeReviewNotes(next){
+    const key=reviewStorageKey();
+    if(!key)throw new Error('Connect to Google Drive before saving reviews.');
+    const payload=reviewPayload(next);
+    if(next.size>MAX_REVIEW_ITEMS||payload.length>MAX_REVIEW_BYTES)
+      throw new Error('Review storage is full. Export a backup before making further changes.');
+    try{localStorage.setItem(key,payload);}
+    catch{throw new Error('Browser storage is unavailable or full. Export your review backup.');}
+    state.reviewEdits=next;
+  }
+  function effectiveDescription(item){
+    const note=state.reviewEdits.get(item.id);
+    return note?note.description:item.description||'';
+  }
+  function effectiveTags(item){
+    const note=state.reviewEdits.get(item.id);
+    return note?note.tags:item.tags||'';
+  }
+  function reviewStage(item){
+    const note=state.reviewEdits.get(item.id);
+    if(note?.status==='reviewed'&&effectiveDescription(item).trim())return 'reviewed';
+    if(note?.status==='deferred')return 'deferred';
+    if(note?.status==='draft')return 'pending';
+    const sourceStatus=String(item.review||'').toLowerCase();
+    // A description alone does not mean a person verified it. Source review
+    // evidence must be explicit, otherwise the item remains in Needs attention.
+    if(!effectiveDescription(item).trim()||item.newInDrive||
+       /(?:needs review|not reviewed|unreviewed|awaiting review|pending review)/.test(sourceStatus))
+      return 'pending';
+    return /(?:visually reviewed|reviewed by|review complete|verified by|approved|^verified\b|^reviewed\b)/.test(sourceStatus)?
+      'source-reviewed':'pending';
+  }
+  function reviewCounts(){
+    const counts={pending:0,deferred:0,reviewed:0,'source-reviewed':0};
+    for(const item of state.images){
+      if(!item.demo)counts[reviewStage(item)]++;
+    }
+    return counts;
+  }
+  function updateReviewCounts(){
+    const counts=reviewCounts();
+    $('reviewCount').textContent=state.connected?format(counts.pending+counts.deferred):'—';
+    return counts;
+  }
+  function refreshReviewPresentation(){
+    updateReviewCounts();
+    if(state.view==='home')renderHome();
+    else if(state.view!=='health')renderGallery();
+  }
+  function saveCurrentReview(status,{advance=false}={}){
+    const item=state.activeImage;
+    if(!item||!state.connected||item.demo)return false;
+    const description=$('reviewDescription').value.trim();
+    const tags=$('reviewTags').value.trim();
+    if(status==='reviewed'&&!description){
+      $('reviewEditorStatus').textContent='Add a description before marking this item reviewed.';
+      $('reviewDescription').focus();
+      return false;
+    }
+    const nextItem=advance?nextReviewItem(item.id):null;
+    const next=new Map(state.reviewEdits);
+    next.set(item.id,{description,tags,status,updatedAt:Date.now()});
+    try{writeReviewNotes(next);}
+    catch(error){$('reviewEditorStatus').textContent=error.message;return false;}
+    state.reviewDirty=false;
+    $('reviewEditorStatus').textContent=status==='reviewed'?'Reviewed and saved on this device.':
+      status==='deferred'?'Moved to Review later.':'Draft saved on this device.';
+    refreshReviewPresentation();
+    if(advance&&nextItem){
+      const fresh=state.images.find(x=>x.id===nextItem.id);
+      if(fresh)openImage(fresh.id);
+    }else if(advance&&state.view==='review'){
+      // Keep the current image visible with its saved status when the queue is empty.
+      populateImageDialog();
+    }else populateImageDialog();
+    return true;
+  }
+  function nextReviewItem(id){
+    if(state.view!=='review')return null;
+    const queue=filterImages();
+    const index=queue.findIndex(item=>item.id===id);
+    return queue[index+1]||queue.find(item=>item.id!==id)||null;
+  }
+  function resetCurrentReview(){
+    const item=state.activeImage;
+    if(!item||!state.reviewEdits.has(item.id))return;
+    const next=new Map(state.reviewEdits);next.delete(item.id);
+    try{writeReviewNotes(next);}
+    catch(error){$('reviewEditorStatus').textContent=error.message;return;}
+    state.reviewDirty=false;
+    refreshReviewPresentation();
+    populateImageDialog();
+    $('reviewEditorStatus').textContent='Local correction cleared. Original inventory data restored.';
+  }
+  function exportReviewBackup(){
+    if(!state.connected||!reviewStorageKey())return;
+    const json=reviewPayload(state.reviewEdits);
+    const url=URL.createObjectURL(new Blob([json],{type:'application/json'}));
+    const link=document.createElement('a');
+    link.href=url;link.download='image-vault-reviews-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.appendChild(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),10000);
+  }
+  async function importReviewBackup(file){
+    if(!file||!state.connected)return;
+    if(file.size>MAX_REVIEW_BYTES)throw new Error('Review backup exceeds 2.6 MB.');
+    const next=parseReviewBackup(await file.text());
+    if(!confirm('Replace the '+state.reviewEdits.size+' local review records with '+next.size+
+        ' records from this backup? Drive and Sheets will not be changed.'))return;
+    writeReviewNotes(next);
+    refreshReviewPresentation();
+    alertUser('Imported '+next.size+' review records for this Drive account. Originals unchanged.','success');
+  }
+  function renderReviewToolbar(){
+    const shown=state.view==='review';
+    $('reviewToolbar').classList.toggle('hidden',!shown);
+    if(!shown)return;
+    const counts=updateReviewCounts();
+    $('reviewQueueFilter').value=state.reviewFilter;
+    const done=counts.reviewed+counts['source-reviewed'];
+    const total=counts.pending+counts.deferred+done;
+    $('reviewProgress').textContent=format(done)+' reviewed / '+format(total)+' items';
+    $('reviewHelp').textContent=format(counts.pending)+' need attention · '+
+      format(counts.deferred)+' deferred · '+format(counts.reviewed)+' reviewed locally';
+  }
+  function populateReviewEditor(item){
+    const editor=$('reviewForm');
+    editor.classList.toggle('hidden',!state.connected||!!item.demo);
+    if(!state.connected||item.demo)return;
+    const local=state.reviewEdits.get(item.id),status=reviewStage(item);
+    $('reviewDescription').value=effectiveDescription(item);
+    $('reviewTags').value=effectiveTags(item);
+    $('reviewEditorNote').textContent=local?
+      'Saved locally · '+status.replace('-',' ')+' · '+new Date(local.updatedAt).toLocaleString():
+      'From original spreadsheet · '+status.replace('-',' ')+'. Save to create your own local review.';
+    $('reviewEditorStatus').textContent='';
+    $('reviewDefer').textContent=status==='deferred'?'Keep for later':'Review later';
+    $('reviewReset').disabled=!local;
+    state.reviewDirty=false;
+  }
+
   function readFavorites() {
     try {const f = JSON.parse(localStorage.getItem(FAVORITES_STORAGE) || '[]'); return Array.isArray(f) ? f.filter(safeId) : [];}
     catch {return [];}
@@ -243,6 +438,7 @@
     $('disconnectButton').classList.toggle('hidden', !state.connected);
     $('heroConnectButton').classList.toggle('hidden', state.connected);
     $('allCount').textContent = state.connected ? format(state.images.length) : '—';
+    updateReviewCounts();
     $('footerStatus').textContent = state.connected ? 'Private media metadata · Read-only Drive access' : 'Preview · Connect to browse private files';
     $('syncButton').classList.toggle('hidden', !state.connected);
   }
@@ -381,19 +577,21 @@
       state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
+      const reviewLoadWarning=loadReviewNotes();
       if(restoreSyncCache())mergeLiveFolders();
       buildFolderIndex(); updateStatus();
       const resumed=restoreBrowsingPosition();
       displayPage(resumed?state.view:'home',{reset:false,scroll:false});
       if(resumed)finishBrowsingRestore();
       clearAlert();
-      alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
+      if(reviewLoadWarning)alertUser('Drive connected, but '+reviewLoadWarning,'error');
+      else alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
       scheduleScans();
     } catch (error) {
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
       state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
-      state.images=DEMO;state.connected=false;state.folder='all';state.page=1;
+      state.images=DEMO;state.connected=false;state.reviewEdits.clear();state.reviewFilter='pending';state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
     }
@@ -1108,7 +1306,7 @@
     saveBrowsingPosition();
     stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
-    clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.reviewDirty=false;state.reviewFilter='pending';state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -1153,7 +1351,7 @@
     $('statImages').textContent=count(state.images.length);
     $('statMemes').textContent=count(state.images.filter(x=>folderKind(x.folder)==='memes').length);
     $('statPhotos').textContent=count(state.images.filter(x=>folderKind(x.folder)==='photos').length);
-    $('statDescribed').textContent=count(state.images.filter(x=>!!x.description).length);
+    $('statDescribed').textContent=count(state.images.filter(x=>!!effectiveDescription(x).trim()).length);
     // Featured collections are selected from the private inventory at runtime.
     // Never bake personal folder names into a public GitHub application bundle.
     const featured = state.connected ? [
@@ -1181,11 +1379,16 @@
       if(state.view==='memes' && kind!=='memes')return false;
       if(state.view==='photos' && kind!=='photos')return false;
       if(state.view==='favorites' && !state.favorites.has(image.id))return false;
-      if(state.view==='review' && image.description.trim())return false;
+      if(state.view==='review'){
+        const stage=reviewStage(image);
+        if(state.reviewFilter==='pending'&&stage!=='pending')return false;
+        if(state.reviewFilter==='deferred'&&stage!=='deferred')return false;
+        if(state.reviewFilter==='reviewed'&&stage!=='reviewed')return false;
+      }
       if(state.folder!=='all' && image.folder!==state.folder)return false;
       if(state.mediaType!=='all' && mediaKind(image)!==state.mediaType)return false;
       if(!term)return true;
-      return [image.folder,image.name,image.description,image.tags,image.captureDate,image.category].join(' ').toLocaleLowerCase().includes(term);
+      return [image.folder,image.name,effectiveDescription(image),effectiveTags(image),image.captureDate,image.category].join(' ').toLocaleLowerCase().includes(term);
     });
     arr.sort((a,b)=>{
       if(state.sort==='date-desc') return String(b.captureDate).localeCompare(String(a.captureDate))||a.name.localeCompare(b.name);
@@ -1261,8 +1464,12 @@
     state.autoLoadObserver?.disconnect();state.autoLoadObserver=null;
     state.autoLoadPending=false;
     const title=galleryTitle();$('galleryTitle').textContent=title;
+    renderReviewToolbar();
     $('galleryEyebrow').textContent=state.connected?'YOUR PRIVATE LIBRARY':'DESIGN PREVIEW';
-    $('galleryDescription').textContent=state.connected ? 'Search the existing Drive inventory. Previews load as you scroll.' : 'Connect your Google Drive to load your real collections and thumbnails.';
+    $('galleryDescription').textContent=state.connected ?
+      state.view==='review'?'Approve descriptions, defer uncertain files, and keep personal tags on this device.':
+      'Search the current Drive library. Previews load as you scroll.' :
+      'Connect Google Drive to load your real collections and thumbnails.';
     $('galleryGrid').classList.toggle('list',state.layout==='list');
     $('galleryGrid').dataset.density=state.density;
     $('densitySelect').value=state.density;
@@ -1290,7 +1497,7 @@
       if (visibleIds.has(job.id)) return true;
       state.loadingThumbs.delete(job.id);return false;
     });
-    if(!items.length){$('galleryGrid').innerHTML=`<div class="empty-state"><span>⌕</span><strong>No media found</strong><p>${state.view==='favorites'?'Favorite an image in its detail view to collect it here.':'Try a different search or collection, or connect your Drive.'}</p></div>`;}
+    if(!items.length){$('galleryGrid').innerHTML=`<div class="empty-state"><span>⌕</span><strong>${state.view==='review'&&state.reviewFilter==='pending'?'All caught up!':'No media found'}</strong><p>${state.view==='favorites'?'Favorite an image in its detail view to collect it here.':state.view==='review'?'Try another review status, or narrow the search.':'Try another search or collection, or connect your Drive.'}</p></div>`;}
     else $('galleryGrid').innerHTML=items.map(tileHTML).join('');
     bindGalleryTileEvents(
       $('galleryGrid').querySelectorAll('[data-open-image]'),
@@ -1309,10 +1516,16 @@
     $('retryFailedButton').classList.toggle('hidden',!state.connected||!failed);
   }
   function tileHTML(item) {
-    const style=folderStyle(item.folder), favorite=state.favorites.has(item.id), kind=mediaKind(item);
+    const style=folderStyle(item.folder),favorite=state.favorites.has(item.id),kind=mediaKind(item);
     const date=item.captureDate?item.captureDate.slice(0,10):folderName(item.folder);
-    const error=state.thumbErrors.get(item.id);
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):kind==='pdf'?'PDF':isGIF(item)?'GIF':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    const error=state.thumbErrors.get(item.id),description=effectiveDescription(item);
+    const status=reviewStage(item),note=state.reviewEdits.get(item.id);
+    const badge=item.demo?'SAMPLE':status==='reviewed'?'REVIEWED':status==='deferred'?'LATER':
+      status==='pending'?'NEEDS REVIEW':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):
+      kind==='pdf'?'PDF':isGIF(item)?'GIF':'DESCRIBED';
+    const badgeClass=(status==='reviewed'||status==='source-reviewed')&&!item.demo?'reviewed':
+      status==='deferred'?'deferred':'';
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   function observeThumbs() {
     state.observer?.disconnect();
@@ -1461,11 +1674,14 @@
     $('modalLocation').textContent=item.folder;
     $('modalCollection').textContent=item.collection.toUpperCase();
     $('modalTitle').textContent=item.name;
-    $('modalDescription').textContent=item.description||'This image has no verified description yet.';
-    const fields=[['Tags',item.tags||'Not indexed'],['Capture date',item.captureDate||'Unknown or unverified'],['Review',item.review||'Not reviewed'],['Visual confidence',item.confidence||'Not provided']];
+    $('modalDescription').textContent=effectiveDescription(item)||'This image has no verified description yet.';
+    const fields=[['Tags',effectiveTags(item)||'Not indexed'],['Capture date',item.captureDate||'Unknown or unverified'],
+      ['Local review',reviewStage(item).replace('-',' ')],
+      ['Source review',item.review||'Not reviewed'],['Source confidence',item.confidence||'Not provided']];
     $('modalMeta').innerHTML=fields.map(([key,val])=>`<dt>${escapeHTML(key)}</dt><dd>${escapeHTML(val)}</dd>`).join('');
     const link=$('openDriveLink');link.href=linkToDrive(item)||'#';link.classList.toggle('hidden',!linkToDrive(item));
     $('favoriteImage').disabled=item.demo;updateFavoriteButton();
+    populateReviewEditor(item);
     const playable=mediaKind(item)==='video'||isGIF(item);
     $('playVideoButton').classList.toggle('hidden',!playable||item.demo);
     $('playVideoButton').textContent=isGIF(item)?'▶ Play GIF animation':'▶ Play video';
@@ -1655,10 +1871,18 @@
   }
   function stepImage(direction) {
     if(!state.activeImage)return;
+    if(state.reviewDirty&&!confirm('Discard unsaved changes to this review?'))return;
+    state.reviewDirty=false;
     const at=state.filtered.findIndex(x=>x.id===state.activeImage.id);const next=state.filtered[at+direction];
     if(next){stopVideo();state.activeImage=next;populateImageDialog();if(state.connected)requestThumb(next,{priority:true});}
   }
-  function closeImage(){stopVideo();if($('imageDialog').open)$('imageDialog').close();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();}
+  function closeImage(){
+    if(state.reviewDirty&&!confirm('Discard unsaved review changes?'))return;
+    state.reviewDirty=false;stopVideo();
+    if($('imageDialog').open)$('imageDialog').close();
+    state.activeImage=null;
+    if(state.returnFocus?.isConnected)state.returnFocus.focus();
+  }
   function installApp() {if(state.installPrompt){const event=state.installPrompt;state.installPrompt=null;event.prompt();event.userChoice?.catch(()=>{});}else $('installDialog').showModal();}
   function showUpdateMessage(message,error=false){const el=$('updateStatusMessage');el.textContent=message;el.classList.toggle('error',error);}
   function updateRepoValue(){return $('updateRepo').value.trim();}
@@ -1782,6 +2006,25 @@
     $('mediaTypeSelect').onchange=event=>{state.mediaType=event.target.value;state.page=1;renderGallery();};
     $('folderSearch').oninput=event=>{state.folderQuery=event.target.value;renderGallery();};
     $('folderSelect').onchange=event=>{state.folder=event.target.value;state.page=1;renderGallery();};
+    $('reviewQueueFilter').onchange=event=>{
+      if(!['pending','deferred','reviewed','all'].includes(event.target.value))return;
+      state.reviewFilter=event.target.value;state.page=1;renderGallery();
+    };
+    $('reviewDescription').oninput=()=>{state.reviewDirty=true;};
+    $('reviewTags').oninput=()=>{state.reviewDirty=true;};
+    $('reviewForm').onsubmit=event=>{event.preventDefault();saveCurrentReview('reviewed',{advance:true});};
+    $('reviewSaveDraft').onclick=()=>saveCurrentReview('draft');
+    $('reviewDefer').onclick=()=>saveCurrentReview('deferred',{advance:true});
+    $('reviewReset').onclick=resetCurrentReview;
+    $('reviewExport').onclick=exportReviewBackup;
+    $('reviewImport').onclick=()=>$('reviewImportFile').click();
+    $('reviewImportFile').onchange=async event=>{
+      const file=event.target.files?.[0];
+      if(!file)return;
+      try{await importReviewBackup(file);}
+      catch(error){alertUser('Review import failed: '+error.message,'error');}
+      finally{event.target.value='';}
+    };
     $('densitySelect').onchange=event=>{
       if(!['comfortable','compact','large'].includes(event.target.value))return;
       state.density=event.target.value;
@@ -1802,7 +2045,11 @@
     $('favoriteImage').onclick=()=>{if(!state.activeImage?.demo){toggleFavorite(state.activeImage.id);renderGallery();}};
     $('retryPreview').onclick=()=>{if(state.activeImage){requestThumb(state.activeImage,{priority:true,force:true});renderModalPicture();}};
     $('retryFailedButton').onclick=()=>{for(const item of state.filtered.slice(0,state.page*state.pageSize)){if(state.thumbErrors.has(item.id))requestThumb(item,{force:true});}updatePreviewStats();};
-    $('imageDialog').addEventListener('close',()=>{stopVideo();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();});
+    $('imageDialog').addEventListener('cancel',event=>{
+      if(state.reviewDirty&&!confirm('Discard unsaved review changes?'))event.preventDefault();
+      else state.reviewDirty=false;
+    });
+    $('imageDialog').addEventListener('close',()=>{state.reviewDirty=false;stopVideo();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();});
     $('backToTop').onclick=()=>window.scrollTo({top:0,behavior:'smooth'});
     window.addEventListener('scroll',()=>{
       updateScrollControls();
@@ -1810,7 +2057,13 @@
     },{passive:true});
     window.addEventListener('pagehide',saveBrowsingPosition);
     window.addEventListener('keydown',event=>{
-      if($('imageDialog').open){if(event.key==='ArrowLeft'){event.preventDefault();stepImage(-1);}if(event.key==='ArrowRight'){event.preventDefault();stepImage(1);}return;}
+      if($('imageDialog').open){
+        const tag=event.target?.tagName||'';
+        if(/^(INPUT|TEXTAREA|SELECT)$/.test(tag)||event.target?.isContentEditable)return;
+        if(event.key==='ArrowLeft'){event.preventDefault();stepImage(-1);}
+        if(event.key==='ArrowRight'){event.preventDefault();stepImage(1);}
+        return;
+      }
       if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)){
         event.preventDefault();if(state.view==='home')displayPage('all');$('searchInput').focus();
       }

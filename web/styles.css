@@ -130,3 +130,29 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .health-table td:last-child{min-width:170px}
 @media(max-width:900px){.index-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:500px){.index-metrics{grid-template-columns:1fr 1fr;gap:8px}.index-metric{padding:11px}.index-metric strong{font-size:24px}}
+
+/* v2.0.8 — actionable Needs Review, local annotations and backup controls */
+.review-toolbar{background:#1a1e2c;border:1px solid #3b3c55;border-radius:15px;padding:16px 18px;margin:12px 0 18px}
+.review-toolbar-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.review-toolbar-heading strong{font-size:16px;color:#f0eaff}
+.review-toolbar-heading small{display:block;color:#abb1c6;margin-top:4px;font-size:12px;line-height:1.5}
+.review-filter-label{display:flex!important;align-items:center;gap:10px;margin:0!important}
+.review-filter-label select{min-width:180px}
+.review-toolbar-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:12px 0}
+.review-privacy{font-size:11px;line-height:1.65;color:#9da4ba;margin:10px 0 0}
+.review-editor{border-top:1px solid #44405a;padding:16px 0 8px;margin:14px 0}
+.review-editor h3{font-size:16px;margin:0 0 7px;color:#f0eaff}
+.review-editor-note{font-size:12px;color:#aaa7c4;line-height:1.5;margin:0 0 14px}
+.review-editor .field-label{display:block;margin:11px 0 6px}
+.review-textarea{width:100%;resize:vertical;min-height:88px;line-height:1.5}
+.review-editor-actions{display:flex;gap:8px;flex-wrap:wrap;margin:13px 0 7px}
+.review-editor-actions .btn{min-height:38px}
+.review-editor-status{font-size:12px;color:#c5c0de;min-height:18px;line-height:1.5;margin:5px 0}
+.tile-badge.deferred{background:#584725;color:#ffe1a6}
+@media(max-width:680px){
+  .review-toolbar{padding:13px}
+  .review-toolbar-heading{align-items:stretch}
+  .review-filter-label{width:100%;justify-content:space-between}
+  .review-filter-label select{max-width:65%;min-width:0}
+  .review-editor-actions .btn{flex:1 1 auto}
+}

@@ -13,6 +13,22 @@
 - The app checks the configured public GitHub repository at most once daily while open (on startup), but **never downloads or installs patches without your approval**.
 - Shell-only service worker is network-first, so approved UI patches are visible after reload. No private Drive data is cached by the service worker.
 
+## Review workspace (v2.0.8)
+
+The **Needs Review** view is now an actionable local review queue, not simply a filter for empty descriptions.
+
+- **Needs attention:** Images lacking a description, new Drive files, and images explicitly marked not reviewed in the source spreadsheet.
+- **Review later:** Defer an item without altering the original filename or metadata.
+- **Reviewed locally:** Approve a verified description and optionally add tags. A nonempty description is required before completing a review.
+- **Source-reviewed:** Items with descriptions and visual review status already recorded in the spreadsheet remain recognized as reviewed, without pretending you manually approved them. Select **All items** to view the full queue context.
+- **Open an item** to edit its visual description and comma-separated personal tags. Choose **Approve & next**, **Save draft**, **Review later**, or **Reset local changes**. Unsaved edits prompt before navigating away.
+- **Review counts:** The sidebar reflects outstanding and deferred items. The review toolbar shows your progress.
+- **Persistent but private:** Personal reviews are stored in the Windows app's browser storage, keyed to the current Google account and inventory Sheet ID, not in the public repository or in Drive. The app never writes to Google Drive or modifies the inventory.
+- **Backup:** Choose **Export review backup** to download a local JSON file, or **Import backup** after explicitly approving replacement of existing local reviews. The import verifies the account/Sheet and validates every entry before replacing anything. Save a backup before clearing browser site data or switching PCs.
+- **Sync-safe:** Reviews track the original Drive file ID, so local descriptions survive files moving between discovered folders. Deleted files may still have preserved review notes for a future restore.
+
+These are **manual reviews**, not AI-generated descriptions. Existing spreadsheet descriptions are kept as the original reference. New local corrections do not silently overwrite verified source descriptions.
+
 ## Live Drive indexing (v2.0.7)
 
 **The Google Sheets inventory is a historical snapshot.** A file remains in that sheet until the sheet is separately updated, even when the file is deleted in Drive. Image Vault does **not** edit the sheet or Drive content. It instead reconciles the gallery against live read-only Drive results and reports differences.
