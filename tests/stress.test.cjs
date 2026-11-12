@@ -8,7 +8,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
 const suffix = '  init();\n})();';
 assert.ok(source.includes(suffix), 'Application bootstrap changed; adjust the test harness');
-const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, stopVideo, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth};\n})();');
+const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, generateVideoThumbnail, stopVideo, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth};\n})();');
 
 const id = i => 'media' + String(i).padStart(12, '0');
 const folder = (name, folderId = 'folder00000000001') => ({path: name, id: folderId});
@@ -392,4 +392,45 @@ test('a second Google account cannot restore the first account’s local metadat
   h.state.driveIdentity='permission000000002';
   assert.equal(h.restoreSyncCache(),false);
   assert.equal(h.state.syncedFolders.size,0);
+});
+
+
+test('oversized videos never download originals for thumbnail generation',async()=>{
+  const {h,calls,els}=harness(async()=>ok({}));
+  h.state.activeImage={...inv(file(88,'video/mp4'),'Memes/Clips'),size:13*1024*1024};
+  await h.generateVideoThumbnail();
+  assert.equal(calls.length,0);
+  assert.match(els.get('previewDetails').textContent,/12 MB thumbnail limit/);
+});
+
+test('small local video frame generation produces a cached poster without Drive writes',async()=>{
+  const {h,calls,ctx}=harness(async()=>new Response(Buffer.from('synthetic-mp4'),{
+    status:200,headers:{'content-type':'application/octet-stream'}
+  }));
+  const item={...inv(file(89,'video/mp4'),'Memes/Clips'),size:512};
+  h.state.activeImage=item;
+  ctx.document.createElement=(tag)=>{
+    if(tag==='video'){
+      const handlers={};
+      return {
+        videoWidth:640,videoHeight:480,muted:false,playsInline:false,preload:'',
+        setAttribute(){},removeAttribute(){},pause(){},
+        addEventListener(event,handler){handlers[event]=handler;},
+        removeEventListener(event){delete handlers[event];},
+        load(){if(this.src)queueMicrotask(()=>handlers.loadeddata?.());}
+      };
+    }
+    if(tag==='canvas')return {
+      width:0,height:0,
+      getContext(){return{drawImage(){}};},
+      toBlob(cb){cb(new Blob(['jpeg-preview'],{type:'image/jpeg'}));}
+    };
+    return {};
+  };
+  await h.generateVideoThumbnail();
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].options.method,'GET');
+  assert.equal(h.state.thumbCache.get(item.id)?.kind,'generated');
+  assert.equal(h.state.posterController,null);
+  assert.ok(!h.state.posterError.has(item.id));
 });
