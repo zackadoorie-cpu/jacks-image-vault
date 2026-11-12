@@ -763,7 +763,7 @@
     if(record&&Array.isArray(record.parents))return {removed:false,record};
     // The Changes API can omit parents or the whole file resource, including
     // for unrelated files. Never let one missing parents field block deletions.
-    if(!known&&(!record||!supportedMedia(record.mimeType)))return {skip:true};
+    if(!known&&(!record||(!supportedMedia(record.mimeType)&&record.mimeType!==DRIVE_FOLDER_MIME)))return {skip:true};
     const params=new URLSearchParams({
       fields:'id,name,mimeType,size,parents,trashed,modifiedTime',
       supportsAllDrives:'true'
