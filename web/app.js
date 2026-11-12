@@ -6,6 +6,9 @@
   const FAVORITES_STORAGE = 'jack-vault-favorites-v2';
   const REPO_STORAGE = 'jack-vault-public-update-repo-v2';
   const UPDATE_CHECK_STORAGE = 'jack-vault-last-update-check-v2';
+  const DENSITY_STORAGE = 'jack-vault-gallery-density-v1';
+  const SYNC_CACHE_STORAGE = 'jack-vault-readonly-sync-cache-v1';
+  const MAX_SYNC_CACHE = 1800000;
   const SCOPES = 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly';
   const FALLBACK_ICONS = ['✦', '☼', '❖', '☺', '◈', '✺', '✻', '✿'];
   const DEMO = [
@@ -32,6 +35,8 @@
     search: '',
     sort: 'name',
     layout: 'grid',
+    density: readDensity(),
+    folderQuery: '',
     page: 1,
     pageSize: 32,
     filtered: [],
@@ -63,8 +68,12 @@
     scanController: null,
     scanGeneration: 0,
     scanFailures: new Map(),
+    changeToken: null,
+    driveIdentity: null,
+    lastFullScanAt: null,
     videoObjectUrl: null,
     videoController: null,
+    playingMediaId: null,
   };
   const safeId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{10,}$/.test(id);
   const format = n => Number(n || 0).toLocaleString('en-US');
@@ -84,12 +93,18 @@
   const humanBytes = n => n ? `${(n / 1024 / 1024).toFixed(1)} MB` : 'Unknown size';
   const SCAN_INTERVAL = 15 * 60 * 1000;
   const MAX_VIDEO_PREVIEW = 32 * 1024 * 1024;
+  const MAX_GIF_PREVIEW = 20 * 1024 * 1024;
+  const isGIF = item => (item?.mime||'').toLowerCase()==='image/gif';
   const linkToDrive = item => safeId(item?.id) ? `https://drive.google.com/file/d/${encodeURIComponent(item.id)}/view` : '';
   function readSettings() {
     try {const p = JSON.parse(localStorage.getItem(SHELL_STORAGE) || '{}'); return {clientId:p.clientId || '', sheetId:p.sheetId || ''};}
     catch {return {clientId:'',sheetId:''};}
   }
   function readUpdateRepo() {try {return localStorage.getItem(REPO_STORAGE) || '';} catch {return '';}}
+  function readDensity() {
+    try{const value=localStorage.getItem(DENSITY_STORAGE);return ['comfortable','compact','large'].includes(value)?value:'comfortable';}
+    catch{return 'comfortable';}
+  }
   function readFavorites() {
     try {const f = JSON.parse(localStorage.getItem(FAVORITES_STORAGE) || '[]'); return Array.isArray(f) ? f.filter(safeId) : [];}
     catch {return [];}
@@ -211,6 +226,13 @@
     stopScans();
     const btn = $('connectButton'); btn.disabled = true; btn.textContent = 'Reading library…';
     try {
+      // Bind cached file metadata to the actual signed-in Drive account.
+      // If unavailable, the app continues without using local cache.
+      state.driveIdentity=null;
+      try{
+        const about=await googleGet('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)');
+        if(safeId(about?.user?.permissionId))state.driveIdentity=about.user.permissionId;
+      }catch{}
       const id = encodeURIComponent(state.config.sheetId);
       const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G"];
       const params = ranges.map(x => `ranges=${encodeURIComponent(x)}`).join('&');
@@ -235,20 +257,90 @@
       state.inventory = images;
       state.folderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
         .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0)}));
-      state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;
+      state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
+      if(restoreSyncCache())mergeLiveFolders();
       buildFolderIndex(); updateStatus(); render(); clearAlert();
       alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
       scheduleScans();
     } catch (error) {
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
-      state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;
+      state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
       state.images=DEMO;state.connected=false;state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
     }
     finally {btn.disabled = false; btn.textContent = 'Connect Drive';}
+  }
+
+  function syncCacheSignature(){
+    // The cache is tied to this inventory's exact known folders.
+    return state.folderSources.map(f=>f.path+':'+f.id).join('|');
+  }
+  function clearLocalSyncCache(){
+    try{localStorage.removeItem(SYNC_CACHE_STORAGE);}catch{}
+  }
+  function rememberSyncCache(){
+    if(!state.driveIdentity||!state.changeToken||state.syncedFolders.size!==state.folderSources.length)return;
+    // Only metadata and Drive's change cursor are stored locally. Never store
+    // private file contents, Google bearer tokens or cached image bytes.
+    const cache={schema:2,sheetId:state.config.sheetId,driveIdentity:state.driveIdentity,signature:syncCacheSignature(),
+      savedAt:Date.now(),token:state.changeToken,
+      folders:[...state.syncedFolders].map(([path,files])=>({path,files:files.map(f=>({
+        id:f.id,name:f.name,mimeType:f.mimeType,size:f.size||0,modifiedTime:f.modifiedTime||''
+      }))}))};
+    const json=JSON.stringify(cache);
+    if(json.length>MAX_SYNC_CACHE)return; // Never exhaust localStorage on huge libraries.
+    try{localStorage.setItem(SYNC_CACHE_STORAGE,json);}catch{}
+  }
+  function restoreSyncCache(){
+    let data;
+    try{
+      const raw=localStorage.getItem(SYNC_CACHE_STORAGE);
+      if(!raw||raw.length>MAX_SYNC_CACHE)return false;
+      data=JSON.parse(raw);
+    }catch{return false;}
+    if(!state.driveIdentity||!data||data.schema!==2||data.driveIdentity!==state.driveIdentity||
+      data.sheetId!==state.config.sheetId||data.signature!==syncCacheSignature())return false;
+    if(!Number.isFinite(data.savedAt)||Date.now()-data.savedAt>30*24*60*60*1000||data.savedAt>Date.now()+60*1000)return false;
+    if(typeof data.token!=='string'||!data.token||data.token.length>2048||!Array.isArray(data.folders))return false;
+    if(data.folders.length!==state.folderSources.length)return false;
+    const allowed=new Set(state.folderSources.map(f=>f.path)), map=new Map();
+    let total=0;
+    for(const entry of data.folders){
+      if(!entry||!allowed.has(entry.path)||map.has(entry.path)||!Array.isArray(entry.files))return false;
+      const files=[];
+      for(const f of entry.files){
+        if(!safeId(f.id)||typeof f.name!=='string'||f.name.length>512||!supportedMedia(f.mimeType))return false;
+        if(++total>20000)return false;
+        files.push({id:f.id,name:f.name,mimeType:f.mimeType,size:Number(f.size)||0,modifiedTime:f.modifiedTime||''});
+      }
+      map.set(entry.path,files);
+    }
+    state.syncedFolders=map;
+    state.changeToken=data.token;
+    state.lastFullScanAt=new Date(data.savedAt).toISOString();
+    state.lastScanAt=state.lastFullScanAt;
+    for(const folder of state.folderSources)refreshFolderHealth(folder.path);
+    return true;
+  }
+  function refreshFolderHealth(path){
+    const files=state.syncedFolders.get(path);
+    if(!files)return;
+    const known=state.inventory.filter(x=>x.folder===path);
+    const knownIDs=new Set(known.map(x=>x.id)),currentIDs=new Set(files.map(x=>x.id));
+    state.health.set(path,{
+      folder:path,sourceCount:known.length,driveCount:files.length,
+      added:files.filter(x=>!knownIDs.has(x.id)).map(x=>({id:x.id,name:x.name,mime:x.mimeType})),
+      missing:known.filter(x=>!currentIDs.has(x.id)).map(x=>({id:x.id,name:x.name,mime:x.mime})),
+      checkedAt:new Date().toISOString()
+    });
+  }
+  async function startChangeCursor(signal){
+    const data=await googleGet('https://www.googleapis.com/drive/v3/changes/startPageToken?fields=startPageToken&supportsAllDrives=true',{signal});
+    if(typeof data.startPageToken!=='string'||!data.startPageToken)throw new Error('Google did not return a changes cursor');
+    return data.startPageToken;
   }
 
   function stopScans() {
@@ -345,8 +437,90 @@
     $('syncStatus').textContent=message;
     $('syncStatus').classList.toggle('error',error);
   }
-  async function syncWithDrive({quiet=false}={}){
+  async function listDriveChanges(token,signal){
+    const changes=[],seen=new Set();
+    let pageToken=token,page=0;
+    while(true){
+      if(signal?.aborted)throw new Error('Sync cancelled');
+      if(++page>20)throw new Error('Too many changes pages. Use Full rescan.');
+      if(seen.has(pageToken))throw new Error('Google repeated a changes page token.');
+      seen.add(pageToken);
+      const params=new URLSearchParams({
+        pageToken,pageSize:'1000',includeRemoved:'true',includeItemsFromAllDrives:'true',
+        supportsAllDrives:'true',
+        fields:'nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,size,parents,trashed,modifiedTime))'
+      });
+      const data=await googleGet(`https://www.googleapis.com/drive/v3/changes?${params.toString()}`,{signal});
+      if(!Array.isArray(data.changes))throw new Error('Google returned invalid changes data.');
+      changes.push(...data.changes);
+      if(changes.length>15000)throw new Error('Too many changes. Use Full rescan.');
+      if(data.nextPageToken){pageToken=data.nextPageToken;continue;}
+      if(!data.newStartPageToken)throw new Error('No updated changes cursor returned. Use Full rescan.');
+      return {changes,token:data.newStartPageToken};
+    }
+  }
+  async function syncDriveChanges({quiet=false}={}){
+    if(state.scanning||!state.connected||!state.changeToken)return;
+    const generation=++state.scanGeneration,controller=new AbortController();
+    const active=()=>state.connected&&state.scanGeneration===generation&&!controller.signal.aborted;
+    state.scanController=controller;state.scanning=true;
+    $('syncButton').disabled=true;$('healthScanButton').disabled=true;
+    try{
+      updateScanSummary('Checking recent Drive changes…');
+      const result=await listDriveChanges(state.changeToken,controller.signal);
+      if(!active())return;
+      const byFolderID=new Map(state.folderSources.map(f=>[f.id,f.path]));
+      const staged=new Map([...state.syncedFolders].map(([path,files])=>[path,files.slice()]));
+      const affected=new Set();
+      for(const change of result.changes){
+        if(!safeId(change.fileId))continue;
+        const id=change.fileId;
+        const record=change.file;
+        if(!change.removed && record && !record.trashed && !Array.isArray(record.parents)){
+          throw new Error('Google did not provide file parents. Use Full rescan.');
+        }
+        for(const [path,files] of staged){
+          const at=files.findIndex(f=>f.id===id);
+          if(at>=0){files.splice(at,1);affected.add(path);}
+        }
+        if(!change.removed && record && !record.trashed && supportedMedia(record.mimeType)){
+          // Ignore unrelated changes outside the 33 indexed folders.
+          const target=(record.parents||[]).map(x=>byFolderID.get(x)).find(Boolean);
+          if(target){
+            const file={id,name:record.name||'Untitled media',mimeType:record.mimeType,
+              size:record.size||0,modifiedTime:record.modifiedTime||''};
+            staged.get(target).push(file);affected.add(target);
+          }
+        }
+      }
+      if(!active())return;
+      state.syncedFolders=staged;
+      for(const path of affected){refreshFolderHealth(path);state.scanFailures.delete(path);}
+      state.changeToken=result.token;state.lastScanAt=new Date().toISOString();
+      if(affected.size)mergeLiveFolders(affected);
+      rememberSyncCache();
+      const summary=`Checked ${result.changes.length} Drive changes · ${affected.size} indexed folders updated · read-only`;
+      updateScanSummary(summary);
+      if(!quiet)alertUser(summary,'success');
+    }catch(error){
+      if(!active())return;
+      // Invalid/expired tokens require a full comparison before trusting a new cursor.
+      if([400,410].includes(error.httpStatus)){state.changeToken=null;clearLocalSyncCache();}
+      const msg=`Incremental check failed: ${error.message}. Use Full rescan if needed.`;
+      updateScanSummary(msg,true);
+      if(!quiet)alertUser(msg,'error');
+    }finally{
+      if(active()){
+        state.scanning=false;state.scanController=null;
+        $('syncButton').disabled=false;$('healthScanButton').disabled=false;
+        if(state.view==='health')renderHealth();
+      }
+    }
+  }
+
+  async function syncWithDrive({quiet=false,full=false}={}){
     if(state.scanning||!state.connected)return;
+    if(state.changeToken&&!full)return syncDriveChanges({quiet});
     if(!state.folderSources.length){updateScanSummary('No indexed folder IDs found in the Folders sheet.',true);return;}
     if(Date.now()>=state.expiry){if(!quiet)updateScanSummary('Google sign-in expired. Reconnect Drive.',true);return;}
     const generation=++state.scanGeneration;
@@ -357,6 +531,10 @@
     $('syncButton').disabled=true;$('healthScanButton').disabled=true;
     const scannedPaths=new Set(),failures=[];
     state.scanFailures.clear();
+    // Capture the starting cursor BEFORE scanning to avoid missing concurrent changes.
+    let initialCursor=null;
+    try{initialCursor=await startChangeCursor(controller.signal);}catch{initialCursor=null;}
+    if(!active())return;
     const folderQueue=state.folderSources.slice();
     let done=0;
     async function worker(){
@@ -368,14 +546,7 @@
           // A folder updates only after ALL pages completed successfully.
           state.syncedFolders.set(folder.path,files);
           scannedPaths.add(folder.path);
-          const known=state.inventory.filter(x=>x.folder===folder.path);
-          const knownIDs=new Set(known.map(x=>x.id)),currentIDs=new Set(files.map(f=>f.id));
-          state.health.set(folder.path,{
-            folder:folder.path,sourceCount:known.length,driveCount:files.length,
-            added:files.filter(f=>!knownIDs.has(f.id)).map(f=>({id:f.id,name:f.name,mime:f.mimeType})),
-            missing:known.filter(f=>!currentIDs.has(f.id)).map(f=>({id:f.id,name:f.name,mime:f.mime})),
-            checkedAt:new Date().toISOString()
-          });
+          refreshFolderHealth(folder.path);
         }catch(error) {
           if(!active())return;
           const message=error?.message||String(error);
@@ -390,6 +561,14 @@
       await Promise.all([worker(),worker(),worker()]);
       if(!active())return;
       if(scannedPaths.size){mergeLiveFolders(scannedPaths);state.lastScanAt=new Date().toISOString();}
+      if(!failures.length && scannedPaths.size===state.folderSources.length){
+        state.changeToken=initialCursor;
+        state.lastFullScanAt=state.lastScanAt;
+        if(state.changeToken)rememberSyncCache();
+      }else{
+        // A partial baseline cannot safely advance a changes cursor.
+        state.changeToken=null;clearLocalSyncCache();
+      }
       const current=[...scannedPaths].map(path=>state.health.get(path)).filter(Boolean);
       const added=current.reduce((n,f)=>n+f.added.length,0);
       const missing=current.reduce((n,f)=>n+f.missing.length,0);
@@ -409,7 +588,7 @@
     const added=data.reduce((n,x)=>n+x.added.length,0), missing=data.reduce((n,x)=>n+x.missing.length,0);
     $('healthSummary').textContent=state.lastScanAt ?
       `Last checked ${new Date(state.lastScanAt).toLocaleString()} · ${data.length}/${state.folderSources.length} folders · ${added} new · ${missing} missing` :
-      `Inventory snapshot: ${format(state.inventory.length)} files in ${state.folderSources.length} known folders. Select Scan now to compare Drive.`;
+      `Inventory snapshot: ${format(state.inventory.length)} files in ${state.folderSources.length} known folders. Select Full rescan to compare Drive.`;
     const rows=state.folderSources.map(folder=>{
       const row=state.health.get(folder.path);
       const failure=state.scanFailures.get(folder.path);
@@ -437,7 +616,7 @@
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
-    stopScans();stopVideo();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;
+    stopScans();stopVideo();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
@@ -452,7 +631,8 @@
     state.folders = [...map.values()].sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name));
   }
   function displayPage(view) {
-    state.view=view; state.folder='all';state.page=1;
+    state.view=view; state.folder='all';state.folderQuery='';state.page=1;
+    if($('folderSearch'))$('folderSearch').value='';
     $('homeView').classList.toggle('hidden',view!=='home');
     $('galleryView').classList.toggle('hidden',view==='home'||view==='health');
     $('healthView').classList.toggle('hidden',view!=='health');
@@ -513,11 +693,20 @@
     $('galleryEyebrow').textContent=state.connected?'YOUR PRIVATE LIBRARY':'DESIGN PREVIEW';
     $('galleryDescription').textContent=state.connected ? 'Search the existing Drive inventory. Previews load as you scroll.' : 'Connect your Google Drive to load your real collections and thumbnails.';
     $('galleryGrid').classList.toggle('list',state.layout==='list');
+    $('galleryGrid').dataset.density=state.density;
+    $('densitySelect').value=state.density;
     $('layoutButton').textContent=state.layout==='grid'?'☷':'▦';
     $('layoutButton').setAttribute('aria-label',state.layout==='grid'?'Switch to list view':'Switch to grid view');
     const available=state.folders.filter(f=>state.view==='all'||state.view==='review'||state.view==='favorites'||f.kind===state.view);
-    $('folderChips').innerHTML = `<button class="chip-filter ${state.folder==='all'?'active':''}" data-folder="all">All collections</button>` + available.map(f=>`<button class="chip-filter ${state.folder===f.path?'active':''}" data-folder="${escapeHTML(f.path)}">${escapeHTML(f.name)} <span>${format(f.count)}</span></button>`).join('');
-    $('folderChips').querySelectorAll('[data-folder]').forEach(btn=>btn.onclick=()=>{state.folder=btn.dataset.folder;state.page=1;renderGallery();});
+    const query=state.folderQuery.trim().toLocaleLowerCase();
+    const matched=available.filter(f=>!query||f.path.toLocaleLowerCase().includes(query));
+    // Preserve the selected option even while typing an unrelated query.
+    const selected=available.find(f=>f.path===state.folder);
+    const options=selected&&!matched.some(f=>f.path===selected.path)?[selected,...matched]:matched;
+    $('folderSelect').innerHTML='<option value="all">All collections</option>'+
+      options.map(f=>`<option value="${escapeHTML(f.path)}">${escapeHTML(f.name)} (${format(f.count)})</option>`).join('');
+    $('folderSelect').value=state.folder;
+    $('folderPickerCount').textContent=query?`${matched.length} collections found`:`${available.length} collections`;
     state.filtered=filterImages();const items=state.filtered.slice(0,state.page*state.pageSize);
     $('resultCount').textContent=`${format(state.filtered.length)} ${state.connected?'files':'samples'}`;
     const notice=$('galleryNotice');notice.classList.toggle('hidden',state.connected);
@@ -548,7 +737,7 @@
     const style=folderStyle(item.folder), favorite=state.favorites.has(item.id), kind=mediaKind(item);
     const date=item.captureDate?item.captureDate.slice(0,10):folderName(item.folder);
     const error=state.thumbErrors.get(item.id);
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?'Preview unavailable · open for retry':'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':kind==='video'?'VIDEO':kind==='pdf'?'PDF':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?'Preview unavailable · open for retry':'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):kind==='pdf'?'PDF':isGIF(item)?'GIF':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   function observeThumbs() {
     state.observer?.disconnect();
@@ -702,7 +891,9 @@
     $('modalMeta').innerHTML=fields.map(([key,val])=>`<dt>${escapeHTML(key)}</dt><dd>${escapeHTML(val)}</dd>`).join('');
     const link=$('openDriveLink');link.href=linkToDrive(item)||'#';link.classList.toggle('hidden',!linkToDrive(item));
     $('favoriteImage').disabled=item.demo;updateFavoriteButton();
-    $('playVideoButton').classList.toggle('hidden',mediaKind(item)!=='video'||item.demo);
+    const playable=mediaKind(item)==='video'||isGIF(item);
+    $('playVideoButton').classList.toggle('hidden',!playable||item.demo);
+    $('playVideoButton').textContent=isGIF(item)?'▶ Play GIF animation':'▶ Play video';
     renderModalPicture();
   }
   function renderModalPicture() {
@@ -710,8 +901,8 @@
     const entry=state.thumbCache.get(item.id);
     const style=folderStyle(item.folder), error=state.thumbErrors.get(item.id), kind=mediaKind(item);
     $('retryPreview').classList.toggle('hidden',item.demo||!error||kind!=='image');
-    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · select Play video for a local preview (up to 32 MB)` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
-    if(kind==='video' && state.videoObjectUrl) return; // Preserve active player across thumbnail updates.
+    if(state.playingMediaId===item.id && state.videoObjectUrl) return; // Preserve original playback when thumbnails refresh.
+    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · click Play video (32 MB limit). Some codecs require Open in Drive.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · thumbnail may be still; click Play GIF animation (20 MB limit).` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
     $('modalPicture').innerHTML=entry?`<img src="${escapeHTML(entry.src)}" alt="${escapeHTML(item.description||item.name)}">`:`<div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${kind==='video'?'Use Play video to stream a private preview':kind==='pdf'?'Open in Drive to view the document':item.demo?'Design preview':error?'Preview unavailable; use Retry or Open in Drive':'Preview loading…'}</small></div>`;
     const pic=$('modalPicture').querySelector('img');
     if(pic)pic.onerror=()=>{if(entry.kind==='signed')handleSignedImageFailure(item.id);else{state.thumbErrors.set(item.id,'Image format not supported by browser');paintThumb(item.id,null);}};
@@ -722,30 +913,76 @@
     const el=$('modalPicture').querySelector('video');if(el)el.pause();
     if(state.videoObjectUrl)URL.revokeObjectURL(state.videoObjectUrl);
     state.videoObjectUrl=null;
+    state.playingMediaId=null;
+    // Closing or stepping away while a download is pending must not leave
+    // the Play button disabled for the next image.
+    $('playVideoButton').disabled=false;
   }
   async function playVideo(){
     const item=state.activeImage;
-    if(!item||mediaKind(item)!=='video')return;
-    if(item.size>MAX_VIDEO_PREVIEW){$('previewDetails').textContent='Video exceeds 32 MB. Use Open in Drive to play it.';return;}
+    if(!item)return;
+    const gif=isGIF(item),clip=mediaKind(item)==='video';
+    if(!gif&&!clip)return;
+    const maxBytes=gif?MAX_GIF_PREVIEW:MAX_VIDEO_PREVIEW;
+    if(item.size>maxBytes){
+      $('previewDetails').textContent=`${gif?'GIF':'Video'} exceeds the ${gif?'20':'32'} MB preview limit. Open in Drive instead.`;
+      return;
+    }
+    if(clip){
+      // WebM/MP4 support is determined by the embedded browser's actual codecs.
+      // A .webm extension alone does not guarantee a usable video codec.
+      const probe=document.createElement('video');
+      if(typeof probe.canPlayType==='function' && probe.canPlayType(item.mime||'video/webm')===''){
+        $('previewDetails').textContent='This browser cannot play the video format. Open in Drive to preview it.';
+        return;
+      }
+    }
     stopVideo();
     const controller=new AbortController();state.videoController=controller;
-    $('playVideoButton').disabled=true;
-    $('previewDetails').textContent='Loading private video preview…';
+    const button=$('playVideoButton');button.disabled=true;
+    $('previewDetails').textContent=gif?'Loading animated GIF…':'Loading private video preview…';
     try{
       const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
-      const blob=await googleGet(url,{blob:true,maxBytes:MAX_VIDEO_PREVIEW,signal:controller.signal});
-      if(state.activeImage?.id!==item.id||controller.signal.aborted)return;
-      if(!blob.type.startsWith('video/')&&!item.mime.startsWith('video/'))throw Error('The file is not a playable video.');
-      state.videoObjectUrl=URL.createObjectURL(blob);
+      const source=await googleGet(url,{blob:true,maxBytes,signal:controller.signal});
+      if(state.videoController!==controller||state.activeImage?.id!==item.id||controller.signal.aborted)return;
+      // Drive sometimes returns application/octet-stream. The inventory's verified
+      // MIME tells the browser how to decode this private, in-memory file.
+      const media=new Blob([source],{type:gif?'image/gif':item.mime});
+      if(media.size>maxBytes)throw new Error('Media exceeds preview size limit.');
+      const objectUrl=URL.createObjectURL(media);
+      state.videoObjectUrl=objectUrl;state.playingMediaId=item.id;
       $('modalPicture').innerHTML='';
-      const video=document.createElement('video');video.src=state.videoObjectUrl;video.controls=true;video.playsInline=true;video.autoplay=true;video.preload='metadata';
-      video.setAttribute('aria-label',item.name);
-      video.onerror=()=>{$('previewDetails').textContent='Your browser cannot play this video codec. Open in Drive instead.';};
-      $('modalPicture').appendChild(video);
-      video.play().catch(()=>{});
-      $('previewDetails').textContent='Video loaded locally for this viewing session · no Drive changes';
-    }catch(error){if(!controller.signal.aborted)$('previewDetails').textContent=`Cannot preview video: ${error.message}. Open in Drive instead.`;}
-    finally{$('playVideoButton').disabled=false;}
+      if(gif){
+        const img=document.createElement('img');
+        img.alt=item.description||item.name;
+        img.onerror=()=>{
+          if(state.playingMediaId===item.id)$('previewDetails').textContent='Animated GIF could not be decoded. Open in Drive instead.';
+        };
+        img.src=objectUrl;
+        $('modalPicture').appendChild(img);
+        $('previewDetails').textContent='Animated GIF loaded locally. Close this viewer to free its memory.';
+      }else{
+        const video=document.createElement('video');
+        video.controls=true;video.playsInline=true;video.autoplay=false;video.preload='metadata';
+        video.setAttribute('aria-label',item.name);
+        video.onerror=()=>{
+          if(state.playingMediaId===item.id)$('previewDetails').textContent='This clip uses a codec the browser cannot decode. Open in Drive instead.';
+        };
+        video.src=objectUrl;
+        $('modalPicture').appendChild(video);
+        $('previewDetails').textContent='Video loaded. Use the playback controls; unsupported codecs can be opened in Drive.';
+        // A browser may reject autoplay once the authenticated download finishes.
+        video.play().catch(()=>{
+          if(state.playingMediaId===item.id)$('previewDetails').textContent='Video ready. Press ▶ in the player to start playback.';
+        });
+      }
+    }catch(error){
+      if(!controller.signal.aborted && state.activeImage?.id===item.id){
+        $('previewDetails').textContent=`Cannot preview ${gif?'GIF':'video'}: ${error.message}. Open in Drive instead.`;
+      }
+    }finally{
+      if(state.videoController===controller)button.disabled=false;
+    }
   }
   function stepImage(direction) {
     if(!state.activeImage)return;
@@ -860,8 +1097,20 @@
     $('exploreButton').onclick=()=>displayPage('all');$('seeAllButton').onclick=()=>displayPage('all');
     $('searchInput').oninput=event=>{state.search=event.target.value;state.page=1;renderGallery();};
     $('mediaTypeSelect').onchange=event=>{state.mediaType=event.target.value;state.page=1;renderGallery();};
+    $('folderSearch').oninput=event=>{state.folderQuery=event.target.value;renderGallery();};
+    $('folderSelect').onchange=event=>{state.folder=event.target.value;state.page=1;renderGallery();};
+    $('densitySelect').onchange=event=>{
+      if(!['comfortable','compact','large'].includes(event.target.value))return;
+      state.density=event.target.value;
+      try{localStorage.setItem(DENSITY_STORAGE,state.density);}catch{}
+      renderGallery();
+    };
     $('syncButton').onclick=()=>syncWithDrive();
-    $('healthScanButton').onclick=()=>syncWithDrive();
+    $('healthScanButton').onclick=()=>syncWithDrive({full:true});
+    $('clearSyncCacheButton').onclick=()=>{
+      clearLocalSyncCache();
+      updateScanSummary('Local scan cache cleared. The next sign-in will perform a full read-only scan.');
+    };
     $('sortSelect').onchange=event=>{state.sort=event.target.value;renderGallery();};
     $('layoutButton').onclick=()=>{state.layout=state.layout==='grid'?'list':'grid';renderGallery();};
     $('closeImage').onclick=closeImage;$('prevImage').onclick=()=>stepImage(-1);$('nextImage').onclick=()=>stepImage(1);

@@ -8,7 +8,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
 const suffix = '  init();\n})();';
 assert.ok(source.includes(suffix), 'Application bootstrap changed; adjust the test harness');
-const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, syncWithDrive, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth};\n})();');
+const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, stopVideo, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth};\n})();');
 
 const id = i => 'media' + String(i).padStart(12, '0');
 const folder = (name, folderId = 'folder00000000001') => ({path: name, id: folderId});
@@ -18,7 +18,7 @@ const ok = payload => new Response(JSON.stringify(payload), {status:200,headers:
 const fail = (status,reason) => new Response(JSON.stringify({error:{errors:[{reason}],message:reason}}),{status,headers:{'content-type':'application/json'}});
 
 function harness(onFetch, {instantTimeout=true}={}) {
-  const els = new Map(), calls=[];
+  const els = new Map(), calls=[], storage=new Map();
   function el(name) {
     if(!els.has(name)) {
       els.set(name,{
@@ -26,7 +26,7 @@ function harness(onFetch, {instantTimeout=true}={}) {
         classList:{toggle(){},add(){},remove(){},contains(){return false;}},
         querySelectorAll(){return [];},querySelector(){return null;},addEventListener(){},
         setAttribute(){},removeAttribute(){},close(){},showModal(){},focus(){},pause(){},
-        isConnected:true,open:false
+        isConnected:true,open:false,appendChild(node){this.lastChild=node;},lastChild:null
       });
     }
     return els.get(name);
@@ -36,12 +36,19 @@ function harness(onFetch, {instantTimeout=true}={}) {
     setTimeout: instantTimeout? (fn)=>{queueMicrotask(fn);return 1;} : setTimeout,
     clearTimeout, setInterval:()=>1,clearInterval:()=>{},
     queueMicrotask,location:{origin:'http://localhost:8765',hostname:'localhost',protocol:'http:'},
-    localStorage:{getItem:()=>null,setItem(){},removeItem(){}},
-    navigator:{},document:{getElementById:el,querySelectorAll:()=>[],visibilityState:'visible'},
+    localStorage:{getItem:key=>storage.get(key)||null,setItem(key,value){storage.set(key,String(value));},removeItem(key){storage.delete(key);}},
+    navigator:{},document:{getElementById:el,querySelectorAll:()=>[],visibilityState:'visible',
+      createElement(tag){return {
+        tagName:tag.toUpperCase(),controls:false,playsInline:false,autoplay:false,preload:'',
+        setAttribute(){},canPlayType(){return 'maybe';},
+        pause(){},play(){return Promise.resolve();},appendChild(){},querySelector(){return null;}
+      };}},
     window:{scrollTo(){},google:{accounts:{oauth2:{revoke(_t,cb){cb();}}}}}
   };
   ctx.google = ctx.window.google;
   ctx.fetch = async (url, options={}) => {
+    // Starting a changes cursor is independent of the paginated files.list mock.
+    if(String(url).includes('/changes/startPageToken'))return ok({startPageToken:'cursor-0'});
     calls.push({url:String(url),options});
     return onFetch(String(url),options,calls.length);
   };
@@ -51,7 +58,7 @@ function harness(onFetch, {instantTimeout=true}={}) {
   h.state.accessToken='test-token-not-a-real-credential';
   h.state.expiry=Date.now()+60_000;
   h.state.view='health';
-  return {h,calls,els,ctx};
+  return {h,calls,els,ctx,storage};
 }
 
 test('paginates 3,000 mixed-media items, deduplicates and keeps all supported formats',async()=>{
@@ -226,4 +233,163 @@ test('33 folders and 8,250 files are scanned with at most three concurrent Drive
   assert.equal(calls.length,33);
   assert.ok(peak<=3,'too many Drive requests in flight: '+peak);
   assert.ok(calls.every(x=>x.options.method==='GET'),'scanner must remain read-only');
+});
+
+
+test('incremental cursor checks use changes.list instead of rescanning all folders',async()=>{
+  const known=folder('Memes/Animated');
+  const initial=file(1,'image/gif');
+  const added=file(2,'video/webm');
+  let scans=0;
+  const {h,calls}=harness(async(url)=>{
+    if(url.includes('/changes?'))return ok({
+      changes:[{fileId:added.id,removed:false,file:{...added,parents:[known.id]}}],
+      newStartPageToken:'cursor-1'
+    });
+    scans++;
+    return ok({files:[initial]});
+  });
+  h.state.inventory=[inv(initial,known.path)];
+  h.state.images=[...h.state.inventory];
+  h.state.folderSources=[known];
+  h.state.syncedFolders.set(known.path,[initial]);
+  h.state.changeToken='cursor-0';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(scans,0);
+  assert.equal(calls.length,1);
+  assert.equal(h.state.changeToken,'cursor-1');
+  assert.equal(h.state.images.length,2);
+  assert.equal(h.state.images.find(x=>x.id===added.id).mime,'video/webm');
+});
+
+test('changes pagination applies moves and removals only after final page',async()=>{
+  const a=folder('Memes/Old','folder00000000001'),b=folder('Memes/New','folder00000000002');
+  const moved=file(1),deleted=file(2);
+  const {h,calls}=harness(async(url)=>{
+    const p=new URL(url).searchParams.get('pageToken');
+    if(p==='cursor-0')return ok({changes:[
+      {fileId:moved.id,removed:false,file:{...moved,parents:[b.id]}}
+    ],nextPageToken:'cursor-1'});
+    assert.equal(p,'cursor-1');
+    return ok({changes:[{fileId:deleted.id,removed:true}],newStartPageToken:'cursor-2'});
+  });
+  h.state.folderSources=[a,b];
+  h.state.inventory=[inv(moved,a.path),inv(deleted,a.path)];
+  h.state.images=[...h.state.inventory];
+  h.state.syncedFolders.set(a.path,[moved,deleted]);
+  h.state.syncedFolders.set(b.path,[]);
+  h.state.changeToken='cursor-0';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(calls.length,2);
+  assert.equal(h.state.changeToken,'cursor-2');
+  assert.equal(h.state.images.length,1);
+  assert.equal(h.state.images[0].folder,b.path);
+});
+
+test('failed incremental pagination leaves cursor and private folder snapshot untouched',async()=>{
+  const known=folder('Memes/Atomic');
+  const item=file(1);
+  const {h}=harness(async(url)=>{
+    const page=new URL(url).searchParams.get('pageToken');
+    if(page==='cursor-0')return ok({
+      changes:[{fileId:item.id,removed:true}],nextPageToken:'cursor-1'
+    });
+    return fail(403,'insufficientFilePermissions');
+  });
+  h.state.folderSources=[known];
+  h.state.inventory=[inv(item,known.path)];
+  h.state.images=[...h.state.inventory];
+  h.state.syncedFolders.set(known.path,[item]);
+  h.state.changeToken='cursor-0';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.changeToken,'cursor-0');
+  assert.equal(h.state.images.length,1);
+  assert.equal(h.state.syncedFolders.get(known.path).length,1);
+});
+
+test('verified metadata cache restores across app sessions without saving media or tokens',()=>{
+  const known=folder('Memes/Cached');
+  const item=file(1,'image/gif');
+  const {h,storage}=harness(async()=>ok({files:[]}));
+  h.state.config.sheetId='spreadsheet012345678';
+  h.state.driveIdentity='permission000000001';
+  h.state.folderSources=[known];
+  h.state.inventory=[inv(item,known.path)];
+  h.state.syncedFolders.set(known.path,[item]);
+  h.state.changeToken='cursor-3';
+  h.rememberSyncCache();
+  const raw=[...storage.values()].join('');
+  assert.match(raw,/cursor-3/);
+  assert.ok(!raw.includes('test-token-not-a-real-credential'));
+  assert.ok(!raw.includes('data:image'));
+  h.state.syncedFolders.clear();h.state.changeToken=null;
+  assert.equal(h.restoreSyncCache(),true);
+  assert.equal(h.state.syncedFolders.get(known.path).length,1);
+  assert.equal(h.state.changeToken,'cursor-3');
+});
+
+test('animated GIF opens its original on demand and cleans up when closed',async()=>{
+  const item={...inv(file(12,'image/gif'),'Memes/Animated'),size:400};
+  const {h,els,ctx,calls}=harness(async()=>new Response(Buffer.from('GIF89a'),{
+    status:200,headers:{'content-type':'application/octet-stream'}
+  }));
+  h.state.activeImage=item;
+  await h.playVideo();
+  assert.equal(calls.length,1);
+  assert.equal(els.get('modalPicture').lastChild.tagName,'IMG');
+  assert.ok(h.state.videoObjectUrl);
+  assert.equal(h.state.playingMediaId,item.id);
+  h.stopVideo();
+  assert.equal(h.state.videoObjectUrl,null);
+  assert.equal(h.state.playingMediaId,null);
+});
+
+test('unsupported WebM codec provides Drive fallback without a full file download',async()=>{
+  const item={...inv(file(13,'video/webm'),'Memes/Webms'),size:400};
+  const {h,ctx,calls,els}=harness(async()=>ok({}));
+  ctx.document.createElement=tag=>({canPlayType:()=>'',setAttribute(){},play(){return Promise.resolve();}});
+  h.state.activeImage=item;
+  await h.playVideo();
+  assert.equal(calls.length,0);
+  assert.match(els.get('previewDetails').textContent,/cannot play|Open in Drive/);
+});
+
+
+test('closing the viewer mid-download cancels playback and restores the Play button',async()=>{
+  let resume;
+  const gate=new Promise(resolve=>{resume=resolve;});
+  const item={...inv(file(14,'video/webm'),'Memes/Clips'),size:400};
+  const {h,els}=harness(async()=>{
+    await gate;
+    return new Response(Buffer.from('not-an-actual-video'),{
+      status:200,headers:{'content-type':'application/octet-stream'}
+    });
+  },{instantTimeout:false});
+  h.state.activeImage=item;
+  const pending=h.playVideo();
+  assert.equal(els.get('playVideoButton').disabled,true);
+  h.stopVideo();
+  resume();
+  await pending;
+  assert.equal(els.get('playVideoButton').disabled,false);
+  assert.equal(h.state.videoObjectUrl,null);
+  assert.equal(h.state.playingMediaId,null);
+});
+
+
+test('a second Google account cannot restore the first account’s local metadata',()=>{
+  const known=folder('Memes/Private');
+  const item=file(1);
+  const {h}=harness(async()=>ok({files:[]}));
+  h.state.config.sheetId='spreadsheet012345678';
+  h.state.driveIdentity='permission000000001';
+  h.state.folderSources=[known];
+  h.state.inventory=[inv(item,known.path)];
+  h.state.syncedFolders.set(known.path,[item]);
+  h.state.changeToken='cursor-1';
+  h.rememberSyncCache();
+  h.state.syncedFolders.clear();
+  h.state.driveIdentity='permission000000002';
+  assert.equal(h.restoreSyncCache(),false);
+  assert.equal(h.state.syncedFolders.size,0);
 });
