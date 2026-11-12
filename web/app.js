@@ -302,10 +302,13 @@
     if(note?.status==='deferred')return 'deferred';
     if(note?.status==='draft')return 'pending';
     const sourceStatus=String(item.review||'').toLowerCase();
+    // A description alone does not mean a person verified it. Source review
+    // evidence must be explicit, otherwise the item remains in Needs attention.
     if(!effectiveDescription(item).trim()||item.newInDrive||
        /(?:needs review|not reviewed|unreviewed|awaiting review|pending review)/.test(sourceStatus))
       return 'pending';
-    return 'source-reviewed';
+    return /(?:visually reviewed|reviewed by|review complete|verified|approved)/.test(sourceStatus)?
+      'source-reviewed':'pending';
   }
   function reviewCounts(){
     const counts={pending:0,deferred:0,reviewed:0,'source-reviewed':0};
