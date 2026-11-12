@@ -571,9 +571,19 @@
   const displayFolderPart=name=>String(name||'Untitled folder').replaceAll('/','／')
     .split('').map(c=>c.charCodeAt(0)<32?' ':c).join('').trim().slice(0,90)||'Untitled folder';
 
+  async function readDiscoveryMetadata(url,signal){
+    let attempt=0;
+    while(true){
+      try{return await googleGet(url,{signal});}
+      catch(error){
+        if(signal?.aborted||!error.retryable||++attempt>=4)throw error;
+        await new Promise(resolve=>setTimeout(resolve,Math.min(2500,350*(2**attempt))));
+      }
+    }
+  }
   async function folderMetadata(id,signal){
     const p=new URLSearchParams({fields:'id,name,mimeType,parents,trashed',supportsAllDrives:'true'});
-    return googleGet('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(id)+'?'+p,{signal});
+    return readDiscoveryMetadata('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(id)+'?'+p,signal);
   }
   async function discoverLibraryRoots(signal){
     const baseline=state.baseFolderSources;
@@ -620,7 +630,7 @@
         pageSize:'1000',supportsAllDrives:'true',includeItemsFromAllDrives:'true'
       });
       if(token)params.set('pageToken',token);
-      const data=await googleGet('https://www.googleapis.com/drive/v3/files?'+params,{signal});
+      const data=await readDiscoveryMetadata('https://www.googleapis.com/drive/v3/files?'+params,signal);
       if(data.incompleteSearch||!Array.isArray(data.files))throw new Error('Drive returned an incomplete folder listing');
       rawCount+=data.files.length;
       if(rawCount>20000)throw new Error('Folder exceeded safe scan size limit');
