@@ -799,6 +799,7 @@
       // Only reconcile monitored folders. Do not use a Drive change to mutate
       // files outside the existing, user-selected image collection roots.
       const byFolderID=new Map(state.folderSources.map(f=>[f.id,f.path]));
+      const monitoredFolders=new Set([...byFolderID.keys(),...state.libraryRoots.map(r=>r.id)]);
       const staged=new Map([...state.syncedFolders].map(([path,files])=>[path,files.slice()]));
       if(staged.size!==state.folderSources.length)throw fullVerificationError('Folder baseline is incomplete.');
       const affected=new Set(), trackedIDs=new Set([...staged.values()].flatMap(files=>files.map(f=>f.id)));
@@ -807,6 +808,18 @@
         if(!active())return;
         if(!safeId(change.fileId))continue;
         const id=change.fileId, known=trackedIDs.has(id);
+        const folderEvent=monitoredFolders.has(id)||change.file?.mimeType===DRIVE_FOLDER_MIME;
+        if(folderEvent){
+          // A folder can be created, moved, renamed, or removed. Its entire
+          // descendant tree needs reconciliation before the change cursor moves.
+          const candidate=await resolveChangeFile(change,monitoredFolders.has(id),controller.signal);
+          if(!active())return;
+          if(monitoredFolders.has(id) ||
+             candidate.record?.parents?.some(p=>monitoredFolders.has(p))){
+            throw fullVerificationError('A library folder changed. Rediscovering nested folders.');
+          }
+          ignored++;continue;
+        }
         if(!change.removed && !change.file?.trashed &&
             (!change.file||!Array.isArray(change.file.parents)) &&
             (known||supportedMedia(change.file?.mimeType))){
@@ -882,6 +895,48 @@
     let initialCursor=null;
     try{initialCursor=await startChangeCursor(controller.signal);}catch{initialCursor=null;}
     if(!active())return;
+    // With a valid snapshot from the private Folders sheet, discover new child
+    // directories under the verified library roots before scanning files.
+    // Do not commit partial trees: one failed folder listing keeps the previous
+    // gallery and cursor unchanged, with a clear error to retry.
+    if(state.baseFolderSources.length){
+      try{
+        const discovery=await discoverFolderTree(controller.signal);
+        if(!active())return;
+        state.folderSources=discovery.sources;
+        state.libraryRoots=discovery.roots;
+        state.lastDiscoveryAt=new Date().toISOString();
+        state.discoveryError=null;
+        state.syncedFolders=discovery.contents;
+        state.health.clear();state.scanFailures.clear();
+        for(const source of state.folderSources)refreshFolderHealth(source.path);
+        const paths=new Set(state.folderSources.map(source=>source.path));
+        mergeLiveFolders(paths);
+        state.lastScanAt=new Date().toISOString();
+        state.lastFullScanAt=state.lastScanAt;
+        state.changeToken=initialCursor;
+        if(initialCursor)rememberSyncCache();
+        const added=state.images.filter(item=>item.newInDrive).length;
+        const missing=[...state.health.values()].reduce((n,row)=>n+row.missing.length,0);
+        const discovered=state.folderSources.filter(source=>source.discovered&&!discovery.roots.some(root=>root.id===source.id)).length;
+        const message='Verified '+state.folderSources.length+' folders under '+discovery.roots.length+
+          ' library roots · '+discovered+' new folders · '+added+' new media · '+missing+
+          ' missing from inventory. Drive and spreadsheet unchanged.';
+        syncSucceeded(message,quiet);
+      }catch(error){
+        if(!active())return;
+        state.discoveryError=error?.message||String(error);
+        syncFailed('Folder discovery incomplete: '+state.discoveryError+
+          '. Previous gallery retained; use Full rescan to retry.',quiet);
+      }finally{
+        if(active()){
+          state.scanning=false;state.scanController=null;
+          $('syncButton').disabled=false;$('healthScanButton').disabled=false;
+          if(state.view==='health')renderHealth();
+        }
+      }
+      return;
+    }
     const folderQueue=state.folderSources.slice();
     let done=0;
     async function worker(){
