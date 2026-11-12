@@ -565,6 +565,126 @@
     }while(pageToken);
     return files;
   }
+
+  const DRIVE_FOLDER_MIME='application/vnd.google-apps.folder';
+  const displayFolderPart=name=>String(name||'Untitled folder').replaceAll('/','／')
+    .split('').map(c=>c.charCodeAt(0)<32?' ':c).join('').trim().slice(0,90)||'Untitled folder';
+
+  async function folderMetadata(id,signal){
+    const p=new URLSearchParams({fields:'id,name,mimeType,parents,trashed',supportsAllDrives:'true'});
+    return googleGet('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(id)+'?'+p,{signal});
+  }
+  async function discoverLibraryRoots(signal){
+    const baseline=state.baseFolderSources;
+    if(!baseline.length)return [];
+    const labels=[...new Set(baseline.map(f=>f.path.split('/')[0]))];
+    const roots=[];
+    for(const label of labels){
+      const candidates=baseline.filter(f=>f.path.startsWith(label+'/'))
+        .sort((a,b)=>a.path.split('/').length-b.path.split('/').length).slice(0,5);
+      let found=null;
+      for(const candidate of candidates){
+        const segments=candidate.path.split('/');
+        let cursor=candidate.id,valid=true,lastMeta=null;
+        try{
+          for(let i=segments.length-1;i>=0;i--){
+            if(signal?.aborted)throw new Error('Discovery cancelled');
+            if(!safeId(cursor)){valid=false;break;}
+            const meta=await folderMetadata(cursor,signal);
+            if(meta.id!==cursor||meta.mimeType!==DRIVE_FOLDER_MIME||meta.trashed||
+               meta.name!==segments[i]){valid=false;break;}
+            lastMeta=meta;
+            if(i>0)cursor=meta.parents?.[0];
+          }
+        }catch(error){
+          if(signal?.aborted)throw error;
+          valid=false;
+        }
+        if(valid&&lastMeta?.name===label){found={id:lastMeta.id,path:label};break;}
+      }
+      if(!found)throw fullVerificationError('Could not verify the '+label+' library root from existing folder IDs.');
+      roots.push(found);
+    }
+    return roots;
+  }
+  async function listFolderContents(folder,signal){
+    const media=[],children=[],seenIds=new Set(),pages=new Set();
+    let token='',pageCount=0,rawCount=0;
+    do{
+      if(signal?.aborted)throw new Error('Folder scan cancelled');
+      if(++pageCount>40)throw new Error('Folder exceeded 40 Drive pages');
+      const params=new URLSearchParams({
+        q:"'"+folder.id+"' in parents and trashed = false",
+        fields:'nextPageToken,incompleteSearch,files(id,name,mimeType,size,modifiedTime)',
+        pageSize:'1000',supportsAllDrives:'true',includeItemsFromAllDrives:'true'
+      });
+      if(token)params.set('pageToken',token);
+      const data=await googleGet('https://www.googleapis.com/drive/v3/files?'+params,{signal});
+      if(data.incompleteSearch||!Array.isArray(data.files))throw new Error('Drive returned an incomplete folder listing');
+      rawCount+=data.files.length;
+      if(rawCount>20000)throw new Error('Folder exceeded safe scan size limit');
+      for(const item of data.files){
+        if(!safeId(item.id)||seenIds.has(item.id))continue;
+        seenIds.add(item.id);
+        if(item.mimeType===DRIVE_FOLDER_MIME)children.push(item);
+        else if(supportedMedia(item.mimeType))media.push(item);
+      }
+      const next=data.nextPageToken||'';
+      if(next&&(pages.has(next)||next===token))throw new Error('Drive repeated a folder page token');
+      if(next)pages.add(next);
+      token=next;
+    }while(token);
+    return {media,children};
+  }
+  async function discoverFolderTree(signal){
+    const roots=await discoverLibraryRoots(signal);
+    const baseline=state.baseFolderSources;
+    if(!roots.length)throw new Error('No library roots available for discovery');
+    const byId=new Map(baseline.map(f=>[f.id,f]));
+    const queue=roots.map(root=>({...root,depth:0})),seen=new Set(),pathSet=new Set();
+    const sources=[],contents=new Map();
+    let mediaTotal=0,completed=0;
+    async function worker(){
+      while(queue.length){
+        if(signal?.aborted)throw new Error('Folder discovery cancelled');
+        const next=queue.shift();
+        if(seen.has(next.id))continue;
+        seen.add(next.id);
+        if(seen.size>MAX_DISCOVERED_FOLDERS)throw new Error('Folder discovery limit reached; no changes applied');
+        const base=byId.get(next.id);
+        const source={id:next.id,path:next.path,inventoryPath:base?.path||null,
+          discovered:!base,missing:false};
+        sources.push(source);pathSet.add(next.path);
+        const result=await listFolderContents(next,signal);
+        contents.set(next.path,result.media);
+        mediaTotal+=result.media.length;
+        if(mediaTotal>MAX_DISCOVERED_MEDIA)throw new Error('Library media safety limit reached; no changes applied');
+        if(result.children.length&&next.depth>=MAX_DISCOVERY_DEPTH)
+          throw new Error('Nested folder depth exceeds safe discovery limit');
+        for(const child of result.children){
+          if(seen.has(child.id)||queue.some(item=>item.id===child.id))continue;
+          let path=next.path+'/'+displayFolderPart(child.name);
+          if(pathSet.has(path)||queue.some(item=>item.path===path))path+=' ('+child.id.slice(-6)+')';
+          queue.push({id:child.id,path,depth:next.depth+1});
+          if(queue.length+seen.size>MAX_DISCOVERED_FOLDERS)
+            throw new Error('Too many nested folders to scan safely');
+        }
+        completed++;
+        updateScanSummary('Discovering collection folders… '+completed+' checked');
+      }
+    }
+    await Promise.all([worker(),worker(),worker()]);
+    for(const original of baseline){
+      if(seen.has(original.id))continue;
+      let path=original.path;
+      if(pathSet.has(path))path+=' (missing '+original.id.slice(-6)+')';
+      pathSet.add(path);
+      sources.push({...original,path,inventoryPath:original.path,missing:true,discovered:false});
+      contents.set(path,[]);
+    }
+    return {roots,sources,contents};
+  }
+
   function mergeLiveFolders(recentPaths=new Set()){
     const scanned=new Set(state.syncedFolders.keys());
     const scannedInventoryPaths=new Set(state.folderSources
