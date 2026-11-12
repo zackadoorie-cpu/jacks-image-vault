@@ -454,7 +454,7 @@
       allowedPaths.add(source.path);seenIds.add(source.id);
       if(baseIds.has(source.id)){
         const base=baseline.find(f=>f.id===source.id);
-        if(source.inventoryPath!==base.path)return false;
+        if((source.inventoryPath||null)!==(state.baseFolderSources.length?base.path:null))return false;
         seenBase.add(source.id);
       }else if(source.inventoryPath)return false;
     }
