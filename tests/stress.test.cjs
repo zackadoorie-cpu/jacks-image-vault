@@ -951,3 +951,13 @@ test('failed browser storage writes never claim a review was saved',()=>{
   assert.throws(()=>h.writeReviewNotes(notes),/unavailable or full/);
   assert.equal(h.state.reviewEdits.size,0);
 });
+
+test('OCR-only or explicitly unverified source notes cannot auto-complete a review',()=>{
+  const {h}=harness(async()=>ok({files:[]}));
+  const unverified={...inv(file(799),'Memes/Test'),description:'Possible caption',review:'Unverified'};
+  const ocrOnly={...inv(file(800),'Memes/Test'),description:'Text could be present',review:'OCR not independently verified'};
+  const visual={...inv(file(801),'Memes/Test'),description:'Visible cat',review:'Visually reviewed; OCR not independently verified'};
+  assert.equal(h.reviewStage(unverified),'pending');
+  assert.equal(h.reviewStage(ocrOnly),'pending');
+  assert.equal(h.reviewStage(visual),'source-reviewed');
+});
