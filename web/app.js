@@ -274,8 +274,9 @@
     try{
       const raw=localStorage.getItem(key);
       if(raw)state.reviewEdits=parseReviewBackup(raw);
+      return null;
     }catch(error){
-      alertUser('Saved reviews could not be read: '+error.message+'. Local notes were not changed.','error');
+      return 'Saved reviews could not be read: '+error.message+'. Review storage was left unchanged.';
     }
   }
   function writeReviewNotes(next){
@@ -576,14 +577,15 @@
       state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
-      loadReviewNotes();
+      const reviewLoadWarning=loadReviewNotes();
       if(restoreSyncCache())mergeLiveFolders();
       buildFolderIndex(); updateStatus();
       const resumed=restoreBrowsingPosition();
       displayPage(resumed?state.view:'home',{reset:false,scroll:false});
       if(resumed)finishBrowsingRestore();
       clearAlert();
-      alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
+      if(reviewLoadWarning)alertUser('Drive connected, but '+reviewLoadWarning,'error');
+      else alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
       scheduleScans();
     } catch (error) {
       // An unsuccessful refresh must not leave the previous user's private index in memory.
@@ -2055,7 +2057,13 @@
     },{passive:true});
     window.addEventListener('pagehide',saveBrowsingPosition);
     window.addEventListener('keydown',event=>{
-      if($('imageDialog').open){if(event.key==='ArrowLeft'){event.preventDefault();stepImage(-1);}if(event.key==='ArrowRight'){event.preventDefault();stepImage(1);}return;}
+      if($('imageDialog').open){
+        const tag=event.target?.tagName||'';
+        if(/^(INPUT|TEXTAREA|SELECT)$/.test(tag)||event.target?.isContentEditable)return;
+        if(event.key==='ArrowLeft'){event.preventDefault();stepImage(-1);}
+        if(event.key==='ArrowRight'){event.preventDefault();stepImage(1);}
+        return;
+      }
       if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)){
         event.preventDefault();if(state.view==='home')displayPage('all');$('searchInput').focus();
       }
