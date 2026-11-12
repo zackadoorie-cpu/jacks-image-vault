@@ -1866,10 +1866,18 @@
   }
   function stepImage(direction) {
     if(!state.activeImage)return;
+    if(state.reviewDirty&&!confirm('Discard unsaved changes to this review?'))return;
+    state.reviewDirty=false;
     const at=state.filtered.findIndex(x=>x.id===state.activeImage.id);const next=state.filtered[at+direction];
     if(next){stopVideo();state.activeImage=next;populateImageDialog();if(state.connected)requestThumb(next,{priority:true});}
   }
-  function closeImage(){stopVideo();if($('imageDialog').open)$('imageDialog').close();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();}
+  function closeImage(){
+    if(state.reviewDirty&&!confirm('Discard unsaved review changes?'))return;
+    state.reviewDirty=false;stopVideo();
+    if($('imageDialog').open)$('imageDialog').close();
+    state.activeImage=null;
+    if(state.returnFocus?.isConnected)state.returnFocus.focus();
+  }
   function installApp() {if(state.installPrompt){const event=state.installPrompt;state.installPrompt=null;event.prompt();event.userChoice?.catch(()=>{});}else $('installDialog').showModal();}
   function showUpdateMessage(message,error=false){const el=$('updateStatusMessage');el.textContent=message;el.classList.toggle('error',error);}
   function updateRepoValue(){return $('updateRepo').value.trim();}
@@ -1993,6 +2001,25 @@
     $('mediaTypeSelect').onchange=event=>{state.mediaType=event.target.value;state.page=1;renderGallery();};
     $('folderSearch').oninput=event=>{state.folderQuery=event.target.value;renderGallery();};
     $('folderSelect').onchange=event=>{state.folder=event.target.value;state.page=1;renderGallery();};
+    $('reviewQueueFilter').onchange=event=>{
+      if(!['pending','deferred','reviewed','all'].includes(event.target.value))return;
+      state.reviewFilter=event.target.value;state.page=1;renderGallery();
+    };
+    $('reviewDescription').oninput=()=>{state.reviewDirty=true;};
+    $('reviewTags').oninput=()=>{state.reviewDirty=true;};
+    $('reviewForm').onsubmit=event=>{event.preventDefault();saveCurrentReview('reviewed',{advance:true});};
+    $('reviewSaveDraft').onclick=()=>saveCurrentReview('draft');
+    $('reviewDefer').onclick=()=>saveCurrentReview('deferred',{advance:true});
+    $('reviewReset').onclick=resetCurrentReview;
+    $('reviewExport').onclick=exportReviewBackup;
+    $('reviewImport').onclick=()=>$('reviewImportFile').click();
+    $('reviewImportFile').onchange=async event=>{
+      const file=event.target.files?.[0];
+      if(!file)return;
+      try{await importReviewBackup(file);}
+      catch(error){alertUser('Review import failed: '+error.message,'error');}
+      finally{event.target.value='';}
+    };
     $('densitySelect').onchange=event=>{
       if(!['comfortable','compact','large'].includes(event.target.value))return;
       state.density=event.target.value;
@@ -2013,7 +2040,11 @@
     $('favoriteImage').onclick=()=>{if(!state.activeImage?.demo){toggleFavorite(state.activeImage.id);renderGallery();}};
     $('retryPreview').onclick=()=>{if(state.activeImage){requestThumb(state.activeImage,{priority:true,force:true});renderModalPicture();}};
     $('retryFailedButton').onclick=()=>{for(const item of state.filtered.slice(0,state.page*state.pageSize)){if(state.thumbErrors.has(item.id))requestThumb(item,{force:true});}updatePreviewStats();};
-    $('imageDialog').addEventListener('close',()=>{stopVideo();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();});
+    $('imageDialog').addEventListener('cancel',event=>{
+      if(state.reviewDirty&&!confirm('Discard unsaved review changes?'))event.preventDefault();
+      else state.reviewDirty=false;
+    });
+    $('imageDialog').addEventListener('close',()=>{state.reviewDirty=false;stopVideo();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();});
     $('backToTop').onclick=()=>window.scrollTo({top:0,behavior:'smooth'});
     window.addEventListener('scroll',()=>{
       updateScrollControls();
