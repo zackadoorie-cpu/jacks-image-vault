@@ -9,6 +9,9 @@
   const DENSITY_STORAGE = 'jack-vault-gallery-density-v1';
   const APP_PREFS_STORAGE = 'jack-vault-app-preferences-v1';
   const BROWSE_STORAGE = 'jack-vault-resume-position-v1';
+  const REVIEW_STORAGE = 'jack-vault-local-reviews-v1';
+  const MAX_REVIEW_BYTES = 2600000;
+  const MAX_REVIEW_ITEMS = 15000;
   const SYNC_CACHE_STORAGE = 'jack-vault-readonly-sync-cache-v1';
   const MAX_SYNC_CACHE = 1800000;
   const SCOPES = 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly';
@@ -63,6 +66,9 @@
     maxConcurrentThumbs: 5,
     observer: null,
     favorites: new Set(readFavorites()),
+    reviewEdits: new Map(),
+    reviewFilter: 'pending',
+    reviewDirty: false,
     installPrompt: null,
     updater: null,
     updateRepo: readUpdateRepo(),
@@ -225,6 +231,191 @@
     const active=state.connected&&browsingView()&&(window.scrollY||window.pageYOffset||0)>650;
     $('backToTop').classList.toggle('hidden',!active);
   }
+
+  function reviewStorageKey(){
+    if(!state.driveIdentity||!state.config.sheetId)return '';
+    return REVIEW_STORAGE+'-'+state.driveIdentity+'-'+state.config.sheetId;
+  }
+  function validateReviewEntry(value){
+    if(!value||typeof value!=='object'||Array.isArray(value))return null;
+    const description=value.description, tags=value.tags, status=value.status;
+    if(typeof description!=='string'||description.length>2000||
+       typeof tags!=='string'||tags.length>400||
+       !['draft','deferred','reviewed'].includes(status))return null;
+    if(status==='reviewed'&&!description.trim())return null;
+    if(!Number.isFinite(value.updatedAt)||value.updatedAt<0||value.updatedAt>Date.now()+60000)return null;
+    return {description,tags,status,updatedAt:value.updatedAt};
+  }
+  function parseReviewBackup(raw){
+    if(typeof raw!=='string'||raw.length>MAX_REVIEW_BYTES)throw new Error('Review backup is too large.');
+    let data;
+    try{data=JSON.parse(raw);}catch{throw new Error('Review backup is not valid JSON.');}
+    if(!data||data.schema!==1||data.account!==state.driveIdentity||
+       data.sheetId!==state.config.sheetId||!Array.isArray(data.items)||
+       data.items.length>MAX_REVIEW_ITEMS)throw new Error('This review backup is not for the current Drive account and inventory.');
+    const next=new Map();
+    for(const pair of data.items){
+      if(!Array.isArray(pair)||pair.length!==2||!safeId(pair[0])||next.has(pair[0]))
+        throw new Error('Review backup contains invalid or duplicate file identifiers.');
+      const validated=validateReviewEntry(pair[1]);
+      if(!validated)throw new Error('Review backup contains an invalid review record.');
+      next.set(pair[0],validated);
+    }
+    return next;
+  }
+  function reviewPayload(map){
+    return JSON.stringify({schema:1,account:state.driveIdentity,
+      sheetId:state.config.sheetId,exportedAt:new Date().toISOString(),items:[...map]});
+  }
+  function loadReviewNotes(){
+    state.reviewEdits=new Map();
+    const key=reviewStorageKey();
+    if(!key)return;
+    try{
+      const raw=localStorage.getItem(key);
+      if(raw)state.reviewEdits=parseReviewBackup(raw);
+    }catch(error){
+      alertUser('Saved reviews could not be read: '+error.message+'. Local notes were not changed.','error');
+    }
+  }
+  function writeReviewNotes(next){
+    const key=reviewStorageKey();
+    if(!key)throw new Error('Connect to Google Drive before saving reviews.');
+    const payload=reviewPayload(next);
+    if(next.size>MAX_REVIEW_ITEMS||payload.length>MAX_REVIEW_BYTES)
+      throw new Error('Review storage is full. Export a backup before making further changes.');
+    try{localStorage.setItem(key,payload);}
+    catch{throw new Error('Browser storage is unavailable or full. Export your review backup.');}
+    state.reviewEdits=next;
+  }
+  function effectiveDescription(item){
+    const note=state.reviewEdits.get(item.id);
+    return note?note.description:item.description||'';
+  }
+  function effectiveTags(item){
+    const note=state.reviewEdits.get(item.id);
+    return note?note.tags:item.tags||'';
+  }
+  function reviewStage(item){
+    const note=state.reviewEdits.get(item.id);
+    if(note?.status==='reviewed'&&effectiveDescription(item).trim())return 'reviewed';
+    if(note?.status==='deferred')return 'deferred';
+    if(note?.status==='draft')return 'pending';
+    const sourceStatus=String(item.review||'').toLowerCase();
+    if(!effectiveDescription(item).trim()||item.newInDrive||
+       /(?:needs review|not reviewed|unreviewed|awaiting review|pending review)/.test(sourceStatus))
+      return 'pending';
+    return 'source-reviewed';
+  }
+  function reviewCounts(){
+    const counts={pending:0,deferred:0,reviewed:0,'source-reviewed':0};
+    for(const item of state.images){
+      if(!item.demo)counts[reviewStage(item)]++;
+    }
+    return counts;
+  }
+  function updateReviewCounts(){
+    const counts=reviewCounts();
+    $('reviewCount').textContent=state.connected?format(counts.pending+counts.deferred):'—';
+    return counts;
+  }
+  function refreshReviewPresentation(){
+    updateReviewCounts();
+    if(state.view==='home')renderHome();
+    else if(state.view!=='health')renderGallery();
+  }
+  function saveCurrentReview(status,{advance=false}={}){
+    const item=state.activeImage;
+    if(!item||!state.connected||item.demo)return false;
+    const description=$('reviewDescription').value.trim();
+    const tags=$('reviewTags').value.trim();
+    if(status==='reviewed'&&!description){
+      $('reviewEditorStatus').textContent='Add a description before marking this item reviewed.';
+      $('reviewDescription').focus();
+      return false;
+    }
+    const nextItem=advance?nextReviewItem(item.id):null;
+    const next=new Map(state.reviewEdits);
+    next.set(item.id,{description,tags,status,updatedAt:Date.now()});
+    try{writeReviewNotes(next);}
+    catch(error){$('reviewEditorStatus').textContent=error.message;return false;}
+    state.reviewDirty=false;
+    $('reviewEditorStatus').textContent=status==='reviewed'?'Reviewed and saved on this device.':
+      status==='deferred'?'Moved to Review later.':'Draft saved on this device.';
+    refreshReviewPresentation();
+    if(advance&&nextItem){
+      const fresh=state.images.find(x=>x.id===nextItem.id);
+      if(fresh)openImage(fresh.id);
+    }else if(advance&&state.view==='review'){
+      // Keep the current image visible with its saved status when the queue is empty.
+      populateImageDialog();
+    }else populateImageDialog();
+    return true;
+  }
+  function nextReviewItem(id){
+    if(state.view!=='review')return null;
+    const queue=filterImages();
+    const index=queue.findIndex(item=>item.id===id);
+    return queue[index+1]||queue.find(item=>item.id!==id)||null;
+  }
+  function resetCurrentReview(){
+    const item=state.activeImage;
+    if(!item||!state.reviewEdits.has(item.id))return;
+    const next=new Map(state.reviewEdits);next.delete(item.id);
+    try{writeReviewNotes(next);}
+    catch(error){$('reviewEditorStatus').textContent=error.message;return;}
+    state.reviewDirty=false;
+    refreshReviewPresentation();
+    populateImageDialog();
+    $('reviewEditorStatus').textContent='Local correction cleared. Original inventory data restored.';
+  }
+  function exportReviewBackup(){
+    if(!state.connected||!reviewStorageKey())return;
+    const json=reviewPayload(state.reviewEdits);
+    const url=URL.createObjectURL(new Blob([json],{type:'application/json'}));
+    const link=document.createElement('a');
+    link.href=url;link.download='image-vault-reviews-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.appendChild(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),10000);
+  }
+  async function importReviewBackup(file){
+    if(!file||!state.connected)return;
+    if(file.size>MAX_REVIEW_BYTES)throw new Error('Review backup exceeds 2.6 MB.');
+    const next=parseReviewBackup(await file.text());
+    if(!confirm('Replace the '+state.reviewEdits.size+' local review records with '+next.size+
+        ' records from this backup? Drive and Sheets will not be changed.'))return;
+    writeReviewNotes(next);
+    refreshReviewPresentation();
+    alertUser('Imported '+next.size+' review records for this Drive account. Originals unchanged.','success');
+  }
+  function renderReviewToolbar(){
+    const shown=state.view==='review';
+    $('reviewToolbar').classList.toggle('hidden',!shown);
+    if(!shown)return;
+    const counts=updateReviewCounts();
+    $('reviewQueueFilter').value=state.reviewFilter;
+    const done=counts.reviewed+counts['source-reviewed'];
+    const total=counts.pending+counts.deferred+done;
+    $('reviewProgress').textContent=format(done)+' reviewed / '+format(total)+' items';
+    $('reviewHelp').textContent=format(counts.pending)+' need attention · '+
+      format(counts.deferred)+' deferred · '+format(counts.reviewed)+' reviewed locally';
+  }
+  function populateReviewEditor(item){
+    const editor=$('reviewForm');
+    editor.classList.toggle('hidden',!state.connected||!!item.demo);
+    if(!state.connected||item.demo)return;
+    const local=state.reviewEdits.get(item.id),status=reviewStage(item);
+    $('reviewDescription').value=effectiveDescription(item);
+    $('reviewTags').value=effectiveTags(item);
+    $('reviewEditorNote').textContent=local?
+      'Saved locally · '+status.replace('-',' ')+' · '+new Date(local.updatedAt).toLocaleString():
+      'From original spreadsheet · '+status.replace('-',' ')+'. Save to create your own local review.';
+    $('reviewEditorStatus').textContent='';
+    $('reviewDefer').textContent=status==='deferred'?'Keep for later':'Review later';
+    $('reviewReset').disabled=!local;
+    state.reviewDirty=false;
+  }
+
   function readFavorites() {
     try {const f = JSON.parse(localStorage.getItem(FAVORITES_STORAGE) || '[]'); return Array.isArray(f) ? f.filter(safeId) : [];}
     catch {return [];}
