@@ -932,3 +932,22 @@ test('review notes survive live Drive reconciliation by file ID',()=>{
   assert.equal(h.effectiveDescription(h.state.images[0]),'Edited and approved');
   assert.equal(h.reviewStage(h.state.images[0]),'reviewed');
 });
+
+test('a description without explicit source verification still needs review',()=>{
+  const {h}=harness(async()=>ok({files:[]}));
+  const a={...inv(file(790),'Memes/Test'),description:'Draft description',review:''};
+  const b={...inv(file(791),'Memes/Test'),description:'Verified description',review:'Visually reviewed'};
+  const c={...inv(file(792),'Memes/Test'),description:'Needs checking',review:'Not reviewed'};
+  h.state.images=[a,b,c];
+  assert.equal(h.reviewStage(a),'pending');
+  assert.equal(h.reviewStage(b),'source-reviewed');
+  assert.equal(h.reviewStage(c),'pending');
+});
+test('failed browser storage writes never claim a review was saved',()=>{
+  const {h,ctx}=harness(async()=>ok({files:[]}));
+  h.state.config.sheetId='spreadsheet012345678';h.state.driveIdentity='permission000000001';
+  const notes=new Map([[id(798),{description:'Test annotation',tags:'test',status:'reviewed',updatedAt:Date.now()}]]);
+  ctx.localStorage.setItem=()=>{throw new Error('Storage quota exceeded');};
+  assert.throws(()=>h.writeReviewNotes(notes),/unavailable or full/);
+  assert.equal(h.state.reviewEdits.size,0);
+});
