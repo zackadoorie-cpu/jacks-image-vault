@@ -352,3 +352,25 @@ test('unsupported WebM codec provides Drive fallback without a full file downloa
   assert.equal(calls.length,0);
   assert.match(els.get('previewDetails').textContent,/cannot play|Open in Drive/);
 });
+
+
+test('closing the viewer mid-download cancels playback and restores the Play button',async()=>{
+  let resume;
+  const gate=new Promise(resolve=>{resume=resolve;});
+  const item={...inv(file(14,'video/webm'),'Memes/Clips'),size:400};
+  const {h,els}=harness(async()=>{
+    await gate;
+    return new Response(Buffer.from('not-an-actual-video'),{
+      status:200,headers:{'content-type':'application/octet-stream'}
+    });
+  },{instantTimeout:false});
+  h.state.activeImage=item;
+  const pending=h.playVideo();
+  assert.equal(els.get('playVideoButton').disabled,true);
+  h.stopVideo();
+  resume();
+  await pending;
+  assert.equal(els.get('playVideoButton').disabled,false);
+  assert.equal(h.state.videoObjectUrl,null);
+  assert.equal(h.state.playingMediaId,null);
+});
