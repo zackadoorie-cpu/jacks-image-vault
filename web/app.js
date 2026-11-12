@@ -434,6 +434,7 @@
     $('disconnectButton').classList.toggle('hidden', !state.connected);
     $('heroConnectButton').classList.toggle('hidden', state.connected);
     $('allCount').textContent = state.connected ? format(state.images.length) : '—';
+    updateReviewCounts();
     $('footerStatus').textContent = state.connected ? 'Private media metadata · Read-only Drive access' : 'Preview · Connect to browse private files';
     $('syncButton').classList.toggle('hidden', !state.connected);
   }
@@ -572,6 +573,7 @@
       state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
+      loadReviewNotes();
       if(restoreSyncCache())mergeLiveFolders();
       buildFolderIndex(); updateStatus();
       const resumed=restoreBrowsingPosition();
@@ -584,7 +586,7 @@
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
       state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
-      state.images=DEMO;state.connected=false;state.folder='all';state.page=1;
+      state.images=DEMO;state.connected=false;state.reviewEdits.clear();state.reviewFilter='pending';state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
     }
@@ -1299,7 +1301,7 @@
     saveBrowsingPosition();
     stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
-    clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.reviewDirty=false;state.reviewFilter='pending';state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -1344,7 +1346,7 @@
     $('statImages').textContent=count(state.images.length);
     $('statMemes').textContent=count(state.images.filter(x=>folderKind(x.folder)==='memes').length);
     $('statPhotos').textContent=count(state.images.filter(x=>folderKind(x.folder)==='photos').length);
-    $('statDescribed').textContent=count(state.images.filter(x=>!!x.description).length);
+    $('statDescribed').textContent=count(state.images.filter(x=>!!effectiveDescription(x).trim()).length);
     // Featured collections are selected from the private inventory at runtime.
     // Never bake personal folder names into a public GitHub application bundle.
     const featured = state.connected ? [
@@ -1372,11 +1374,16 @@
       if(state.view==='memes' && kind!=='memes')return false;
       if(state.view==='photos' && kind!=='photos')return false;
       if(state.view==='favorites' && !state.favorites.has(image.id))return false;
-      if(state.view==='review' && image.description.trim())return false;
+      if(state.view==='review'){
+        const stage=reviewStage(image);
+        if(state.reviewFilter==='pending'&&stage!=='pending')return false;
+        if(state.reviewFilter==='deferred'&&stage!=='deferred')return false;
+        if(state.reviewFilter==='reviewed'&&stage!=='reviewed')return false;
+      }
       if(state.folder!=='all' && image.folder!==state.folder)return false;
       if(state.mediaType!=='all' && mediaKind(image)!==state.mediaType)return false;
       if(!term)return true;
-      return [image.folder,image.name,image.description,image.tags,image.captureDate,image.category].join(' ').toLocaleLowerCase().includes(term);
+      return [image.folder,image.name,effectiveDescription(image),effectiveTags(image),image.captureDate,image.category].join(' ').toLocaleLowerCase().includes(term);
     });
     arr.sort((a,b)=>{
       if(state.sort==='date-desc') return String(b.captureDate).localeCompare(String(a.captureDate))||a.name.localeCompare(b.name);
@@ -1452,8 +1459,12 @@
     state.autoLoadObserver?.disconnect();state.autoLoadObserver=null;
     state.autoLoadPending=false;
     const title=galleryTitle();$('galleryTitle').textContent=title;
+    renderReviewToolbar();
     $('galleryEyebrow').textContent=state.connected?'YOUR PRIVATE LIBRARY':'DESIGN PREVIEW';
-    $('galleryDescription').textContent=state.connected ? 'Search the existing Drive inventory. Previews load as you scroll.' : 'Connect your Google Drive to load your real collections and thumbnails.';
+    $('galleryDescription').textContent=state.connected ?
+      state.view==='review'?'Approve descriptions, defer uncertain files, and keep personal tags on this device.':
+      'Search the current Drive library. Previews load as you scroll.' :
+      'Connect Google Drive to load your real collections and thumbnails.';
     $('galleryGrid').classList.toggle('list',state.layout==='list');
     $('galleryGrid').dataset.density=state.density;
     $('densitySelect').value=state.density;
@@ -1481,7 +1492,7 @@
       if (visibleIds.has(job.id)) return true;
       state.loadingThumbs.delete(job.id);return false;
     });
-    if(!items.length){$('galleryGrid').innerHTML=`<div class="empty-state"><span>⌕</span><strong>No media found</strong><p>${state.view==='favorites'?'Favorite an image in its detail view to collect it here.':'Try a different search or collection, or connect your Drive.'}</p></div>`;}
+    if(!items.length){$('galleryGrid').innerHTML=`<div class="empty-state"><span>⌕</span><strong>${state.view==='review'&&state.reviewFilter==='pending'?'All caught up!':'No media found'}</strong><p>${state.view==='favorites'?'Favorite an image in its detail view to collect it here.':state.view==='review'?'Try another review status, or narrow the search.':'Try another search or collection, or connect your Drive.'}</p></div>`;}
     else $('galleryGrid').innerHTML=items.map(tileHTML).join('');
     bindGalleryTileEvents(
       $('galleryGrid').querySelectorAll('[data-open-image]'),
@@ -1500,10 +1511,16 @@
     $('retryFailedButton').classList.toggle('hidden',!state.connected||!failed);
   }
   function tileHTML(item) {
-    const style=folderStyle(item.folder), favorite=state.favorites.has(item.id), kind=mediaKind(item);
+    const style=folderStyle(item.folder),favorite=state.favorites.has(item.id),kind=mediaKind(item);
     const date=item.captureDate?item.captureDate.slice(0,10):folderName(item.folder);
-    const error=state.thumbErrors.get(item.id);
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):kind==='pdf'?'PDF':isGIF(item)?'GIF':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    const error=state.thumbErrors.get(item.id),description=effectiveDescription(item);
+    const status=reviewStage(item),note=state.reviewEdits.get(item.id);
+    const badge=item.demo?'SAMPLE':status==='reviewed'?'REVIEWED':status==='deferred'?'LATER':
+      status==='pending'?'NEEDS REVIEW':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):
+      kind==='pdf'?'PDF':isGIF(item)?'GIF':'DESCRIBED';
+    const badgeClass=(status==='reviewed'||status==='source-reviewed')&&!item.demo?'reviewed':
+      status==='deferred'?'deferred':'';
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   function observeThumbs() {
     state.observer?.disconnect();
@@ -1652,11 +1669,14 @@
     $('modalLocation').textContent=item.folder;
     $('modalCollection').textContent=item.collection.toUpperCase();
     $('modalTitle').textContent=item.name;
-    $('modalDescription').textContent=item.description||'This image has no verified description yet.';
-    const fields=[['Tags',item.tags||'Not indexed'],['Capture date',item.captureDate||'Unknown or unverified'],['Review',item.review||'Not reviewed'],['Visual confidence',item.confidence||'Not provided']];
+    $('modalDescription').textContent=effectiveDescription(item)||'This image has no verified description yet.';
+    const fields=[['Tags',effectiveTags(item)||'Not indexed'],['Capture date',item.captureDate||'Unknown or unverified'],
+      ['Local review',reviewStage(item).replace('-',' ')],
+      ['Source review',item.review||'Not reviewed'],['Source confidence',item.confidence||'Not provided']];
     $('modalMeta').innerHTML=fields.map(([key,val])=>`<dt>${escapeHTML(key)}</dt><dd>${escapeHTML(val)}</dd>`).join('');
     const link=$('openDriveLink');link.href=linkToDrive(item)||'#';link.classList.toggle('hidden',!linkToDrive(item));
     $('favoriteImage').disabled=item.demo;updateFavoriteButton();
+    populateReviewEditor(item);
     const playable=mediaKind(item)==='video'||isGIF(item);
     $('playVideoButton').classList.toggle('hidden',!playable||item.demo);
     $('playVideoButton').textContent=isGIF(item)?'▶ Play GIF animation':'▶ Play video';
