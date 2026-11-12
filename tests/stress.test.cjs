@@ -312,6 +312,7 @@ test('verified metadata cache restores across app sessions without saving media 
   const item=file(1,'image/gif');
   const {h,storage}=harness(async()=>ok({files:[]}));
   h.state.config.sheetId='spreadsheet012345678';
+  h.state.driveIdentity='permission000000001';
   h.state.folderSources=[known];
   h.state.inventory=[inv(item,known.path)];
   h.state.syncedFolders.set(known.path,[item]);
@@ -373,4 +374,22 @@ test('closing the viewer mid-download cancels playback and restores the Play but
   assert.equal(els.get('playVideoButton').disabled,false);
   assert.equal(h.state.videoObjectUrl,null);
   assert.equal(h.state.playingMediaId,null);
+});
+
+
+test('a second Google account cannot restore the first account’s local metadata',()=>{
+  const known=folder('Memes/Private');
+  const item=file(1);
+  const {h}=harness(async()=>ok({files:[]}));
+  h.state.config.sheetId='spreadsheet012345678';
+  h.state.driveIdentity='permission000000001';
+  h.state.folderSources=[known];
+  h.state.inventory=[inv(item,known.path)];
+  h.state.syncedFolders.set(known.path,[item]);
+  h.state.changeToken='cursor-1';
+  h.rememberSyncCache();
+  h.state.syncedFolders.clear();
+  h.state.driveIdentity='permission000000002';
+  assert.equal(h.restoreSyncCache(),false);
+  assert.equal(h.state.syncedFolders.size,0);
 });
