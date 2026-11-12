@@ -34,7 +34,8 @@
       <div class="sidebar-spacer"></div>
       <div class="sidebar-safety"><span class="safety-dot"></span> READ-ONLY ACCESS</div>
       <p class="sidebar-caption">Your original Drive files and folders remain untouched.</p>
-      <button class="side-settings" id="sidebarSettings" type="button">⚙ &nbsp; Connection settings</button>
+      <button class="side-settings" id="sidebarPreferences" type="button">⚙ &nbsp; App preferences</button>
+      <button class="side-settings" id="sidebarSettings" type="button">🔗 &nbsp; Drive connection</button>
       <button class="side-settings" id="sidebarUpdates" type="button">↻ &nbsp; App updates</button>
     </aside>
 
@@ -46,7 +47,7 @@
           <button class="btn quiet hidden" id="syncButton" type="button" title="Compare known folders with Google Drive, read-only">↻ <span>Sync Drive</span></button>
           <button class="btn quiet" id="updatesButton" type="button" title="Check updates and install local patch files">↻ <span>Updates</span></button>
           <button class="btn quiet install-top" id="installButton" type="button" title="Install this gallery as a Windows or Android app">↓ <span>Install app</span></button>
-          <button class="btn quiet" id="settingsButton" type="button" title="Google connection settings">⚙</button>
+          <button class="btn quiet" id="settingsButton" type="button" title="App preferences" aria-label="App preferences">⚙</button>
           <button class="btn primary" id="connectButton" type="button">Connect Drive</button>
           <button class="btn quiet hidden" id="disconnectButton" type="button">Disconnect</button>
         </div>
@@ -103,7 +104,7 @@
           </div>
           <div id="galleryNotice" class="gallery-notice hidden"></div>
           <div id="galleryGrid" class="image-grid" aria-live="polite"></div>
-          <div id="loadMoreArea" class="load-more"></div>
+          <div id="loadMoreArea" class="load-more" role="status" aria-live="polite"></div>
         </section>
 
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
@@ -120,6 +121,25 @@
       <footer class="footer"><span>JACK'S IMAGE VAULT <b>•</b> READ-ONLY PWA</span><span id="footerStatus">Local preview · No private data stored</span></footer>
     </div>
   </div>
+
+  <dialog id="preferencesDialog" class="dialog settings-dialog" aria-labelledby="preferencesTitle">
+    <form id="preferencesForm">
+      <div class="dialog-header"><div><p class="eyebrow">MAKE THE VAULT YOURS</p><h2 id="preferencesTitle">App preferences</h2></div><button class="icon-button" id="preferencesClose" type="button" aria-label="Close app preferences">×</button></div>
+      <p class="dialog-copy">Your browsing preferences are kept on this device. These controls never modify Google Drive images or require another sign-in.</p>
+      <div class="preference-section">
+        <label class="pref-toggle" for="prefAutoLoad"><span><strong>Load more automatically</strong><small>As you reach the end of the visible gallery, add the next batch without clicking Load More.</small></span><input id="prefAutoLoad" type="checkbox" checked></label>
+        <label class="field-label" for="prefBatchSize">Images per batch</label>
+        <select class="field" id="prefBatchSize"><option value="16">16 — conservative</option><option value="32">32 — balanced</option><option value="48">48 — faster browsing</option></select>
+        <p class="field-help">Images still load lazily. Switching Auto-load off restores the manual Load More button.</p>
+      </div>
+      <div class="preference-section">
+        <label class="field-label" for="prefDensity">Gallery tile size</label>
+        <select class="field" id="prefDensity"><option value="compact">Compact</option><option value="comfortable">Comfortable</option><option value="large">Large</option></select>
+      </div>
+      <button class="btn quiet pref-connection" id="preferencesConnection" type="button">Manage Google Drive connection ↗</button>
+      <div class="dialog-actions"><button class="btn outline" id="preferencesCancel" type="button">Cancel</button><button class="btn primary" type="submit">Save preferences</button></div>
+    </form>
+  </dialog>
 
   <dialog id="settingsDialog" class="dialog settings-dialog" aria-labelledby="settingsTitle">
     <form id="settingsForm">
