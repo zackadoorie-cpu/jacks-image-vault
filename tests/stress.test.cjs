@@ -8,7 +8,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
 const suffix = '  init();\n})();';
 assert.ok(source.includes(suffix), 'Application bootstrap changed; adjust the test harness');
-const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, discoverFolderTree, discoverLibraryRoots, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, generateVideoThumbnail, stopVideo, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth};\n})();');
+const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, discoverFolderTree, discoverLibraryRoots, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, generateVideoThumbnail, stopVideo, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth, reviewStage, reviewCounts, filterImages, saveCurrentReview, writeReviewNotes, loadReviewNotes, parseReviewBackup, reviewPayload, importReviewBackup, effectiveDescription, resetCurrentReview};\n})();');
 
 const id = i => 'media' + String(i).padStart(12, '0');
 const folder = (name, folderId = 'folder00000000001') => ({path: name, id: folderId});
@@ -808,4 +808,127 @@ test('temporary discovery failure preserves an earlier verified live tree and cu
   assert.equal(h.state.images.length,2);
   assert.equal(h.state.folderSources.length,2);
   assert.ok(h.state.discoveryError);
+});
+
+test('review status separates source-reviewed, pending, deferred and manually reviewed files',()=>{
+  const {h}=harness(async()=>ok({files:[]}));
+  const a={...inv(file(700),'Memes/Test'),description:'Verified rat image',review:'Visually reviewed'};
+  const b={...inv(file(701),'Memes/Test'),description:'',review:'Not reviewed'};
+  const c={...inv(file(702),'Memes/Test'),description:'Original caption',review:'Needs review'};
+  h.state.images=[a,b,c];
+  assert.equal(h.reviewStage(a),'source-reviewed');
+  assert.equal(h.reviewStage(b),'pending');
+  assert.equal(h.reviewStage(c),'pending');
+  h.state.reviewEdits.set(b.id,{description:'',tags:'',status:'deferred',updatedAt:Date.now()});
+  h.state.reviewEdits.set(c.id,{description:'Corrected caption',tags:'comic',status:'reviewed',updatedAt:Date.now()});
+  assert.equal(h.reviewStage(b),'deferred');
+  assert.equal(h.reviewStage(c),'reviewed');
+  assert.equal(h.effectiveDescription(c),'Corrected caption');
+  const counts=h.reviewCounts();
+  assert.equal(counts['source-reviewed'],1);
+  assert.equal(counts.deferred,1);
+  assert.equal(counts.reviewed,1);
+  assert.equal(counts.pending,0);
+});
+
+test('Needs Review queue excludes approved items and separates review-later items',()=>{
+  const {h}=harness(async()=>ok({files:[]}));
+  const a=inv(file(710),'Memes/Test'),b=inv(file(711),'Memes/Test'),c=inv(file(712),'Memes/Test');
+  h.state.images=[a,b,c];h.state.view='review';h.state.folder='all';h.state.search='';h.state.mediaType='all';
+  h.state.reviewEdits.set(b.id,{description:'',tags:'',status:'deferred',updatedAt:Date.now()});
+  h.state.reviewEdits.set(c.id,{description:'Reviewed locally',tags:'reaction',status:'reviewed',updatedAt:Date.now()});
+  h.state.reviewFilter='pending';
+  assert.deepEqual([...h.filterImages()].map(x=>x.id),[a.id]);
+  h.state.reviewFilter='deferred';
+  assert.deepEqual([...h.filterImages()].map(x=>x.id),[b.id]);
+  h.state.reviewFilter='reviewed';
+  assert.deepEqual([...h.filterImages()].map(x=>x.id),[c.id]);
+  h.state.reviewFilter='all';
+  assert.equal(h.filterImages().length,3);
+});
+
+test('local review backup persists and restores only on matching Google account and Sheet',()=>{
+  const {h,storage}=harness(async()=>ok({files:[]}));
+  h.state.config.sheetId='spreadsheet012345678';
+  h.state.driveIdentity='permission000000001';
+  const item=inv(file(720),'Memes/Test');
+  const notes=new Map([[item.id,{description:'A thoughtful personal caption',tags:'reaction, face',status:'reviewed',updatedAt:Date.now()}]]);
+  h.writeReviewNotes(notes);
+  const key=[...storage.keys()][0];
+  assert.match(key,/permission000000001/);
+  const raw=storage.get(key);
+  assert.ok(raw.includes('A thoughtful personal caption'));
+  assert.ok(!raw.includes('test-token-not-a-real-credential'));
+  h.state.reviewEdits.clear();
+  h.loadReviewNotes();
+  assert.equal(h.state.reviewEdits.get(item.id).status,'reviewed');
+  h.state.driveIdentity='permission000000002';
+  h.loadReviewNotes();
+  assert.equal(h.state.reviewEdits.size,0);
+  h.state.driveIdentity='permission000000001';
+  h.state.config.sheetId='anotherSheet00001';
+  h.loadReviewNotes();
+  assert.equal(h.state.reviewEdits.size,0);
+});
+
+test('review editor does not approve an item without a visual description',()=>{
+  const {h,els,storage}=harness(async()=>ok({files:[]}));
+  h.state.view='health';
+  h.state.config.sheetId='spreadsheet012345678';h.state.driveIdentity='permission000000001';
+  const item=inv(file(730),'Memes/Test');
+  h.state.images=[item];h.state.activeImage=item;
+  els.set('reviewDescription',{value:'',focus(){}});
+  els.set('reviewTags',{value:'test'});
+  assert.equal(h.saveCurrentReview('reviewed'),false);
+  assert.equal(h.state.reviewEdits.size,0);
+  assert.equal(storage.size,0);
+  assert.match(els.get('reviewEditorStatus').textContent,/Add a description/);
+});
+
+test('approving a corrected description updates local metadata and resetting restores source',()=>{
+  const {h,els}=harness(async()=>ok({files:[]}));
+  h.state.view='health';
+  h.state.config.sheetId='spreadsheet012345678';h.state.driveIdentity='permission000000001';
+  const item={...inv(file(740),'Memes/Test'),description:'Original sheet description',review:'Not reviewed'};
+  h.state.images=[item];h.state.activeImage=item;
+  els.set('reviewDescription',{value:'Corrected visual description',focus(){}});
+  els.set('reviewTags',{value:'meme, cat'});
+  assert.equal(h.saveCurrentReview('reviewed'),true);
+  assert.equal(h.reviewStage(item),'reviewed');
+  assert.equal(h.effectiveDescription(item),'Corrected visual description');
+  h.resetCurrentReview();
+  assert.equal(h.effectiveDescription(item),'Original sheet description');
+  assert.equal(h.reviewStage(item),'pending');
+});
+
+test('invalid review imports are rejected without overwriting existing notes',async()=>{
+  const {h}=harness(async()=>ok({files:[]}));
+  h.state.config.sheetId='spreadsheet012345678';h.state.driveIdentity='permission000000001';
+  const item=inv(file(750),'Memes/Test');
+  const existing=new Map([[item.id,{description:'Keep this safe',tags:'',status:'reviewed',updatedAt:Date.now()}]]);
+  h.writeReviewNotes(existing);
+  const malformed=JSON.parse(h.reviewPayload(existing));
+  malformed.items.push([item.id,{description:'duplicate ID',tags:'',status:'reviewed',updatedAt:Date.now()}]);
+  assert.throws(()=>h.parseReviewBackup(JSON.stringify(malformed)),/duplicate/);
+  malformed.items=[['otherfile0000001',{description:'',tags:'',status:'reviewed',updatedAt:Date.now()}]];
+  assert.throws(()=>h.parseReviewBackup(JSON.stringify(malformed)),/invalid review/);
+  malformed.items=[...existing];
+  malformed.account='anotheraccount00001';
+  assert.throws(()=>h.parseReviewBackup(JSON.stringify(malformed)),/not for the current Drive account/);
+  assert.equal(h.state.reviewEdits.get(item.id).description,'Keep this safe');
+});
+
+test('review notes survive live Drive reconciliation by file ID',()=>{
+  const {h}=harness(async()=>ok({files:[]}));
+  const item=inv(file(760),'Memes/Old');
+  h.state.inventory=[item];
+  h.state.images=[item];
+  h.state.folderSources=[folder('Memes/New','folder00000000001')];
+  h.state.syncedFolders.set('Memes/New',[file(760)]);
+  h.state.reviewEdits.set(item.id,{description:'Edited and approved',tags:'moved',status:'reviewed',updatedAt:Date.now()});
+  h.mergeLiveFolders(new Set(['Memes/New']));
+  assert.equal(h.state.images.length,1);
+  assert.equal(h.state.images[0].folder,'Memes/New');
+  assert.equal(h.effectiveDescription(h.state.images[0]),'Edited and approved');
+  assert.equal(h.reviewStage(h.state.images[0]),'reviewed');
 });
