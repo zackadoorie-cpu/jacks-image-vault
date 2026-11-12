@@ -1194,6 +1194,10 @@
     $('preferencesClose').onclick=()=>$('preferencesDialog').close();
     $('preferencesCancel').onclick=()=>$('preferencesDialog').close();
     $('preferencesForm').onsubmit=savePreferences;
+    $('preferencesConnection').onclick=()=>{
+      $('preferencesDialog').close();
+      showSettings();
+    };
     $('updatesButton').onclick=openUpdates;$('sidebarUpdates').onclick=openUpdates;
     $('updatesClose').onclick=()=>$('updatesDialog').close();
     $('saveRepoButton').onclick=saveUpdateRepo;$('updateCheckButton').onclick=()=>checkGithub();
