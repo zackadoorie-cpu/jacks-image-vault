@@ -7,6 +7,7 @@
   const REPO_STORAGE = 'jack-vault-public-update-repo-v2';
   const UPDATE_CHECK_STORAGE = 'jack-vault-last-update-check-v2';
   const DENSITY_STORAGE = 'jack-vault-gallery-density-v1';
+  const APP_PREFS_STORAGE = 'jack-vault-app-preferences-v1';
   const SYNC_CACHE_STORAGE = 'jack-vault-readonly-sync-cache-v1';
   const MAX_SYNC_CACHE = 1800000;
   const SCOPES = 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly';
@@ -22,6 +23,7 @@
     captureDate: '', review: 'Illustration only', confidence: '', category: '', mime: 'image/png',
     size: 0, url: '', demo: true, total
   })));
+  const startingPrefs = readPreferences();
   const state = {
     config: readSettings(),
     accessToken: null,
@@ -38,7 +40,12 @@
     density: readDensity(),
     folderQuery: '',
     page: 1,
-    pageSize: 32,
+    pageSize: startingPrefs.batchSize,
+    autoLoad: startingPrefs.autoLoad,
+    renderedCount: 0,
+    autoLoadObserver: null,
+    autoLoadPending: false,
+    galleryRevision: 0,
     filtered: [],
     activeImage: null,
     returnFocus: null,
@@ -104,6 +111,37 @@
   function readDensity() {
     try{const value=localStorage.getItem(DENSITY_STORAGE);return ['comfortable','compact','large'].includes(value)?value:'comfortable';}
     catch{return 'comfortable';}
+  }
+  function readPreferences() {
+    try{
+      const raw=JSON.parse(localStorage.getItem(APP_PREFS_STORAGE)||'{}');
+      return {autoLoad:typeof raw.autoLoad==='boolean'?raw.autoLoad:true,
+        batchSize:[16,32,48].includes(raw.batchSize)?raw.batchSize:32};
+    }catch{return {autoLoad:true,batchSize:32};}
+  }
+  function showPreferences(){
+    $('prefAutoLoad').checked=state.autoLoad;
+    $('prefBatchSize').value=String(state.pageSize);
+    $('prefDensity').value=state.density;
+    $('preferencesDialog').showModal();
+  }
+  function savePreferences(event){
+    event.preventDefault();
+    const autoLoad=$('prefAutoLoad').checked;
+    const batchSize=Number($('prefBatchSize').value);
+    const density=$('prefDensity').value;
+    if(![16,32,48].includes(batchSize)||!['compact','comfortable','large'].includes(density))return;
+    const shown=state.renderedCount;
+    state.autoLoad=autoLoad;
+    state.pageSize=batchSize;
+    state.density=density;
+    state.page=Math.max(1,Math.ceil(shown/batchSize));
+    try{
+      localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({autoLoad,batchSize}));
+      localStorage.setItem(DENSITY_STORAGE,density);
+    }catch{alertUser('App preferences could not be saved to this device. They will apply for this session.', 'error');}
+    $('preferencesDialog').close();
+    if(state.view!=='home'&&state.view!=='health')renderGallery();
   }
   function readFavorites() {
     try {const f = JSON.parse(localStorage.getItem(FAVORITES_STORAGE) || '[]'); return Array.isArray(f) ? f.filter(safeId) : [];}
@@ -631,6 +669,11 @@
     state.folders = [...map.values()].sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name));
   }
   function displayPage(view) {
+    if(view==='home'||view==='health'){
+      state.autoLoadObserver?.disconnect();
+      state.autoLoadObserver=null;
+      state.galleryRevision++;
+    }
     state.view=view; state.folder='all';state.folderQuery='';state.page=1;
     if($('folderSearch'))$('folderSearch').value='';
     $('homeView').classList.toggle('hidden',view!=='home');
@@ -688,7 +731,68 @@
     return arr;
   }
   function galleryTitle() {return ({all:'All media',memes:'Meme gallery',photos:'Photo archive',favorites:'Your favorites',review:'Needs review'})[state.view]||'Gallery';}
+  function bindGalleryTileEvents(previews,hearts){
+    for(const btn of previews)btn.addEventListener('click',()=>openImage(btn.dataset.openImage,btn));
+    for(const btn of hearts)btn.addEventListener('click',e=>{
+      e.preventDefault();toggleFavorite(btn.dataset.favorite);renderGallery();
+    });
+  }
+  function updateLoadMoreArea(){
+    state.autoLoadObserver?.disconnect();
+    state.autoLoadObserver=null;
+    const area=$('loadMoreArea');
+    const remaining=state.filtered.length-state.renderedCount;
+    if(remaining<=0){
+      area.innerHTML=state.filtered.length?'<span class="autoload-complete">End of collection</span>':'';
+      return;
+    }
+    if(!state.autoLoad||!('IntersectionObserver' in window)){
+      area.innerHTML=`<button class="btn outline" id="loadMoreButton" type="button">Load more · ${format(remaining)} remaining</button>`;
+      $('loadMoreButton').onclick=appendGalleryBatch;
+      return;
+    }
+    const revision=state.galleryRevision;
+    area.innerHTML=`<div id="autoLoadSentinel" class="autoload-sentinel" aria-hidden="true"></div><span class="autoload-progress">Showing ${format(state.renderedCount)} of ${format(state.filtered.length)} · more appear as you scroll</span>`;
+    state.autoLoadObserver=new IntersectionObserver(entries=>{
+      if(!entries.some(entry=>entry.isIntersecting)||state.autoLoadPending||revision!==state.galleryRevision)return;
+      if(document.visibilityState==='hidden'||state.view==='home'||state.view==='health')return;
+      state.autoLoadPending=true;
+      // One batch per tick. Do not aggressively queue every remaining image.
+      setTimeout(()=>{
+        state.autoLoadPending=false;
+        if(revision!==state.galleryRevision||!state.autoLoad||state.view==='home'||state.view==='health')return;
+        appendGalleryBatch();
+      },80);
+    },{rootMargin:'500px 0px'});
+    state.autoLoadObserver.observe($('autoLoadSentinel'));
+  }
+  function appendGalleryBatch(){
+    if(state.renderedCount>=state.filtered.length)return false;
+    const previous=state.renderedCount;
+    const next=Math.min(previous+state.pageSize,state.filtered.length);
+    const added=state.filtered.slice(previous,next);
+    $('galleryGrid').insertAdjacentHTML('beforeend',added.map(tileHTML).join(''));
+    state.renderedCount=next;
+    state.page=Math.max(1,Math.ceil(next/state.pageSize));
+    const previews=[...$('galleryGrid').querySelectorAll('[data-open-image]')].slice(previous);
+    const hearts=[...$('galleryGrid').querySelectorAll('[data-favorite]')].slice(previous);
+    bindGalleryTileEvents(previews,hearts);
+    if(state.observer){
+      for(const btn of previews)state.observer.observe(btn);
+    }else if(state.connected&&!('IntersectionObserver' in window)){
+      for(const btn of previews.slice(0,12)){
+        const item=state.filtered.find(x=>x.id===btn.dataset.openImage);
+        if(item)requestThumb(item);
+      }
+    }
+    updateLoadMoreArea();
+    updatePreviewStats();
+    return true;
+  }
   function renderGallery() {
+    state.galleryRevision++;
+    state.autoLoadObserver?.disconnect();state.autoLoadObserver=null;
+    state.autoLoadPending=false;
     const title=galleryTitle();$('galleryTitle').textContent=title;
     $('galleryEyebrow').textContent=state.connected?'YOUR PRIVATE LIBRARY':'DESIGN PREVIEW';
     $('galleryDescription').textContent=state.connected ? 'Search the existing Drive inventory. Previews load as you scroll.' : 'Connect your Google Drive to load your real collections and thumbnails.';
@@ -708,6 +812,7 @@
     $('folderSelect').value=state.folder;
     $('folderPickerCount').textContent=query?`${matched.length} collections found`:`${available.length} collections`;
     state.filtered=filterImages();const items=state.filtered.slice(0,state.page*state.pageSize);
+    state.renderedCount=items.length;
     $('resultCount').textContent=`${format(state.filtered.length)} ${state.connected?'files':'samples'}`;
     const notice=$('galleryNotice');notice.classList.toggle('hidden',state.connected);
     if(!state.connected) notice.textContent='Preview mode only. No private photo or file IDs are bundled with this application.';
@@ -719,11 +824,12 @@
     });
     if(!items.length){$('galleryGrid').innerHTML=`<div class="empty-state"><span>⌕</span><strong>No media found</strong><p>${state.view==='favorites'?'Favorite an image in its detail view to collect it here.':'Try a different search or collection, or connect your Drive.'}</p></div>`;}
     else $('galleryGrid').innerHTML=items.map(tileHTML).join('');
-    $('galleryGrid').querySelectorAll('[data-open-image]').forEach(btn=>btn.addEventListener('click',()=>openImage(btn.dataset.openImage,btn)));
-    $('galleryGrid').querySelectorAll('[data-favorite]').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();toggleFavorite(btn.dataset.favorite);renderGallery();}));
-    $('loadMoreArea').innerHTML=state.filtered.length>items.length ? `<button class="btn outline" id="loadMoreButton" type="button">Load more · ${format(state.filtered.length-items.length)} remaining</button>`:'';
-    if($('loadMoreButton'))$('loadMoreButton').onclick=()=>{state.page++;renderGallery();};
+    bindGalleryTileEvents(
+      $('galleryGrid').querySelectorAll('[data-open-image]'),
+      $('galleryGrid').querySelectorAll('[data-favorite]')
+    );
     observeThumbs();
+    updateLoadMoreArea();
     updatePreviewStats();
   }
   function updatePreviewStats() {
@@ -1082,7 +1188,12 @@
   }
   function initEvents() {
     document.querySelectorAll('[data-view]').forEach(btn=>btn.onclick=()=>displayPage(btn.dataset.view));
-    $('settingsButton').onclick=showSettings;$('sidebarSettings').onclick=showSettings;
+    $('settingsButton').onclick=showPreferences;
+    $('sidebarPreferences').onclick=showPreferences;
+    $('sidebarSettings').onclick=showSettings;
+    $('preferencesClose').onclick=()=>$('preferencesDialog').close();
+    $('preferencesCancel').onclick=()=>$('preferencesDialog').close();
+    $('preferencesForm').onsubmit=savePreferences;
     $('updatesButton').onclick=openUpdates;$('sidebarUpdates').onclick=openUpdates;
     $('updatesClose').onclick=()=>$('updatesDialog').close();
     $('saveRepoButton').onclick=saveUpdateRepo;$('updateCheckButton').onclick=()=>checkGithub();
