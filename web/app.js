@@ -69,6 +69,7 @@
     scanGeneration: 0,
     scanFailures: new Map(),
     changeToken: null,
+    driveIdentity: null,
     lastFullScanAt: null,
     videoObjectUrl: null,
     videoController: null,
@@ -225,6 +226,13 @@
     stopScans();
     const btn = $('connectButton'); btn.disabled = true; btn.textContent = 'Reading library…';
     try {
+      // Bind cached file metadata to the actual signed-in Drive account.
+      // If unavailable, the app continues without using local cache.
+      state.driveIdentity=null;
+      try{
+        const about=await googleGet('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)');
+        if(safeId(about?.user?.permissionId))state.driveIdentity=about.user.permissionId;
+      }catch{}
       const id = encodeURIComponent(state.config.sheetId);
       const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G"];
       const params = ranges.map(x => `ranges=${encodeURIComponent(x)}`).join('&');
@@ -258,7 +266,7 @@
     } catch (error) {
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
-      state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.lastFullScanAt=null;
+      state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
       state.images=DEMO;state.connected=false;state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
@@ -274,10 +282,10 @@
     try{localStorage.removeItem(SYNC_CACHE_STORAGE);}catch{}
   }
   function rememberSyncCache(){
-    if(!state.changeToken||state.syncedFolders.size!==state.folderSources.length)return;
+    if(!state.driveIdentity||!state.changeToken||state.syncedFolders.size!==state.folderSources.length)return;
     // Only metadata and Drive's change cursor are stored locally. Never store
     // private file contents, Google bearer tokens or cached image bytes.
-    const cache={schema:1,sheetId:state.config.sheetId,signature:syncCacheSignature(),
+    const cache={schema:2,sheetId:state.config.sheetId,driveIdentity:state.driveIdentity,signature:syncCacheSignature(),
       savedAt:Date.now(),token:state.changeToken,
       folders:[...state.syncedFolders].map(([path,files])=>({path,files:files.map(f=>({
         id:f.id,name:f.name,mimeType:f.mimeType,size:f.size||0,modifiedTime:f.modifiedTime||''
@@ -293,7 +301,8 @@
       if(!raw||raw.length>MAX_SYNC_CACHE)return false;
       data=JSON.parse(raw);
     }catch{return false;}
-    if(!data||data.schema!==1||data.sheetId!==state.config.sheetId||data.signature!==syncCacheSignature())return false;
+    if(!state.driveIdentity||!data||data.schema!==2||data.driveIdentity!==state.driveIdentity||
+      data.sheetId!==state.config.sheetId||data.signature!==syncCacheSignature())return false;
     if(!Number.isFinite(data.savedAt)||Date.now()-data.savedAt>30*24*60*60*1000||data.savedAt>Date.now()+60*1000)return false;
     if(typeof data.token!=='string'||!data.token||data.token.length>2048||!Array.isArray(data.folders))return false;
     if(data.folders.length!==state.folderSources.length)return false;
@@ -607,7 +616,7 @@
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
-    stopScans();stopVideo();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.lastFullScanAt=null;
+    stopScans();stopVideo();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
