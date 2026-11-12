@@ -428,8 +428,90 @@
     $('syncStatus').textContent=message;
     $('syncStatus').classList.toggle('error',error);
   }
-  async function syncWithDrive({quiet=false}={}){
+  async function listDriveChanges(token,signal){
+    const changes=[],seen=new Set();
+    let pageToken=token,page=0;
+    while(true){
+      if(signal?.aborted)throw new Error('Sync cancelled');
+      if(++page>20)throw new Error('Too many changes pages. Use Full rescan.');
+      if(seen.has(pageToken))throw new Error('Google repeated a changes page token.');
+      seen.add(pageToken);
+      const params=new URLSearchParams({
+        pageToken,pageSize:'1000',includeRemoved:'true',includeItemsFromAllDrives:'true',
+        supportsAllDrives:'true',
+        fields:'nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,size,parents,trashed,modifiedTime))'
+      });
+      const data=await googleGet(`https://www.googleapis.com/drive/v3/changes?${params.toString()}`,{signal});
+      if(!Array.isArray(data.changes))throw new Error('Google returned invalid changes data.');
+      changes.push(...data.changes);
+      if(changes.length>15000)throw new Error('Too many changes. Use Full rescan.');
+      if(data.nextPageToken){pageToken=data.nextPageToken;continue;}
+      if(!data.newStartPageToken)throw new Error('No updated changes cursor returned. Use Full rescan.');
+      return {changes,token:data.newStartPageToken};
+    }
+  }
+  async function syncDriveChanges({quiet=false}={}){
+    if(state.scanning||!state.connected||!state.changeToken)return;
+    const generation=++state.scanGeneration,controller=new AbortController();
+    const active=()=>state.connected&&state.scanGeneration===generation&&!controller.signal.aborted;
+    state.scanController=controller;state.scanning=true;
+    $('syncButton').disabled=true;$('healthScanButton').disabled=true;
+    try{
+      updateScanSummary('Checking recent Drive changes…');
+      const result=await listDriveChanges(state.changeToken,controller.signal);
+      if(!active())return;
+      const byFolderID=new Map(state.folderSources.map(f=>[f.id,f.path]));
+      const staged=new Map([...state.syncedFolders].map(([path,files])=>[path,files.slice()]));
+      const affected=new Set();
+      for(const change of result.changes){
+        if(!safeId(change.fileId))continue;
+        const id=change.fileId;
+        const record=change.file;
+        if(!change.removed && record && !record.trashed && !Array.isArray(record.parents)){
+          throw new Error('Google did not provide file parents. Use Full rescan.');
+        }
+        for(const [path,files] of staged){
+          const at=files.findIndex(f=>f.id===id);
+          if(at>=0){files.splice(at,1);affected.add(path);}
+        }
+        if(!change.removed && record && !record.trashed && supportedMedia(record.mimeType)){
+          // Ignore unrelated changes outside the 33 indexed folders.
+          const target=(record.parents||[]).map(x=>byFolderID.get(x)).find(Boolean);
+          if(target){
+            const file={id,name:record.name||'Untitled media',mimeType:record.mimeType,
+              size:record.size||0,modifiedTime:record.modifiedTime||''};
+            staged.get(target).push(file);affected.add(target);
+          }
+        }
+      }
+      if(!active())return;
+      state.syncedFolders=staged;
+      for(const path of affected){refreshFolderHealth(path);state.scanFailures.delete(path);}
+      state.changeToken=result.token;state.lastScanAt=new Date().toISOString();
+      if(affected.size)mergeLiveFolders(affected);
+      rememberSyncCache();
+      const summary=`Checked ${result.changes.length} Drive changes · ${affected.size} indexed folders updated · read-only`;
+      updateScanSummary(summary);
+      if(!quiet)alertUser(summary,'success');
+    }catch(error){
+      if(!active())return;
+      // Invalid/expired tokens require a full comparison before trusting a new cursor.
+      if([400,410].includes(error.httpStatus)){state.changeToken=null;clearLocalSyncCache();}
+      const msg=`Incremental check failed: ${error.message}. Use Full rescan if needed.`;
+      updateScanSummary(msg,true);
+      if(!quiet)alertUser(msg,'error');
+    }finally{
+      if(active()){
+        state.scanning=false;state.scanController=null;
+        $('syncButton').disabled=false;$('healthScanButton').disabled=false;
+        if(state.view==='health')renderHealth();
+      }
+    }
+  }
+
+  async function syncWithDrive({quiet=false,full=false}={}){
     if(state.scanning||!state.connected)return;
+    if(state.changeToken&&!full)return syncDriveChanges({quiet});
     if(!state.folderSources.length){updateScanSummary('No indexed folder IDs found in the Folders sheet.',true);return;}
     if(Date.now()>=state.expiry){if(!quiet)updateScanSummary('Google sign-in expired. Reconnect Drive.',true);return;}
     const generation=++state.scanGeneration;
@@ -440,6 +522,10 @@
     $('syncButton').disabled=true;$('healthScanButton').disabled=true;
     const scannedPaths=new Set(),failures=[];
     state.scanFailures.clear();
+    // Capture the starting cursor BEFORE scanning to avoid missing concurrent changes.
+    let initialCursor=null;
+    try{initialCursor=await startChangeCursor(controller.signal);}catch{initialCursor=null;}
+    if(!active())return;
     const folderQueue=state.folderSources.slice();
     let done=0;
     async function worker(){
@@ -451,14 +537,7 @@
           // A folder updates only after ALL pages completed successfully.
           state.syncedFolders.set(folder.path,files);
           scannedPaths.add(folder.path);
-          const known=state.inventory.filter(x=>x.folder===folder.path);
-          const knownIDs=new Set(known.map(x=>x.id)),currentIDs=new Set(files.map(f=>f.id));
-          state.health.set(folder.path,{
-            folder:folder.path,sourceCount:known.length,driveCount:files.length,
-            added:files.filter(f=>!knownIDs.has(f.id)).map(f=>({id:f.id,name:f.name,mime:f.mimeType})),
-            missing:known.filter(f=>!currentIDs.has(f.id)).map(f=>({id:f.id,name:f.name,mime:f.mime})),
-            checkedAt:new Date().toISOString()
-          });
+          refreshFolderHealth(folder.path);
         }catch(error) {
           if(!active())return;
           const message=error?.message||String(error);
@@ -473,6 +552,14 @@
       await Promise.all([worker(),worker(),worker()]);
       if(!active())return;
       if(scannedPaths.size){mergeLiveFolders(scannedPaths);state.lastScanAt=new Date().toISOString();}
+      if(!failures.length && scannedPaths.size===state.folderSources.length){
+        state.changeToken=initialCursor;
+        state.lastFullScanAt=state.lastScanAt;
+        if(state.changeToken)rememberSyncCache();
+      }else{
+        // A partial baseline cannot safely advance a changes cursor.
+        state.changeToken=null;clearLocalSyncCache();
+      }
       const current=[...scannedPaths].map(path=>state.health.get(path)).filter(Boolean);
       const added=current.reduce((n,f)=>n+f.added.length,0);
       const missing=current.reduce((n,f)=>n+f.missing.length,0);
@@ -492,7 +579,7 @@
     const added=data.reduce((n,x)=>n+x.added.length,0), missing=data.reduce((n,x)=>n+x.missing.length,0);
     $('healthSummary').textContent=state.lastScanAt ?
       `Last checked ${new Date(state.lastScanAt).toLocaleString()} · ${data.length}/${state.folderSources.length} folders · ${added} new · ${missing} missing` :
-      `Inventory snapshot: ${format(state.inventory.length)} files in ${state.folderSources.length} known folders. Select Scan now to compare Drive.`;
+      `Inventory snapshot: ${format(state.inventory.length)} files in ${state.folderSources.length} known folders. Select Full rescan to compare Drive.`;
     const rows=state.folderSources.map(folder=>{
       const row=state.health.get(folder.path);
       const failure=state.scanFailures.get(folder.path);
