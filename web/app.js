@@ -69,7 +69,12 @@
     remoteRelease: null,
     mediaType: 'all',
     inventory: [], // Spreadsheet snapshot. Never mutated by Drive sync.
-    folderSources: [], // Known Drive folder IDs from the user's private Folders sheet.
+    folderSources: [], // Live folders, including newly discovered nested folders.
+    baseFolderSources: [], // Stable, read-only folder baseline from the private spreadsheet.
+    libraryRoots: [], // Verified Drive root folders, never hard-coded.
+    lastDiscoveryAt: null,
+    lastFallbackScanAt: null,
+    discoveryError: null,
     syncedFolders: new Map(), // Live metadata held in memory for this session only.
     health: new Map(),
     lastScanAt: null,
@@ -94,7 +99,7 @@
   const format = n => Number(n || 0).toLocaleString('en-US');
   const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const folderName = folder => String(folder || '').split('/').slice(-1)[0];
-  const folderKind = folder => String(folder || '').startsWith('Memes/') ? 'memes' : 'photos';
+  const folderKind = folder => String(folder || '')==='Memes'||String(folder || '').startsWith('Memes/') ? 'memes' : 'photos';
   const folderStyle = folder => {
     const text = folder.toLowerCase();
     if (text.includes('pepe')) return {kind:'pepe',icon:'☺'};
@@ -109,6 +114,9 @@
   const SCAN_INTERVAL = 15 * 60 * 1000;
   const FULL_SCAN_INTERVAL = 24 * 60 * 60 * 1000;
   const MAX_AMBIGUOUS_LOOKUPS = 25;
+  const MAX_DISCOVERED_FOLDERS = 300;
+  const MAX_DISCOVERY_DEPTH = 8;
+  const MAX_DISCOVERED_MEDIA = 20000;
   const MAX_VIDEO_PREVIEW = 32 * 1024 * 1024;
   const MAX_GIF_PREVIEW = 20 * 1024 * 1024;
   const MAX_POSTER_VIDEO = 12 * 1024 * 1024;
@@ -367,8 +375,10 @@
       }
       if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
       state.inventory = images;
-      state.folderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
-        .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0)}));
+      state.baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
+        .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0),inventoryPath:r[1],discovered:false}));
+      state.folderSources=state.baseFolderSources.slice();
+      state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       if(restoreSyncCache())mergeLiveFolders();
@@ -382,7 +392,7 @@
     } catch (error) {
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
-      state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+      state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
       state.images=DEMO;state.connected=false;state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
@@ -392,7 +402,8 @@
 
   function syncCacheSignature(){
     // The cache is tied to this inventory's exact known folders.
-    return state.folderSources.map(f=>f.path+':'+f.id).join('|');
+    return (state.baseFolderSources.length?state.baseFolderSources:state.folderSources)
+      .map(f=>f.path+':'+f.id).sort().join('|');
   }
   function clearLocalSyncCache(){
     try{localStorage.removeItem(SYNC_CACHE_STORAGE);}catch{}
@@ -401,8 +412,11 @@
     if(!state.driveIdentity||!state.changeToken||state.syncedFolders.size!==state.folderSources.length)return;
     // Only metadata and Drive's change cursor are stored locally. Never store
     // private file contents, Google bearer tokens or cached image bytes.
-    const cache={schema:3,sheetId:state.config.sheetId,driveIdentity:state.driveIdentity,signature:syncCacheSignature(),
-      savedAt:Date.now(),fullScanAt:state.lastFullScanAt,token:state.changeToken,
+    const cache={schema:4,sheetId:state.config.sheetId,driveIdentity:state.driveIdentity,signature:syncCacheSignature(),
+      savedAt:Date.now(),fullScanAt:state.lastFullScanAt,discoveredAt:state.lastDiscoveryAt,token:state.changeToken,
+      roots:state.libraryRoots.map(root=>({id:root.id,path:root.path})),
+      sources:state.folderSources.map(f=>({id:f.id,path:f.path,
+        inventoryPath:f.inventoryPath||null,missing:!!f.missing,discovered:!!f.discovered})),
       folders:[...state.syncedFolders].map(([path,files])=>({path,files:files.map(f=>({
         id:f.id,name:f.name,mimeType:f.mimeType,size:f.size||0,modifiedTime:f.modifiedTime||''
       }))}))};
@@ -417,17 +431,39 @@
       if(!raw||raw.length>MAX_SYNC_CACHE)return false;
       data=JSON.parse(raw);
     }catch{return false;}
-    if(!state.driveIdentity||!data||data.schema!==3||data.driveIdentity!==state.driveIdentity||
+    if(!state.driveIdentity||!data||data.schema!==4||data.driveIdentity!==state.driveIdentity||
       data.sheetId!==state.config.sheetId||data.signature!==syncCacheSignature())return false;
     if(!Number.isFinite(data.savedAt)||Date.now()-data.savedAt>30*24*60*60*1000||data.savedAt>Date.now()+60*1000)return false;
     if(typeof data.token!=='string'||!data.token||data.token.length>2048||!Array.isArray(data.folders))return false;
     const verifiedAt=Date.parse(data.fullScanAt);
     if(!Number.isFinite(verifiedAt)||verifiedAt>data.savedAt+60000||verifiedAt>Date.now()+60000)return false;
-    if(data.folders.length!==state.folderSources.length)return false;
-    const allowed=new Set(state.folderSources.map(f=>f.path)), map=new Map();
+    const roots=Array.isArray(data.roots)?data.roots:[];
+    const sources=Array.isArray(data.sources)?data.sources:[];
+    const baseline=state.baseFolderSources.length?state.baseFolderSources:state.folderSources;
+    const baseIds=new Set(baseline.map(f=>f.id)),seenBase=new Set();
+    const allowedPaths=new Set(),seenIds=new Set();
+    if(sources.length<baseline.length||sources.length>MAX_DISCOVERED_FOLDERS+baseline.length+2)return false;
+    if(roots.length>2)return false;
+    if(state.baseFolderSources.length&&!roots.length)return false;
+    for(const root of roots){
+      if(!root||!safeId(root.id)||!['Memes','Jacks Photos'].includes(root.path))return false;
+    }
+    for(const source of sources){
+      if(!source||!safeId(source.id)||typeof source.path!=='string'||source.path.length>300||
+         !(source.path==='Memes'||source.path==='Jacks Photos'||source.path.startsWith('Memes/')||source.path.startsWith('Jacks Photos/'))||
+         allowedPaths.has(source.path)||seenIds.has(source.id))return false;
+      allowedPaths.add(source.path);seenIds.add(source.id);
+      if(baseIds.has(source.id)){
+        const base=baseline.find(f=>f.id===source.id);
+        if((source.inventoryPath||null)!==(state.baseFolderSources.length?base.path:null))return false;
+        seenBase.add(source.id);
+      }else if(source.inventoryPath)return false;
+    }
+    if(seenBase.size!==baseIds.size||data.folders.length!==sources.length)return false;
+    const map=new Map();
     let total=0;
     for(const entry of data.folders){
-      if(!entry||!allowed.has(entry.path)||map.has(entry.path)||!Array.isArray(entry.files))return false;
+      if(!entry||!allowedPaths.has(entry.path)||map.has(entry.path)||!Array.isArray(entry.files))return false;
       const files=[];
       for(const f of entry.files){
         if(!safeId(f.id)||typeof f.name!=='string'||f.name.length>512||!supportedMedia(f.mimeType))return false;
@@ -436,6 +472,9 @@
       }
       map.set(entry.path,files);
     }
+    state.folderSources=sources.map(f=>({...f}));
+    state.libraryRoots=roots.map(root=>({...root}));
+    state.lastDiscoveryAt=typeof data.discoveredAt==='string'?data.discoveredAt:null;
     state.syncedFolders=map;
     state.changeToken=data.token;
     state.lastFullScanAt=new Date(verifiedAt).toISOString();
@@ -446,7 +485,9 @@
   function refreshFolderHealth(path){
     const files=state.syncedFolders.get(path);
     if(!files)return;
-    const known=state.inventory.filter(x=>x.folder===path);
+    const source=state.folderSources.find(f=>f.path===path);
+    const inventoryPath=source?.inventoryPath||path;
+    const known=state.inventory.filter(x=>x.folder===inventoryPath);
     const knownIDs=new Set(known.map(x=>x.id)),currentIDs=new Set(files.map(x=>x.id));
     state.health.set(path,{
       folder:path,sourceCount:known.length,driveCount:files.length,
@@ -481,7 +522,7 @@
     },12000);
     state.scanTimer=setInterval(()=>{
       if(!state.connected||document.visibilityState==='hidden'||state.scanning||Date.now()>=state.expiry)return;
-      const verified=Date.parse(state.lastFullScanAt||'');
+      const verified=Date.parse(state.lastFullScanAt||state.lastFallbackScanAt||'');
       const due=!Number.isFinite(verified)||Date.now()-verified>=FULL_SCAN_INTERVAL;
       syncWithDrive({quiet:true,full:due});
     },SCAN_INTERVAL);
@@ -525,12 +566,144 @@
     }while(pageToken);
     return files;
   }
+
+  const DRIVE_FOLDER_MIME='application/vnd.google-apps.folder';
+  const displayFolderPart=name=>String(name||'Untitled folder').replaceAll('/','／')
+    .split('').map(c=>c.charCodeAt(0)<32?' ':c).join('').trim().slice(0,90)||'Untitled folder';
+
+  async function readDiscoveryMetadata(url,signal){
+    let attempt=0;
+    while(true){
+      try{return await googleGet(url,{signal});}
+      catch(error){
+        if(signal?.aborted||!error.retryable||++attempt>=4)throw error;
+        await new Promise(resolve=>setTimeout(resolve,Math.min(2500,350*(2**attempt))));
+      }
+    }
+  }
+  async function folderMetadata(id,signal){
+    const p=new URLSearchParams({fields:'id,name,mimeType,parents,trashed',supportsAllDrives:'true'});
+    return readDiscoveryMetadata('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(id)+'?'+p,signal);
+  }
+  async function discoverLibraryRoots(signal){
+    const baseline=state.baseFolderSources;
+    if(!baseline.length)return [];
+    const labels=[...new Set(baseline.map(f=>f.path.split('/')[0]))];
+    const roots=[];
+    for(const label of labels){
+      const candidates=baseline.filter(f=>f.path.startsWith(label+'/'))
+        .sort((a,b)=>a.path.split('/').length-b.path.split('/').length).slice(0,5);
+      let found=null;
+      for(const candidate of candidates){
+        const segments=candidate.path.split('/');
+        let cursor=candidate.id,valid=true,lastMeta=null;
+        try{
+          for(let i=segments.length-1;i>=0;i--){
+            if(signal?.aborted)throw new Error('Discovery cancelled');
+            if(!safeId(cursor)){valid=false;break;}
+            const meta=await folderMetadata(cursor,signal);
+            if(meta.id!==cursor||meta.mimeType!==DRIVE_FOLDER_MIME||meta.trashed||
+               meta.name!==segments[i]){valid=false;break;}
+            lastMeta=meta;
+            if(i>0)cursor=meta.parents?.[0];
+          }
+        }catch(error){
+          if(signal?.aborted)throw error;
+          valid=false;
+        }
+        if(valid&&lastMeta?.name===label){found={id:lastMeta.id,path:label};break;}
+      }
+      if(!found)throw fullVerificationError('Could not verify the '+label+' library root from existing folder IDs.');
+      roots.push(found);
+    }
+    return roots;
+  }
+  async function listFolderContents(folder,signal){
+    const media=[],children=[],seenIds=new Set(),pages=new Set();
+    let token='',pageCount=0,rawCount=0;
+    do{
+      if(signal?.aborted)throw new Error('Folder scan cancelled');
+      if(++pageCount>40)throw new Error('Folder exceeded 40 Drive pages');
+      const params=new URLSearchParams({
+        q:"'"+folder.id+"' in parents and trashed = false",
+        fields:'nextPageToken,incompleteSearch,files(id,name,mimeType,size,modifiedTime)',
+        pageSize:'1000',supportsAllDrives:'true',includeItemsFromAllDrives:'true'
+      });
+      if(token)params.set('pageToken',token);
+      const data=await readDiscoveryMetadata('https://www.googleapis.com/drive/v3/files?'+params,signal);
+      if(data.incompleteSearch||!Array.isArray(data.files))throw new Error('Drive returned an incomplete folder listing');
+      rawCount+=data.files.length;
+      if(rawCount>20000)throw new Error('Folder exceeded safe scan size limit');
+      for(const item of data.files){
+        if(!safeId(item.id)||seenIds.has(item.id))continue;
+        seenIds.add(item.id);
+        if(item.mimeType===DRIVE_FOLDER_MIME)children.push(item);
+        else if(supportedMedia(item.mimeType))media.push(item);
+      }
+      const next=data.nextPageToken||'';
+      if(next&&(pages.has(next)||next===token))throw new Error('Drive repeated a folder page token');
+      if(next)pages.add(next);
+      token=next;
+    }while(token);
+    return {media,children};
+  }
+  async function discoverFolderTree(signal){
+    const roots=await discoverLibraryRoots(signal);
+    const baseline=state.baseFolderSources;
+    if(!roots.length)throw new Error('No library roots available for discovery');
+    const byId=new Map(baseline.map(f=>[f.id,f]));
+    const queue=roots.map(root=>({...root,depth:0})),seen=new Set(),pathSet=new Set();
+    const sources=[],contents=new Map();
+    let mediaTotal=0,completed=0;
+    async function worker(){
+      while(queue.length){
+        if(signal?.aborted)throw new Error('Folder discovery cancelled');
+        const next=queue.shift();
+        if(seen.has(next.id))continue;
+        seen.add(next.id);
+        if(seen.size>MAX_DISCOVERED_FOLDERS)throw new Error('Folder discovery limit reached; no changes applied');
+        const base=byId.get(next.id);
+        const source={id:next.id,path:next.path,inventoryPath:base?.path||null,
+          discovered:!base,missing:false};
+        sources.push(source);pathSet.add(next.path);
+        const result=await listFolderContents(next,signal);
+        contents.set(next.path,result.media);
+        mediaTotal+=result.media.length;
+        if(mediaTotal>MAX_DISCOVERED_MEDIA)throw new Error('Library media safety limit reached; no changes applied');
+        if(result.children.length&&next.depth>=MAX_DISCOVERY_DEPTH)
+          throw new Error('Nested folder depth exceeds safe discovery limit');
+        for(const child of result.children){
+          if(seen.has(child.id)||queue.some(item=>item.id===child.id))continue;
+          let path=next.path+'/'+displayFolderPart(child.name);
+          if(pathSet.has(path)||queue.some(item=>item.path===path))path+=' ('+child.id.slice(-6)+')';
+          queue.push({id:child.id,path,depth:next.depth+1});
+          if(queue.length+seen.size>MAX_DISCOVERED_FOLDERS)
+            throw new Error('Too many nested folders to scan safely');
+        }
+        completed++;
+        updateScanSummary('Discovering collection folders… '+completed+' checked');
+      }
+    }
+    await Promise.all([worker(),worker(),worker()]);
+    for(const original of baseline){
+      if(seen.has(original.id))continue;
+      let path=original.path;
+      if(pathSet.has(path))path+=' (missing '+original.id.slice(-6)+')';
+      pathSet.add(path);
+      sources.push({...original,path,inventoryPath:original.path,missing:true,discovered:false});
+      contents.set(path,[]);
+    }
+    return {roots,sources,contents};
+  }
+
   function mergeLiveFolders(recentPaths=new Set()){
     const scanned=new Set(state.syncedFolders.keys());
+    const scannedInventoryPaths=new Set(state.folderSources
+      .filter(source=>scanned.has(source.path)).map(source=>source.inventoryPath||source.path));
     const originals=new Map(state.inventory.map(item=>[item.id,item]));
     // Live locations win even if the source folder's scan failed or was not yet completed.
     const liveIDs=new Set([...state.syncedFolders.values()].flatMap(files=>files.map(file=>file.id)));
-    const combined=state.inventory.filter(item=>!scanned.has(item.folder)&&!liveIDs.has(item.id));
+    const combined=state.inventory.filter(item=>!scannedInventoryPaths.has(item.folder)&&!liveIDs.has(item.id));
     const usedIDs=new Set(combined.map(item=>item.id));
     // When a folder scan failed, older cached locations must not override newer
     // successful observations of moved files in another folder.
@@ -601,7 +774,7 @@
     if(record&&Array.isArray(record.parents))return {removed:false,record};
     // The Changes API can omit parents or the whole file resource, including
     // for unrelated files. Never let one missing parents field block deletions.
-    if(!known&&(!record||!supportedMedia(record.mimeType)))return {skip:true};
+    if(!known&&(!record||(!supportedMedia(record.mimeType)&&record.mimeType!==DRIVE_FOLDER_MIME)))return {skip:true};
     const params=new URLSearchParams({
       fields:'id,name,mimeType,size,parents,trashed,modifiedTime',
       supportsAllDrives:'true'
@@ -637,6 +810,7 @@
       // Only reconcile monitored folders. Do not use a Drive change to mutate
       // files outside the existing, user-selected image collection roots.
       const byFolderID=new Map(state.folderSources.map(f=>[f.id,f.path]));
+      const monitoredFolders=new Set([...byFolderID.keys(),...state.libraryRoots.map(r=>r.id)]);
       const staged=new Map([...state.syncedFolders].map(([path,files])=>[path,files.slice()]));
       if(staged.size!==state.folderSources.length)throw fullVerificationError('Folder baseline is incomplete.');
       const affected=new Set(), trackedIDs=new Set([...staged.values()].flatMap(files=>files.map(f=>f.id)));
@@ -645,6 +819,18 @@
         if(!active())return;
         if(!safeId(change.fileId))continue;
         const id=change.fileId, known=trackedIDs.has(id);
+        const folderEvent=monitoredFolders.has(id)||change.file?.mimeType===DRIVE_FOLDER_MIME;
+        if(folderEvent){
+          // A folder can be created, moved, renamed, or removed. Its entire
+          // descendant tree needs reconciliation before the change cursor moves.
+          const candidate=await resolveChangeFile(change,monitoredFolders.has(id),controller.signal);
+          if(!active())return;
+          if(monitoredFolders.has(id) ||
+             candidate.record?.parents?.some(p=>monitoredFolders.has(p))){
+            throw fullVerificationError('A library folder changed. Rediscovering nested folders.');
+          }
+          ignored++;continue;
+        }
         if(!change.removed && !change.file?.trashed &&
             (!change.file||!Array.isArray(change.file.parents)) &&
             (known||supportedMedia(change.file?.mimeType))){
@@ -720,6 +906,87 @@
     let initialCursor=null;
     try{initialCursor=await startChangeCursor(controller.signal);}catch{initialCursor=null;}
     if(!active())return;
+    // With a valid snapshot from the private Folders sheet, discover new child
+    // directories under the verified library roots before scanning files.
+    // Do not commit partial trees: one failed folder listing keeps the previous
+    // gallery and cursor unchanged, with a clear error to retry.
+    if(state.baseFolderSources.length){
+      try{
+        const discovery=await discoverFolderTree(controller.signal);
+        if(!active())return;
+        state.folderSources=discovery.sources;
+        state.libraryRoots=discovery.roots;
+        state.lastDiscoveryAt=new Date().toISOString();
+        state.lastFallbackScanAt=null;
+        state.discoveryError=null;
+        state.syncedFolders=discovery.contents;
+        state.health.clear();state.scanFailures.clear();
+        for(const source of state.folderSources)refreshFolderHealth(source.path);
+        const paths=new Set(state.folderSources.map(source=>source.path));
+        mergeLiveFolders(paths);
+        state.lastScanAt=new Date().toISOString();
+        state.lastFullScanAt=state.lastScanAt;
+        state.changeToken=initialCursor;
+        if(initialCursor)rememberSyncCache();
+        const added=state.images.filter(item=>item.newInDrive).length;
+        const missing=[...state.health.values()].reduce((n,row)=>n+row.missing.length,0);
+        const discovered=state.folderSources.filter(source=>source.discovered&&!discovery.roots.some(root=>root.id===source.id)).length;
+        const message='Verified '+state.folderSources.length+' folders under '+discovery.roots.length+
+          ' library roots · '+discovered+' new folders · '+added+' new media · '+missing+
+          ' missing from inventory. Drive and spreadsheet unchanged.';
+        syncSucceeded(message,quiet);
+      }catch(error){
+        if(!active())return;
+        state.discoveryError=error?.message||String(error);
+        if(state.libraryRoots.length){
+          // Preserve a previously verified tree instead of replacing it with
+          // an incomplete folder listing after a temporary Drive failure.
+          syncFailed('Folder discovery incomplete: '+state.discoveryError+
+            '. Previous verified gallery retained; retry Full rescan.',quiet);
+        }else{
+          // First-run safety fallback: refresh the existing spreadsheet folders
+          // even when Google temporarily cannot resolve their parent hierarchy.
+          // No new folders are claimed and no change cursor is advanced.
+          try{
+            const source=state.baseFolderSources.slice(),results=new Map();
+            let index=0;
+            async function scanKnown(){
+              while(index<source.length){
+                const folder=source[index++];
+                const files=await listKnownFolder(folder,controller.signal);
+                if(!active())return;
+                results.set(folder.path,files);
+              }
+            }
+            await Promise.all([scanKnown(),scanKnown(),scanKnown()]);
+            if(!active())return;
+            state.folderSources=source;
+            state.syncedFolders=results;
+            state.health.clear();state.scanFailures.clear();
+            for(const folder of source)refreshFolderHealth(folder.path);
+            mergeLiveFolders(new Set(source.map(folder=>folder.path)));
+            state.lastScanAt=new Date().toISOString();
+            state.lastFallbackScanAt=state.lastScanAt;
+            state.lastFullScanAt=null;
+            state.changeToken=null;clearLocalSyncCache();
+            syncFailed('Existing indexed folders verified, but new folder discovery is unavailable: '+
+              state.discoveryError+'. Full discovery can be retried.',quiet);
+          }catch(fallbackError){
+            if(!active())return;
+            syncFailed('Folder discovery and indexed-folder verification failed: '+
+              state.discoveryError+'; '+(fallbackError?.message||fallbackError)+
+              '. Previous gallery retained.',quiet);
+          }
+        }
+      }finally{
+        if(active()){
+          state.scanning=false;state.scanController=null;
+          $('syncButton').disabled=false;$('healthScanButton').disabled=false;
+          if(state.view==='health')renderHealth();
+        }
+      }
+      return;
+    }
     const folderQueue=state.folderSources.slice();
     let done=0;
     async function worker(){
@@ -768,24 +1035,61 @@
       }
     }
   }
+
   function renderHealth(){
-    const data=[...state.health.values()].filter(x=>!state.scanFailures.has(x.folder));
-    const added=data.reduce((n,x)=>n+x.added.length,0), missing=data.reduce((n,x)=>n+x.missing.length,0);
-    $('healthSummary').textContent=state.lastScanAt ?
-      `Last checked ${new Date(state.lastScanAt).toLocaleString()} · ${data.length}/${state.folderSources.length} folders · ${added} new · ${missing} missing` :
-      `Inventory snapshot: ${format(state.inventory.length)} files in ${state.folderSources.length} known folders. Select Full rescan to compare Drive.`;
+    const verified=!!state.lastFullScanAt&&state.syncedFolders.size===state.folderSources.length;
+    const snapshotIDs=new Set(state.inventory.map(item=>item.id));
+    const liveIDs=new Set(state.images.filter(item=>!item.demo).map(item=>item.id));
+    const additions=verified?[...liveIDs].filter(id=>!snapshotIDs.has(id)).length:null;
+    const missing=verified?[...snapshotIDs].filter(id=>!liveIDs.has(id)).length:null;
+    $('metricSnapshot').textContent=format(state.inventory.length);
+    $('metricLive').textContent=verified?format(liveIDs.size):'—';
+    $('metricAdded').textContent=verified?format(additions):'—';
+    $('metricMissing').textContent=verified?format(missing):'—';
+    $('metricLiveNote').textContent=verified?'Verified against Drive':'Awaiting full verification';
+
+    const newFolders=state.folderSources.filter(source=>source.discovered&&!state.libraryRoots.some(r=>r.id===source.id));
+    const changedFolders=state.folderSources.filter(source=>source.inventoryPath&&source.inventoryPath!==source.path&&!source.missing);
+    const missingFolders=state.folderSources.filter(source=>source.missing);
+    const roots=state.libraryRoots.length?state.libraryRoots.map(root=>root.path).join(' + '):'Not verified';
+    $('discoverySummary').textContent=state.discoveryError?
+      'Folder discovery incomplete: '+state.discoveryError+'. Previous verified files retained.' :
+      'Watched roots: '+roots+' · '+newFolders.length+' newly discovered subfolders · '+
+      changedFolders.length+' renamed or relocated indexed folders · '+missingFolders.length+
+      ' indexed folders no longer beneath the roots.';
+
+    const checked=state.lastScanAt?new Date(state.lastScanAt).toLocaleString():'Never';
+    const full=state.lastFullScanAt?new Date(state.lastFullScanAt).toLocaleString():'Never';
+    $('healthSummary').textContent='Original spreadsheet: '+format(state.inventory.length)+' media in '+
+      state.baseFolderSources.length+' indexed folders · Watched live folders: '+
+      state.folderSources.length+' · Last Drive change check: '+checked+' · Last full folder verification: '+full+
+      (state.scanning?' · Scan in progress…':'');
+
+    const data=[...state.health.values()].filter(row=>!state.scanFailures.has(row.folder));
     const rows=state.folderSources.map(folder=>{
-      const row=state.health.get(folder.path);
-      const failure=state.scanFailures.get(folder.path);
-      const status=failure?`Scan failed: ${failure}`:row?`${row.added.length} new · ${row.missing.length} missing`:'Not scanned';
-      return `<tr><td>${escapeHTML(folderName(folder.path))}</td><td>${format(row?.sourceCount??state.inventory.filter(x=>x.folder===folder.path).length)}</td><td>${row?format(row.driveCount):'—'}</td><td>${escapeHTML(status)}</td></tr>`;
+      const row=state.health.get(folder.path),failure=state.scanFailures.get(folder.path);
+      const status=failure?'Scan failed: '+failure:
+        !row?'Not verified':
+        (folder.missing?'Folder no longer under library root · ':
+         folder.discovered?'Discovered from Drive · ':
+         folder.inventoryPath!==folder.path?'Moved or renamed · ':'')+
+        row.added.length+' new · '+row.missing.length+' missing';
+      const name=folder.path+(folder.inventoryPath&&folder.inventoryPath!==folder.path?
+        ' (was '+folder.inventoryPath+')':'');
+      return '<tr><td>'+escapeHTML(name)+'</td><td>'+format(row?.sourceCount??state.inventory.filter(x=>x.folder===(folder.inventoryPath||folder.path)).length)+
+        '</td><td>'+(row?format(row.driveCount):'—')+'</td><td>'+escapeHTML(status)+'</td></tr>';
     });
     $('healthRows').innerHTML=rows.join('');
-    const changed=data.filter(x=>x.added.length||x.missing.length);
-    $('healthChanges').innerHTML=changed.length ? changed.map(folder=>{
-      const lines=[...folder.added.map(f=>`<li><span class="health-added">NEW</span> ${escapeHTML(f.name)} <small>${escapeHTML(folderName(folder.folder))}</small></li>`),...folder.missing.map(f=>`<li><span class="health-missing">MISSING</span> ${escapeHTML(f.name)} <small>${escapeHTML(folderName(folder.folder))}</small></li>`)];
-      return lines.join('');
-    }).join('') : '<li>No file differences recorded in scanned folders.</li>';
+    const changed=data.filter(row=>row.added.length||row.missing.length);
+    const lines=changed.flatMap(folder=>[
+      ...folder.added.map(item=>'<li><span class="health-added">NEW</span> '+
+        escapeHTML(item.name)+' <small>'+escapeHTML(folder.folder)+'</small></li>'),
+      ...folder.missing.map(item=>'<li><span class="health-missing">MISSING</span> '+
+        escapeHTML(item.name)+' <small>'+escapeHTML(folder.folder)+'</small></li>')
+    ]);
+    $('healthChanges').innerHTML=lines.length?lines.slice(0,200).join('')+
+      (lines.length>200?'<li>Showing first 200 differences. Narrow your scan or export the inventory for a complete comparison.</li>':''):
+      '<li>No file differences recorded in verified folders.</li>';
   }
 
   function clearThumbnailCache() {
@@ -802,7 +1106,7 @@
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
     saveBrowsingPosition();
-    stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+    stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
@@ -813,6 +1117,13 @@
       const folder = image.folder;
       if (!map.has(folder)) map.set(folder,{path:folder,name:folderName(folder),kind:folderKind(folder),count:0,described:0});
       const record=map.get(folder);record.count++;if(image.description)record.described++;
+    }
+    // Make newly discovered empty albums visible in the collection picker too.
+    if(state.connected){
+      for(const source of state.folderSources){
+        if(!source.discovered||source.missing||state.libraryRoots.some(root=>root.id===source.id)||map.has(source.path))continue;
+        map.set(source.path,{path:source.path,name:folderName(source.path),kind:folderKind(source.path),count:0,described:0});
+      }
     }
     state.folders = [...map.values()].sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name));
   }
