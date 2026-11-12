@@ -1118,6 +1118,92 @@
     // the Play button disabled for the next image.
     $('playVideoButton').disabled=false;
   }
+  function renderMediaDiagnostic(item){
+    const reason=state.posterError.get(item.id)||state.thumbErrors.get(item.id)||'';
+    const entry=state.thumbCache.get(item.id);
+    const label=entry?(entry.kind==='generated'?'Locally generated still':entry.kind==='signed'?'Google Drive thumbnail':'Authenticated image'):'Unavailable';
+    $('mediaDiagnostics').textContent=`Format: ${item.mime||'Unknown'} · Size: ${humanBytes(item.size)} · Thumbnail: ${label}${reason?' · Note: '+reason:''}`;
+  }
+  async function videoFrameBlob(source,mime,signal){
+    // Extract one frame with the browser's decoder. The original file is never modified.
+    const mediaUrl=URL.createObjectURL(new Blob([source],{type:mime||'video/mp4'}));
+    const video=document.createElement('video');
+    video.muted=true;video.playsInline=true;video.preload='auto';
+    try{
+      await new Promise((resolve,reject)=>{
+        let done=false;
+        const finish=(error)=>{
+          if(done)return;
+          done=true;clearTimeout(timer);
+          video.removeEventListener('loadeddata',onLoaded);
+          video.removeEventListener('error',onError);
+          signal?.removeEventListener('abort',onAbort);
+          if(error)reject(error);else resolve();
+        };
+        const onLoaded=()=>video.videoWidth&&video.videoHeight ?
+          finish():finish(new Error('Video contains no usable picture'));
+        const onError=()=>finish(new Error('This video format cannot produce a thumbnail in your browser'));
+        const onAbort=()=>finish(new Error('Thumbnail generation cancelled'));
+        const timer=setTimeout(()=>finish(new Error('Frame extraction timed out')),9000);
+        video.addEventListener('loadeddata',onLoaded,{once:true});
+        video.addEventListener('error',onError,{once:true});
+        signal?.addEventListener('abort',onAbort,{once:true});
+        video.src=mediaUrl;
+        video.load();
+      });
+      if(signal?.aborted)throw new Error('Thumbnail generation cancelled');
+      const scale=Math.min(1,440/video.videoWidth,440/video.videoHeight);
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.max(1,Math.round(video.videoWidth*scale));
+      canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
+      const ctx=canvas.getContext('2d');
+      if(!ctx)throw new Error('Canvas rendering unavailable');
+      ctx.drawImage(video,0,0,canvas.width,canvas.height);
+      const still=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.78));
+      if(!still)throw new Error('Image encoding failed');
+      return still;
+    }finally{
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      URL.revokeObjectURL(mediaUrl);
+    }
+  }
+  async function generateVideoThumbnail(){
+    const item=state.activeImage;
+    if(!item||mediaKind(item)!=='video'||item.demo||state.posterController)return;
+    if(item.size>MAX_POSTER_VIDEO){
+      $('previewDetails').textContent='This clip exceeds the 12 MB thumbnail limit. You can still play it normally.';
+      return;
+    }
+    const controller=new AbortController();
+    state.posterController=controller;state.posterWorkingId=item.id;
+    $('generatePosterButton').disabled=true;
+    $('previewDetails').textContent='Creating a video thumbnail on this device…';
+    try{
+      const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
+      const source=await googleGet(url,{blob:true,maxBytes:MAX_POSTER_VIDEO,signal:controller.signal});
+      if(controller.signal.aborted||state.posterController!==controller||state.activeImage?.id!==item.id)return;
+      const jpeg=await videoFrameBlob(source,item.mime,controller.signal);
+      if(controller.signal.aborted||state.posterController!==controller||state.activeImage?.id!==item.id)return;
+      const src=URL.createObjectURL(jpeg);
+      state.thumbErrors.delete(item.id);state.posterError.delete(item.id);
+      putThumb(item.id,{src,objectUrl:true,kind:'generated'});
+      $('previewDetails').textContent='Preview frame saved in memory for this session. Original video unchanged.';
+    }catch(error){
+      if(!controller.signal.aborted&&state.activeImage?.id===item.id){
+        const reason=error?.message||'Thumbnail decoding failed';
+        state.posterError.set(item.id,reason);
+        $('previewDetails').textContent=`Could not generate thumbnail: ${reason}. The video can still play.`;
+        renderMediaDiagnostic(item);
+      }
+    }finally{
+      if(state.posterController===controller){
+        state.posterController=null;state.posterWorkingId=null;
+        $('generatePosterButton').disabled=false;
+      }
+    }
+  }
   async function playVideo(){
     const item=state.activeImage;
     if(!item)return;
