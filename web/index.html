@@ -108,14 +108,16 @@
         </section>
 
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
-          <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original inventory against the live files in your known folders. Nothing is edited in Drive or in the spreadsheet.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Full rescan</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
+          <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original spreadsheet snapshot with current Drive files. New subfolders under the verified Memes and Jacks Photos roots are discovered automatically.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Discover &amp; verify folders</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
+          <div class="index-metrics" id="indexMetrics" aria-label="Index coverage"><div class="index-metric"><span>Spreadsheet snapshot</span><strong id="metricSnapshot">—</strong><small>Original inventory, unchanged</small></div><div class="index-metric"><span>Live Drive files</span><strong id="metricLive">—</strong><small id="metricLiveNote">Not yet verified</small></div><div class="index-metric"><span>New files</span><strong id="metricAdded">—</strong><small>Not in spreadsheet snapshot</small></div><div class="index-metric"><span>Missing files</span><strong id="metricMissing">—</strong><small>No longer in watched roots</small></div></div>
+          <div class="health-summary" id="discoverySummary" role="status">Folder discovery has not run.</div>
           <div class="health-summary" id="healthSummary">Connect Drive to inspect the indexed folders.</div>
           <div class="health-summary" id="syncStatus" role="status" aria-live="polite">Sync has not run yet.</div>
           <h2 class="health-heading">Recent differences</h2>
           <ul class="health-differences" id="healthChanges"><li>Run a scan to check for changes.</li></ul>
-          <h2 class="health-heading">Known folders</h2>
+          <h2 class="health-heading">Verified folders and discovery status</h2>
           <div class="health-table-wrap"><table class="health-table"><thead><tr><th>Folder</th><th>Inventory</th><th>Live</th><th>Change</th></tr></thead><tbody id="healthRows"></tbody></table></div>
-          <p class="privacy-note">Initial sync compares known folders with Drive; later checks use Drive changes where available. Only file metadata and a changes cursor may be cached on this device, never image bytes or Google tokens. Clear the cache anytime. Media files play only when requested.</p>
+          <p class="privacy-note">The spreadsheet is a historical inventory, not a live database. Folder discovery and Drive changes update the gallery's read-only view without modifying or deleting any originals. Full discovery stays within the existing two library roots. The account-bound local cache stores metadata and a changes cursor only, never photo or video bytes or Google access tokens.</p>
         </section>
       </main>
       <footer class="footer"><span>JACK'S IMAGE VAULT <b>•</b> READ-ONLY PWA</span><span id="footerStatus">Local preview · No private data stored</span></footer>
