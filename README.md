@@ -1,4 +1,4 @@
-# Jack's Image Vault v2.0 — Windows launcher and update system
+# Jack's Image Vault — Windows image and media library
 
 **Status:** Working Windows EXE built, Go updater tests passed, local ZIP patch installed and rolled back in an HTTP smoke test. **Live Windows/Google thumbnail verification has not been performed** in the build environment.
 
@@ -12,6 +12,20 @@
 - Added **Updates** in the gallery: public GitHub releases, local patch ZIPs, rollback, and restore built-in UI.
 - The app checks the configured public GitHub repository at most once daily while open (on startup), but **never downloads or installs patches without your approval**.
 - Shell-only service worker is network-first, so approved UI patches are visible after reload. No private Drive data is cached by the service worker.
+
+## Live Drive indexing (v2.0.7)
+
+**The Google Sheets inventory is a historical snapshot.** A file remains in that sheet until the sheet is separately updated, even when the file is deleted in Drive. Image Vault does **not** edit the sheet or Drive content. It instead reconciles the gallery against live read-only Drive results and reports differences.
+
+- **Discovery:** On a full verification, the app verifies the parent chains of folders listed in the spreadsheet, identifies the existing `Memes` and `Jacks Photos` library roots, and walks their nested subfolders. It also includes supported media stored directly in those roots. It does **not** search unrelated parts of My Drive.
+- **New folders:** Newly discovered nested folders and their images, GIFs, videos, and PDFs appear in the gallery without adding their IDs to the spreadsheet. Empty new albums appear in the collection selector.
+- **Folder moves:** Stable Drive IDs preserve descriptions across folder renames. A folder moved out of the watched roots, or removed, is marked missing in Library Health and excluded from the verified live gallery.
+- **Incremental sync:** Drive's changes cursor updates existing media; a folder create/move/rename event triggers a fresh directory scan. The app periodically verifies the full directory tree to correct gaps.
+- **Index Health:** The dashboard clearly separates the **original spreadsheet count**, **verified live count**, **new files**, **missing files**, and folder discovery status. File differences are not automatically written back to Sheets.
+- **Failure safety:** The directory scan is bounded (300 folders, 20,000 supported media items, max depth eight) and read-only. If any folder listing fails, the last verified gallery is preserved. On first connection only, the app can verify the original indexed folders as a fallback, clearly showing that discovery is incomplete.
+- **Local metadata cache:** A bounded, account-specific metadata cache stores folder IDs, filenames, MIME types, size, and the changes cursor on your device, never file contents, Drive thumbnails, or OAuth tokens. Clear it from Library Health. The cache format is upgraded for v2.0.7, so the first verification may fetch the full tree again.
+
+After upgrading through GitHub, open **Library Health → Discover & verify folders** once. Confirm the two watched roots, verify the new/missing counts, then test an album added after the original inventory was created.
 
 ## Install on Windows
 
