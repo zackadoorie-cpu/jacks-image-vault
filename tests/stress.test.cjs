@@ -8,7 +8,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
 const suffix = '  init();\n})();';
 assert.ok(source.includes(suffix), 'Application bootstrap changed; adjust the test harness');
-const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, generateVideoThumbnail, stopVideo, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth};\n})();');
+const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, discoverFolderTree, discoverLibraryRoots, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, generateVideoThumbnail, stopVideo, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth};\n})();');
 
 const id = i => 'media' + String(i).padStart(12, '0');
 const folder = (name, folderId = 'folder00000000001') => ({path: name, id: folderId});
@@ -575,4 +575,171 @@ test('one failed incremental request must not change file visibility or advance 
   await h.syncWithDrive({quiet:true});
   assert.equal(h.state.images.length,2);
   assert.equal(h.state.changeToken,'cursor-1');
+});
+
+
+const folderMime='application/vnd.google-apps.folder';
+function testDriveTree({root='rootfolder000000001',old='folder00000000001',fresh='folder00000000002',nested='folder00000000003',
+  renamed=false,missing=false,broken=false}={}){
+  const stable='folder00000000004';
+  const names={
+    [root]:{id:root,name:'Memes',mimeType:folderMime,parents:[]},
+    [old]:{id:old,name:renamed?'Renamed':'Old',mimeType:folderMime,parents:[root]},
+    [stable]:{id:stable,name:'Stable',mimeType:folderMime,parents:[root]}
+  };
+  const baseline=renamed||missing?
+    [folder('Memes/Old',old),folder('Memes/Stable',stable)]:
+    [folder('Memes/Old',old)];
+  const indexed=file(100),direct=file(101),video=file(102,'video/webm'),pdf=file(103,'application/pdf');
+  const listing={
+    [root]:{files:[
+      ...(missing?[]:[names[old]]),
+      ...(renamed||missing?[names[stable]]:[]),
+      {id:fresh,name:'New Albums',mimeType:folderMime},
+      direct
+    ]},
+    [old]:{files:[indexed]},
+    [stable]:{files:[]},
+    [fresh]:{files:[{id:nested,name:'Nested',mimeType:folderMime},video]},
+    [nested]:{files:[pdf]}
+  };
+  const mocked=async url=>{
+    const directMeta=url.match(/\/files\/([^?]+)/);
+    if(directMeta){
+      const id=decodeURIComponent(directMeta[1]);
+      const record=names[id];
+      if(!record)throw new Error('Unexpected folder metadata '+id);
+      return ok(record);
+    }
+    if(url.includes('/files?')){
+      const query=new URL(url).searchParams.get('q')||'';
+      const match=query.match(/^'([^']+)' in parents/);
+      if(!match||!listing[match[1]])throw new Error('Unexpected folder listing '+query);
+      if(broken&&match[1]===fresh)return fail(403,'insufficientFilePermissions');
+      return ok(listing[match[1]]);
+    }
+    throw new Error('Unexpected Drive request '+url);
+  };
+  return {mocked,root,old,fresh,nested,stable,baseline,indexed,direct,video,pdf};
+}
+
+test('full discovery indexes newly added nested albums and root-level media',async()=>{
+  const tree=testDriveTree();
+  const {h,calls}=harness(tree.mocked);
+  h.state.baseFolderSources=tree.baseline;
+  h.state.folderSources=[...tree.baseline];
+  h.state.inventory=[inv(tree.indexed,tree.baseline[0].path)];
+  h.state.images=[...h.state.inventory];
+  await h.syncWithDrive({quiet:true,full:true});
+  assert.equal(h.state.libraryRoots.length,1);
+  assert.equal(h.state.libraryRoots[0].id,tree.root);
+  assert.equal(h.state.folderSources.length,4);
+  assert.equal(h.state.images.length,4);
+  assert.ok(h.state.images.some(x=>x.folder==='Memes/New Albums/Nested'&&x.mime==='application/pdf'));
+  assert.ok(h.state.images.some(x=>x.folder==='Memes'&&x.id===tree.direct.id));
+  assert.equal(h.state.inventory.length,1,'Sheet snapshot must stay untouched');
+  assert.equal(h.state.health.size,4);
+  assert.equal(h.state.changeToken,'cursor-0');
+  assert.ok(calls.every(c=>c.options.method==='GET'));
+});
+
+test('discovered folder metadata survives restart without copying Google tokens',async()=>{
+  const tree=testDriveTree();
+  const {h,storage}=harness(tree.mocked);
+  h.state.config.sheetId='spreadsheet012345678';
+  h.state.driveIdentity='permission000000001';
+  h.state.baseFolderSources=tree.baseline;
+  h.state.folderSources=[...tree.baseline];
+  h.state.inventory=[inv(tree.indexed,tree.baseline[0].path)];
+  h.state.images=[...h.state.inventory];
+  await h.syncWithDrive({quiet:true,full:true});
+  const json=[...storage.values()].join('');
+  assert.ok(json.includes('Memes/New Albums'));
+  assert.ok(!json.includes('test-token-not-a-real-credential'));
+  h.state.folderSources=[...tree.baseline];
+  h.state.syncedFolders.clear();h.state.libraryRoots=[];h.state.changeToken=null;
+  assert.equal(h.restoreSyncCache(),true);
+  assert.equal(h.state.folderSources.length,4);
+  assert.equal(h.state.syncedFolders.get('Memes/New Albums/Nested').length,1);
+});
+
+test('renamed indexed folder keeps existing file metadata and uses its current path',async()=>{
+  const tree=testDriveTree({renamed:true});
+  const {h}=harness(tree.mocked);
+  h.state.baseFolderSources=tree.baseline;
+  h.state.folderSources=[...tree.baseline];
+  const item={...inv(tree.indexed,'Memes/Old'),description:'Verified prior description'};
+  h.state.inventory=[item];h.state.images=[item];
+  await h.syncWithDrive({quiet:true,full:true});
+  const result=h.state.images.find(x=>x.id===tree.indexed.id);
+  assert.equal(result.folder,'Memes/Renamed');
+  assert.equal(result.description,item.description);
+  assert.equal(h.state.images.filter(x=>x.id===tree.indexed.id).length,1);
+  assert.equal(h.state.folderSources.find(x=>x.id===tree.old).inventoryPath,'Memes/Old');
+});
+
+test('removed indexed subfolder no longer shows its old spreadsheet files',async()=>{
+  const tree=testDriveTree({missing:true});
+  const {h}=harness(tree.mocked);
+  h.state.baseFolderSources=tree.baseline;
+  h.state.folderSources=[...tree.baseline];
+  const item=inv(tree.indexed,'Memes/Old');
+  h.state.inventory=[item];h.state.images=[item];
+  await h.syncWithDrive({quiet:true,full:true});
+  assert.ok(!h.state.images.some(x=>x.id===item.id));
+  const missing=h.state.folderSources.find(x=>x.id===tree.old);
+  assert.equal(missing.missing,true);
+  assert.equal(h.state.health.get(missing.path).missing.length,1);
+});
+
+test('failed new folder listing never partially commits a discovery tree',async()=>{
+  const tree=testDriveTree({broken:true});
+  const {h}=harness(tree.mocked);
+  h.state.baseFolderSources=tree.baseline;
+  h.state.folderSources=[...tree.baseline];
+  const item=inv(tree.indexed,'Memes/Old');
+  h.state.inventory=[item];h.state.images=[item];
+  await h.syncWithDrive({quiet:true,full:true});
+  assert.equal(h.state.images.length,1);
+  assert.equal(h.state.images[0].id,item.id);
+  assert.equal(h.state.folderSources.length,1);
+  assert.equal(h.state.changeToken,null);
+  assert.match(h.state.discoveryError,/denied read access/);
+});
+
+test('folder creation from Drive change feed triggers full nested folder discovery',async()=>{
+  const tree=testDriveTree();
+  const {h,calls}=harness(async url=>{
+    if(url.includes('/changes?'))return ok({
+      changes:[{fileId:tree.fresh,removed:false,file:{
+        id:tree.fresh,mimeType:folderMime,name:'New Albums',parents:[tree.root]
+      }}],newStartPageToken:'cursor-new'
+    });
+    return tree.mocked(url);
+  });
+  h.state.baseFolderSources=tree.baseline;
+  h.state.folderSources=[...tree.baseline,{id:tree.root,path:'Memes',discovered:true}];
+  h.state.libraryRoots=[{id:tree.root,path:'Memes'}];
+  h.state.inventory=[inv(tree.indexed,'Memes/Old')];h.state.images=[...h.state.inventory];
+  h.state.syncedFolders.set('Memes/Old',[tree.indexed]);
+  h.state.syncedFolders.set('Memes',[]);
+  h.state.changeToken='cursor-old';
+  await h.syncWithDrive({quiet:true});
+  assert.equal(h.state.images.length,4);
+  assert.ok(h.state.folderSources.some(x=>x.path==='Memes/New Albums/Nested'));
+  assert.equal(h.state.changeToken,'cursor-0');
+  assert.ok(calls.some(c=>c.url.includes('/changes?')));
+});
+
+test('full discovery ignores unrelated Drive roots and never writes to Drive',async()=>{
+  const tree=testDriveTree();
+  const {h,calls}=harness(tree.mocked);
+  h.state.baseFolderSources=tree.baseline;h.state.folderSources=[...tree.baseline];
+  h.state.inventory=[inv(tree.indexed,'Memes/Old')];h.state.images=[...h.state.inventory];
+  await h.syncWithDrive({quiet:true,full:true});
+  assert.ok(calls.every(c=>c.options.method==='GET'));
+  assert.ok(calls.filter(c=>c.url.includes('/files?')).every(c=>{
+    const q=new URL(c.url).searchParams.get('q')||'';
+    return !q.includes('unrelated-folder');
+  }));
 });
