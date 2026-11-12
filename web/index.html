@@ -110,8 +110,8 @@
                 </select>
               </label>
             </div>
-            <div class="review-toolbar-actions"><button type="button" class="btn outline" id="reviewExport">Export review backup</button><button type="button" class="btn quiet" id="reviewImport">Import backup</button><input class="hidden" type="file" accept=".json,application/json" id="reviewImportFile" aria-label="Choose review backup JSON"></div>
-            <p class="review-privacy">Reviews, descriptions, and tags are saved on this device for your signed-in Drive account. They never update the Google Sheets inventory or original media files. Export a backup before clearing browser storage.</p>
+            <div class="review-toolbar-actions"><button type="button" class="btn primary" id="reviewBatchImport">Import ChatGPT review batch</button><input class="hidden" type="file" accept=".json,application/json" id="reviewBatchImportFile" aria-label="Choose reviewed batch JSON"><button type="button" class="btn outline" id="reviewExport">Export review backup</button><button type="button" class="btn quiet" id="reviewImport">Restore full backup</button><input class="hidden" type="file" accept=".json,application/json" id="reviewImportFile" aria-label="Choose review backup JSON"></div>
+            <p class="review-privacy">ChatGPT review batches merge into your device's existing reviews without replacing them. Existing edits win on conflicts; original Drive and Sheets files never change. Export a backup before clearing browser storage.</p>
           </div>
           <div id="galleryNotice" class="gallery-notice hidden"></div>
           <div id="galleryGrid" class="image-grid" aria-live="polite"></div>
