@@ -308,7 +308,11 @@
     if(!effectiveDescription(item).trim()||item.newInDrive||
        /(?:needs review|not reviewed|unreviewed|awaiting review|pending review)/.test(sourceStatus))
       return 'pending';
-    return /(?:visually reviewed|reviewed by|review complete|verified by|approved|^verified\b|^reviewed\b)/.test(sourceStatus)?
+    // Historic inventory labels record visual inspections in several forms.
+    // Keep purely date-based, OCR-only and explicitly incomplete records pending.
+    if(/(?:missing capture date|capture date not available|sensitive non-meme|capture date verified)/.test(sourceStatus))
+      return 'pending';
+    return /(?:visually reviewed|visually inspected|visual review:|video preview frame inspected|renamed.*verified|reviewed by|review complete|verified by|approved|^verified\b|^reviewed\b)/.test(sourceStatus)?
       'source-reviewed':'pending';
   }
   function reviewCounts(){
@@ -382,6 +386,67 @@
     document.body.appendChild(link);link.click();link.remove();
     setTimeout(()=>URL.revokeObjectURL(url),10000);
   }
+
+  function parseChatGPTReviewBatch(raw){
+    if(typeof raw!=='string'||raw.length>MAX_REVIEW_BYTES)
+      throw new Error('Review batch exceeds local size limit.');
+    let data;
+    try{data=JSON.parse(raw);}catch{throw new Error('Review batch is not valid JSON.');}
+    if(!data||data.schema!=='image-vault-review-batch-v1'||!Array.isArray(data.items)||
+       !data.items.length||data.items.length>500)
+      throw new Error('Expected a review batch containing 1–500 visual reviews.');
+    const updates=new Map();
+    for(const record of data.items){
+      if(!record||!safeId(record.fileId)||typeof record.filename!=='string'||
+         record.filename.length>300||typeof record.description!=='string'||
+         !record.description.trim()||record.description.length>2000||
+         typeof record.tags!=='string'||record.tags.length>400||
+         record.status!=='reviewed'||record.reviewMethod!=='direct visual inspection'||
+         updates.has(record.fileId))
+        throw new Error('Review batch has a duplicate or invalid review entry.');
+      updates.set(record.fileId,{
+        filename:record.filename,description:record.description.trim(),
+        tags:record.tags.trim(),status:'reviewed',updatedAt:Date.now()
+      });
+    }
+    return updates;
+  }
+  function prepareChatGPTReviewMerge(records){
+    const indexed=new Map(state.images.filter(x=>!x.demo).map(x=>[x.id,x]));
+    const additions=new Map(),ignored=[];
+    for(const [id,record] of records){
+      const file=indexed.get(id);
+      if(!file||file.name!==record.filename){
+        ignored.push(record.filename+' (not found or filename changed)');
+        continue;
+      }
+      if(state.reviewEdits.has(id)){
+        ignored.push(record.filename+' (already has a personal review)');
+        continue;
+      }
+      additions.set(id,{description:record.description,tags:record.tags,
+        status:'reviewed',updatedAt:record.updatedAt});
+    }
+    return {additions,ignored};
+  }
+  async function importChatGPTReviewBatch(file){
+    if(!file||!state.connected||!reviewStorageKey())return;
+    if(file.size>MAX_REVIEW_BYTES)throw new Error('Review batch exceeds 2.6 MB.');
+    const records=parseChatGPTReviewBatch(await file.text());
+    const {additions,ignored}=prepareChatGPTReviewMerge(records);
+    if(!additions.size)
+      throw new Error('No matching unedited files in the current Drive index. Sync Drive or check filenames.');
+    if(!confirm('Merge '+additions.size+' visually reviewed descriptions from ChatGPT into this device? '+
+        ignored.length+' existing or unmatched records will be skipped. '+
+        'Original Drive files, Sheets, and existing reviews will remain unchanged.'))return;
+    const next=new Map(state.reviewEdits);
+    for(const [id,record] of additions)next.set(id,record);
+    writeReviewNotes(next);
+    refreshReviewPresentation();
+    alertUser('Merged '+additions.size+' visual reviews from ChatGPT. '+ignored.length+
+      ' skipped; previously saved reviews preserved. Originals unchanged.','success');
+  }
+
   async function importReviewBackup(file){
     if(!file||!state.connected)return;
     if(file.size>MAX_REVIEW_BYTES)throw new Error('Review backup exceeds 2.6 MB.');
@@ -2017,6 +2082,14 @@
     $('reviewDefer').onclick=()=>saveCurrentReview('deferred',{advance:true});
     $('reviewReset').onclick=resetCurrentReview;
     $('reviewExport').onclick=exportReviewBackup;
+    $('reviewBatchImport').onclick=()=>$('reviewBatchImportFile').click();
+    $('reviewBatchImportFile').onchange=async event=>{
+      const file=event.target.files?.[0];
+      if(!file)return;
+      try{await importChatGPTReviewBatch(file);}
+      catch(error){alertUser('Review batch import failed: '+error.message,'error');}
+      finally{event.target.value='';}
+    };
     $('reviewImport').onclick=()=>$('reviewImportFile').click();
     $('reviewImportFile').onchange=async event=>{
       const file=event.target.files?.[0];

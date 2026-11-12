@@ -8,7 +8,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
 const suffix = '  init();\n})();';
 assert.ok(source.includes(suffix), 'Application bootstrap changed; adjust the test harness');
-const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, discoverFolderTree, discoverLibraryRoots, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, generateVideoThumbnail, stopVideo, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth, reviewStage, reviewCounts, filterImages, saveCurrentReview, writeReviewNotes, loadReviewNotes, parseReviewBackup, reviewPayload, importReviewBackup, effectiveDescription, resetCurrentReview};\n})();');
+const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, discoverFolderTree, discoverLibraryRoots, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, generateVideoThumbnail, stopVideo, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth, reviewStage, reviewCounts, filterImages, saveCurrentReview, writeReviewNotes, loadReviewNotes, parseReviewBackup, reviewPayload, importReviewBackup, parseChatGPTReviewBatch, prepareChatGPTReviewMerge, importChatGPTReviewBatch, effectiveDescription, resetCurrentReview};\n})();');
 
 const id = i => 'media' + String(i).padStart(12, '0');
 const folder = (name, folderId = 'folder00000000001') => ({path: name, id: folderId});
@@ -960,4 +960,54 @@ test('OCR-only or explicitly unverified source notes cannot auto-complete a revi
   assert.equal(h.reviewStage(unverified),'pending');
   assert.equal(h.reviewStage(ocrOnly),'pending');
   assert.equal(h.reviewStage(visual),'source-reviewed');
+});
+
+test('portable ChatGPT review batch accepts visually inspected records but no arbitrary statuses',()=>{
+  const {h}=harness(async()=>ok({files:[]}));
+  const entry={fileId:id(900),filename:'test.png',folder:'Memes/Bobo',
+    description:'Bobo bear in a dark suit wearing glasses.',tags:'bobo, bear, glasses',
+    status:'reviewed',reviewMethod:'direct visual inspection'};
+  const json=JSON.stringify({schema:'image-vault-review-batch-v1',items:[entry]});
+  const parsed=h.parseChatGPTReviewBatch(json);
+  assert.equal(parsed.size,1);assert.equal(parsed.get(entry.fileId).description,entry.description);
+  assert.throws(()=>h.parseChatGPTReviewBatch(JSON.stringify({
+    schema:'image-vault-review-batch-v1',items:[{...entry,status:'draft'}]
+  })),/invalid review/);
+  assert.throws(()=>h.parseChatGPTReviewBatch(JSON.stringify({
+    schema:'image-vault-review-batch-v1',items:[entry,entry]
+  })),/duplicate or invalid/);
+});
+
+test('ChatGPT reviews merge without overriding personal review notes or incorrect file IDs',()=>{
+  const {h}=harness(async()=>ok({files:[]}));
+  const first=inv(file(901),'Memes/Bobo'),second=inv(file(902),'Memes/Bobo');
+  h.state.images=[first,second];
+  h.state.reviewEdits.set(first.id,{description:'My existing correction',tags:'mine',status:'reviewed',updatedAt:Date.now()});
+  const source=new Map([
+    [first.id,{filename:first.name,description:'Conflicting auto review',tags:'',status:'reviewed',updatedAt:Date.now()}],
+    [second.id,{filename:second.name,description:'Visual description',tags:'reaction',status:'reviewed',updatedAt:Date.now()}],
+    [id(903),{filename:'not found.png',description:'Unknown',tags:'',status:'reviewed',updatedAt:Date.now()}]
+  ]);
+  const result=h.prepareChatGPTReviewMerge(source);
+  assert.equal(result.additions.size,1);
+  assert.equal(result.ignored.length,2);
+  assert.equal(result.additions.get(second.id).description,'Visual description');
+  assert.equal(h.state.reviewEdits.get(first.id).description,'My existing correction');
+});
+
+test('legacy sheet visual-inspection labels do not keep already examined files in Needs Review',()=>{
+  const {h}=harness(async()=>ok({files:[]}));
+  const types=['Visually inspected Phase 21 contact sheet; text not OCR-verified',
+    'Renamed — verified','Visual review: representative animated frame; motion not fully inspected',
+    'Video preview frame inspected; full motion/audio not verified'];
+  for(const label of types){
+    const item={...inv(file(904),'Memes/Pepes'),description:'Visual observation',review:label};
+    assert.equal(h.reviewStage(item),'source-reviewed',label);
+  }
+  const pending=['Missing capture date — manual review','Capture date verified — current name matches',
+    'Sensitive non-meme PDF found in meme folder; review privately before any move'];
+  for(const label of pending){
+    const item={...inv(file(905),'Memes/Pepes'),description:'Existing description',review:label};
+    assert.equal(h.reviewStage(item),'pending',label);
+  }
 });
