@@ -8,7 +8,7 @@ const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'..','web','app.js'),'utf8');
 const suffix='  init();\n})();';
 assert.ok(source.includes(suffix),'app bootstrap changed');
-const code=source.replace(suffix,'  globalThis.__galleryTests={state,renderGallery,appendGalleryBatch,savePreferences,displayPage};\n})();');
+const code=source.replace(suffix,'  globalThis.__galleryTests={state,renderGallery,appendGalleryBatch,savePreferences,displayPage,saveBrowsingPosition,restoreBrowsingPosition,clearBrowsingPosition,updateScrollControls};\n})();');
 
 function harness({withObserver=true}={}){
   const elements=new Map(),storage=new Map(),observers=[];
@@ -79,7 +79,7 @@ function harness({withObserver=true}={}){
   }));
   h.state.folders=[{path:'Memes/Test',name:'Test',kind:'memes',count:140}];
   h.state.page=1;h.state.pageSize=16;h.state.autoLoad=true;h.state.search='';
-  return {h,el,grid,storage,observers};
+  return {h,el,grid,storage,observers,context};
 }
 async function drain(){await Promise.resolve();await Promise.resolve();await Promise.resolve();}
 
@@ -157,4 +157,62 @@ test('load more stops at exact end of the collection without duplicate cards',()
   assert.equal(new Set(ids).size,140);
   assert.equal(h.state.renderedCount,140);
   assert.equal(h.appendGalleryBatch(),false);
+});
+
+
+test('restore browsing keeps collection, filters, page and scroll position for the same Drive account',()=>{
+  const {h,storage,context}=harness();
+  h.state.connected=true;
+  h.state.driveIdentity='permission000000001';
+  h.state.config.sheetId='sheet00000000001';
+  h.state.view='memes';
+  h.state.folder='Memes/Test';
+  h.state.search='cat';
+  h.state.mediaType='image';
+  h.state.sort='date-desc';
+  h.state.layout='list';
+  h.state.page=7;
+  context.window.scrollY=2850;
+  h.saveBrowsingPosition();
+  const record=JSON.parse(storage.get('jack-vault-resume-position-v1'));
+  assert.equal(record.scrollY,2850);
+  assert.equal(record.page,7);
+  assert.ok(!JSON.stringify(record).includes('accessToken'));
+
+  h.state.search='';
+  h.state.folder='all';
+  h.state.view='home';
+  h.state.page=1;
+  context.window.scrollY=0;
+  assert.equal(h.restoreBrowsingPosition(),true);
+  assert.equal(h.state.view,'memes');
+  assert.equal(h.state.folder,'Memes/Test');
+  assert.equal(h.state.search,'cat');
+  assert.equal(h.state.page,7);
+  assert.equal(h.state.resumeScrollY,2850);
+  assert.equal(h.state.layout,'list');
+  assert.equal(h.state.sort,'date-desc');
+});
+
+test('saved browsing metadata never restores across Google accounts',()=>{
+  const {h,context}=harness();
+  h.state.connected=true;
+  h.state.driveIdentity='permission000000001';
+  h.state.config.sheetId='sheet00000000001';
+  context.window.scrollY=900;
+  h.saveBrowsingPosition();
+  h.state.driveIdentity='permission000000002';
+  assert.equal(h.restoreBrowsingPosition(),false);
+  h.clearBrowsingPosition();
+  assert.equal(h.restoreBrowsingPosition(),false);
+});
+
+test('opted-out resume creates no saved local browsing record',()=>{
+  const {h,storage}=harness();
+  h.state.connected=true;
+  h.state.driveIdentity='permission000000001';
+  h.state.config.sheetId='sheet00000000001';
+  h.state.rememberBrowsing=false;
+  h.saveBrowsingPosition();
+  assert.equal(storage.has('jack-vault-resume-position-v1'),false);
 });

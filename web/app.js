@@ -1,4 +1,4 @@
-/* Jack's Image Vault v2.0.2 — read-only Drive browser with opt-in local app-shell updates. */
+/* Jack's Image Vault — read-only Drive browser with verified local and GitHub updates. */
 'use strict';
 (() => {
   const $ = id => document.getElementById(id);
@@ -8,6 +8,7 @@
   const UPDATE_CHECK_STORAGE = 'jack-vault-last-update-check-v2';
   const DENSITY_STORAGE = 'jack-vault-gallery-density-v1';
   const APP_PREFS_STORAGE = 'jack-vault-app-preferences-v1';
+  const BROWSE_STORAGE = 'jack-vault-resume-position-v1';
   const SYNC_CACHE_STORAGE = 'jack-vault-readonly-sync-cache-v1';
   const MAX_SYNC_CACHE = 1800000;
   const SCOPES = 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly';
@@ -42,6 +43,9 @@
     page: 1,
     pageSize: startingPrefs.batchSize,
     autoLoad: startingPrefs.autoLoad,
+    rememberBrowsing: startingPrefs.rememberBrowsing,
+    browseSaveTimer: null,
+    resumeScrollY: null,
     renderedCount: 0,
     autoLoadObserver: null,
     autoLoadPending: false,
@@ -81,6 +85,9 @@
     videoObjectUrl: null,
     videoController: null,
     playingMediaId: null,
+    posterController: null,
+    posterWorkingId: null,
+    posterError: new Map(),
   };
   const safeId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{10,}$/.test(id);
   const format = n => Number(n || 0).toLocaleString('en-US');
@@ -101,6 +108,7 @@
   const SCAN_INTERVAL = 15 * 60 * 1000;
   const MAX_VIDEO_PREVIEW = 32 * 1024 * 1024;
   const MAX_GIF_PREVIEW = 20 * 1024 * 1024;
+  const MAX_POSTER_VIDEO = 12 * 1024 * 1024;
   const isGIF = item => (item?.mime||'').toLowerCase()==='image/gif';
   const linkToDrive = item => safeId(item?.id) ? `https://drive.google.com/file/d/${encodeURIComponent(item.id)}/view` : '';
   function readSettings() {
@@ -116,13 +124,15 @@
     try{
       const raw=JSON.parse(localStorage.getItem(APP_PREFS_STORAGE)||'{}');
       return {autoLoad:typeof raw.autoLoad==='boolean'?raw.autoLoad:true,
-        batchSize:[16,32,48].includes(raw.batchSize)?raw.batchSize:32};
-    }catch{return {autoLoad:true,batchSize:32};}
+        batchSize:[16,32,48].includes(raw.batchSize)?raw.batchSize:32,
+        rememberBrowsing:typeof raw.rememberBrowsing==='boolean'?raw.rememberBrowsing:true};
+    }catch{return {autoLoad:true,batchSize:32,rememberBrowsing:true};}
   }
   function showPreferences(){
     $('prefAutoLoad').checked=state.autoLoad;
     $('prefBatchSize').value=String(state.pageSize);
     $('prefDensity').value=state.density;
+    $('prefRememberBrowsing').checked=state.rememberBrowsing;
     $('preferencesDialog').showModal();
   }
   function savePreferences(event){
@@ -130,18 +140,79 @@
     const autoLoad=$('prefAutoLoad').checked;
     const batchSize=Number($('prefBatchSize').value);
     const density=$('prefDensity').value;
+    const rememberBrowsing=$('prefRememberBrowsing').checked;
     if(![16,32,48].includes(batchSize)||!['compact','comfortable','large'].includes(density))return;
     const shown=state.renderedCount;
     state.autoLoad=autoLoad;
     state.pageSize=batchSize;
     state.density=density;
+    state.rememberBrowsing=rememberBrowsing;
+    if(!rememberBrowsing)clearBrowsingPosition();
     state.page=Math.max(1,Math.ceil(shown/batchSize));
     try{
-      localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({autoLoad,batchSize}));
+      localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({autoLoad,batchSize,rememberBrowsing}));
       localStorage.setItem(DENSITY_STORAGE,density);
     }catch{alertUser('App preferences could not be saved to this device. They will apply for this session.', 'error');}
     $('preferencesDialog').close();
-    if(state.view!=='home'&&state.view!=='health')renderGallery();
+    if(state.view!=='home'&&state.view!=='health'){
+      renderGallery();
+      if(rememberBrowsing)scheduleBrowseSave();
+    }
+  }
+  function clearBrowsingPosition(){
+    if(state.browseSaveTimer)clearTimeout(state.browseSaveTimer);
+    state.browseSaveTimer=null;
+    try{localStorage.removeItem(BROWSE_STORAGE);}catch{}
+  }
+  function browsingView(){return ['all','memes','photos','favorites','review'].includes(state.view);}
+  function saveBrowsingPosition(){
+    if(state.browseSaveTimer)clearTimeout(state.browseSaveTimer);
+    state.browseSaveTimer=null;
+    if(!state.connected||!state.rememberBrowsing||!state.driveIdentity||!browsingView())return;
+    const position={
+      schema:1,account:state.driveIdentity,sheetId:state.config.sheetId,savedAt:Date.now(),
+      view:state.view,folder:state.folder,search:state.search.slice(0,200),
+      sort:state.sort,mediaType:state.mediaType,layout:state.layout,
+      page:Math.max(1,Math.min(20,state.page)),
+      scrollY:Math.max(0,Math.min(100000,Math.floor(window.scrollY||window.pageYOffset||0)))
+    };
+    try{localStorage.setItem(BROWSE_STORAGE,JSON.stringify(position));}catch{}
+  }
+  function scheduleBrowseSave(){
+    if(!state.connected||!state.rememberBrowsing||!browsingView())return;
+    if(state.browseSaveTimer)clearTimeout(state.browseSaveTimer);
+    state.browseSaveTimer=setTimeout(saveBrowsingPosition,350);
+  }
+  function restoreBrowsingPosition(){
+    if(!state.rememberBrowsing||!state.driveIdentity)return false;
+    let saved;
+    try{saved=JSON.parse(localStorage.getItem(BROWSE_STORAGE)||'null');}catch{return false;}
+    if(!saved||saved.schema!==1||saved.account!==state.driveIdentity||
+       saved.sheetId!==state.config.sheetId||!['all','memes','photos','favorites','review'].includes(saved.view)||
+       !Number.isFinite(saved.savedAt)||saved.savedAt>Date.now()+60000||
+       Date.now()-saved.savedAt>30*24*60*60*1000)return false;
+    state.view=saved.view;
+    state.folder=typeof saved.folder==='string'&&(saved.folder==='all'||state.folders.some(f=>f.path===saved.folder))?saved.folder:'all';
+    state.search=typeof saved.search==='string'?saved.search.slice(0,200):'';
+    state.sort=['name','date-desc','date-asc','review'].includes(saved.sort)?saved.sort:'name';
+    state.mediaType=['all','image','video','pdf'].includes(saved.mediaType)?saved.mediaType:'all';
+    state.layout=['grid','list'].includes(saved.layout)?saved.layout:'grid';
+    state.page=Number.isInteger(saved.page)?Math.max(1,Math.min(20,saved.page)):1;
+    state.resumeScrollY=Number.isFinite(saved.scrollY)?Math.max(0,Math.min(100000,saved.scrollY)):0;
+    $('searchInput').value=state.search;
+    $('sortSelect').value=state.sort;
+    $('mediaTypeSelect').value=state.mediaType;
+    return true;
+  }
+  function finishBrowsingRestore(){
+    if(state.resumeScrollY===null)return;
+    const y=state.resumeScrollY;
+    state.resumeScrollY=null;
+    setTimeout(()=>window.scrollTo({top:y,behavior:'instant'}),80);
+  }
+  function updateScrollControls(){
+    const active=state.connected&&browsingView()&&(window.scrollY||window.pageYOffset||0)>650;
+    $('backToTop').classList.toggle('hidden',!active);
   }
   function readFavorites() {
     try {const f = JSON.parse(localStorage.getItem(FAVORITES_STORAGE) || '[]'); return Array.isArray(f) ? f.filter(safeId) : [];}
@@ -298,7 +369,11 @@
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       if(restoreSyncCache())mergeLiveFolders();
-      buildFolderIndex(); updateStatus(); render(); clearAlert();
+      buildFolderIndex(); updateStatus();
+      const resumed=restoreBrowsingPosition();
+      displayPage(resumed?state.view:'home',{reset:false,scroll:false});
+      if(resumed)finishBrowsingRestore();
+      clearAlert();
       alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
       scheduleScans();
     } catch (error) {
@@ -647,14 +722,15 @@
     for (const controller of state.activeControllers) controller.abort();
     state.activeControllers.clear(); state.loadingThumbs.clear();
     for (const entry of state.thumbCache.values()) if (entry?.objectUrl) URL.revokeObjectURL(entry.src);
-    state.thumbCache.clear(); state.thumbErrors.clear();
+    state.thumbCache.clear(); state.thumbErrors.clear();state.posterError.clear();
     if (state.observer) {state.observer.disconnect();state.observer=null;}
   }
   function disconnect() {
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
-    stopScans();stopVideo();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+    saveBrowsingPosition();
+    stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
@@ -668,19 +744,25 @@
     }
     state.folders = [...map.values()].sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name));
   }
-  function displayPage(view) {
+  function displayPage(view,{reset=true,scroll=true}={}) {
+    if(state.connected&&browsingView())saveBrowsingPosition();
     if(view==='home'||view==='health'){
       state.autoLoadObserver?.disconnect();
       state.autoLoadObserver=null;
       state.galleryRevision++;
     }
-    state.view=view; state.folder='all';state.folderQuery='';state.page=1;
-    if($('folderSearch'))$('folderSearch').value='';
+    state.view=view;
+    if(reset){
+      state.folder='all';state.folderQuery='';state.page=1;
+      if($('folderSearch'))$('folderSearch').value='';
+    }
     $('homeView').classList.toggle('hidden',view!=='home');
     $('galleryView').classList.toggle('hidden',view==='home'||view==='health');
     $('healthView').classList.toggle('hidden',view!=='health');
     document.querySelectorAll('[data-view]').forEach(btn=>{const active=btn.dataset.view===view; btn.classList.toggle('active',active);if(active)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');});
-    render();window.scrollTo({top:0,behavior:'smooth'});
+    render();
+    if(scroll)window.scrollTo({top:0,behavior:'smooth'});
+    updateScrollControls();
   }
   function render() {if(state.view==='home') renderHome();else if(state.view==='health')renderHealth();else renderGallery();}
   function renderHome() {
@@ -774,6 +856,8 @@
     $('galleryGrid').insertAdjacentHTML('beforeend',added.map(tileHTML).join(''));
     state.renderedCount=next;
     state.page=Math.max(1,Math.ceil(next/state.pageSize));
+    $('browseProgress').textContent=`Showing ${format(next)} of ${format(state.filtered.length)}`;
+    scheduleBrowseSave();
     const previews=[...$('galleryGrid').querySelectorAll('[data-open-image]')].slice(previous);
     const hearts=[...$('galleryGrid').querySelectorAll('[data-favorite]')].slice(previous);
     bindGalleryTileEvents(previews,hearts);
@@ -814,6 +898,7 @@
     state.filtered=filterImages();const items=state.filtered.slice(0,state.page*state.pageSize);
     state.renderedCount=items.length;
     $('resultCount').textContent=`${format(state.filtered.length)} ${state.connected?'files':'samples'}`;
+    $('browseProgress').textContent=`Showing ${format(items.length)} of ${format(state.filtered.length)}`;
     const notice=$('galleryNotice');notice.classList.toggle('hidden',state.connected);
     if(!state.connected) notice.textContent='Preview mode only. No private photo or file IDs are bundled with this application.';
     // Cancel queued work for images no longer on screen instead of wasting API quota.
@@ -831,6 +916,7 @@
     observeThumbs();
     updateLoadMoreArea();
     updatePreviewStats();
+    scheduleBrowseSave();
   }
   function updatePreviewStats() {
     const visible=state.filtered.slice(0,state.page*state.pageSize).filter(x=>mediaKind(x)!=='pdf');
@@ -843,7 +929,7 @@
     const style=folderStyle(item.folder), favorite=state.favorites.has(item.id), kind=mediaKind(item);
     const date=item.captureDate?item.captureDate.slice(0,10):folderName(item.folder);
     const error=state.thumbErrors.get(item.id);
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?'Preview unavailable · open for retry':'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):kind==='pdf'?'PDF':isGIF(item)?'GIF':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):kind==='pdf'?'PDF':isGIF(item)?'GIF':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   function observeThumbs() {
     state.observer?.disconnect();
@@ -912,7 +998,7 @@
     // Queue fallback only after this job completes; it must not download all originals at once.
     state.loadingThumbs.delete(job.id);
     if(mediaKind(job.item)!=='image') {
-      state.thumbErrors.set(job.id,'Preview unavailable; open item to play or view it.');
+      state.thumbErrors.set(job.id,`Google video thumbnail unavailable (${error?.message||'unknown reason'}). Playback may still work.`);
       paintThumb(job.id,null);return;
     }
     if(job.token===state.accessToken&&(!job.controller.signal.aborted||job.controller.signal.reason==='timeout')) {
@@ -955,13 +1041,13 @@
     const text='Google thumbnail unavailable. Trying a small authenticated preview…';
     for(const btn of document.querySelectorAll('[data-open-image]'))if(btn.dataset.openImage===id){const small=btn.querySelector('.tile-placeholder small');if(small)small.textContent=text;}
     if(mediaKind(item)==='image')requestThumb(item,{priority:state.activeImage?.id===id,mediaOnly:true});
-    else {state.thumbErrors.set(id,'Preview unavailable; open item to play or view it.');paintThumb(id,null);}
+    else {state.thumbErrors.set(id,'Google video thumbnail could not be displayed. Playback may still work.');paintThumb(id,null);}
   }
   function paintThumb(id,entry) {
     for(const btn of document.querySelectorAll('[data-open-image]')) {
       if(btn.dataset.openImage!==id)continue;
       const small=btn.querySelector('.tile-placeholder small');
-      if(!entry){if(small)small.textContent='Preview unavailable · open for retry';const old=btn.querySelector('img');old?.remove();continue;}
+      if(!entry){if(small)small.textContent=mediaKind(state.images.find(x=>x.id===id)||{})==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry';const old=btn.querySelector('img');old?.remove();continue;}
       let img=btn.querySelector('img');
       if(!img){img=document.createElement('img');img.alt='';img.loading='eager';img.decoding='async';btn.appendChild(img);}
       const timer=setTimeout(()=>{if(img.isConnected&&!img.classList.contains('ready')) {if(entry.kind==='signed')handleSignedImageFailure(id);else {state.thumbErrors.set(id,'Preview timed out');paintThumb(id,null);}}},12000);
@@ -1006,9 +1092,15 @@
     const item=state.activeImage;if(!item)return;
     const entry=state.thumbCache.get(item.id);
     const style=folderStyle(item.folder), error=state.thumbErrors.get(item.id), kind=mediaKind(item);
-    $('retryPreview').classList.toggle('hidden',item.demo||!error||kind!=='image');
+    $('retryPreview').classList.toggle('hidden',item.demo||!error||kind==='pdf');
+    $('generatePosterButton').classList.toggle('hidden',item.demo||kind!=='video');
+    $('generatePosterButton').disabled=!!state.posterController||item.size>MAX_POSTER_VIDEO||!state.connected;
+    $('generatePosterButton').title=item.size>MAX_POSTER_VIDEO?'12 MB thumbnail limit':'Create a local preview frame without modifying the original';
+    const diagnostic=kind==='video'||isGIF(item)||!!error;
+    $('mediaDiagnostics').classList.toggle('hidden',!diagnostic);
+    if(diagnostic)renderMediaDiagnostic(item);
     if(state.playingMediaId===item.id && state.videoObjectUrl) return; // Preserve original playback when thumbnails refresh.
-    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · click Play video (32 MB limit). Some codecs require Open in Drive.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · thumbnail may be still; click Play GIF animation (20 MB limit).` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
+    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · click Play video (32 MB limit). Missing thumbnails can be generated separately.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · thumbnail may be still; click Play GIF animation (20 MB limit).` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
     $('modalPicture').innerHTML=entry?`<img src="${escapeHTML(entry.src)}" alt="${escapeHTML(item.description||item.name)}">`:`<div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${kind==='video'?'Use Play video to stream a private preview':kind==='pdf'?'Open in Drive to view the document':item.demo?'Design preview':error?'Preview unavailable; use Retry or Open in Drive':'Preview loading…'}</small></div>`;
     const pic=$('modalPicture').querySelector('img');
     if(pic)pic.onerror=()=>{if(entry.kind==='signed')handleSignedImageFailure(item.id);else{state.thumbErrors.set(item.id,'Image format not supported by browser');paintThumb(item.id,null);}};
@@ -1016,6 +1108,8 @@
   function updateFavoriteButton(){const on=state.favorites.has(state.activeImage?.id);$('favoriteImage').textContent=on?'♥ Favorited':'♡ Favorite';}
   function stopVideo(){
     state.videoController?.abort();state.videoController=null;
+    state.posterController?.abort();state.posterController=null;
+    $('generatePosterButton').disabled=false;
     const el=$('modalPicture').querySelector('video');if(el)el.pause();
     if(state.videoObjectUrl)URL.revokeObjectURL(state.videoObjectUrl);
     state.videoObjectUrl=null;
@@ -1023,6 +1117,92 @@
     // Closing or stepping away while a download is pending must not leave
     // the Play button disabled for the next image.
     $('playVideoButton').disabled=false;
+  }
+  function renderMediaDiagnostic(item){
+    const reason=state.posterError.get(item.id)||state.thumbErrors.get(item.id)||'';
+    const entry=state.thumbCache.get(item.id);
+    const label=entry?(entry.kind==='generated'?'Locally generated still':entry.kind==='signed'?'Google Drive thumbnail':'Authenticated image'):'Unavailable';
+    $('mediaDiagnostics').textContent=`Format: ${item.mime||'Unknown'} · Size: ${humanBytes(item.size)} · Thumbnail: ${label}${reason?' · Note: '+reason:''}`;
+  }
+  async function videoFrameBlob(source,mime,signal){
+    // Extract one frame with the browser's decoder. The original file is never modified.
+    const mediaUrl=URL.createObjectURL(new Blob([source],{type:mime||'video/mp4'}));
+    const video=document.createElement('video');
+    video.muted=true;video.playsInline=true;video.preload='auto';
+    try{
+      await new Promise((resolve,reject)=>{
+        let done=false;
+        const finish=(error)=>{
+          if(done)return;
+          done=true;clearTimeout(timer);
+          video.removeEventListener('loadeddata',onLoaded);
+          video.removeEventListener('error',onError);
+          signal?.removeEventListener('abort',onAbort);
+          if(error)reject(error);else resolve();
+        };
+        const onLoaded=()=>video.videoWidth&&video.videoHeight ?
+          finish():finish(new Error('Video contains no usable picture'));
+        const onError=()=>finish(new Error('This video format cannot produce a thumbnail in your browser'));
+        const onAbort=()=>finish(new Error('Thumbnail generation cancelled'));
+        const timer=setTimeout(()=>finish(new Error('Frame extraction timed out')),9000);
+        video.addEventListener('loadeddata',onLoaded,{once:true});
+        video.addEventListener('error',onError,{once:true});
+        signal?.addEventListener('abort',onAbort,{once:true});
+        video.src=mediaUrl;
+        video.load();
+      });
+      if(signal?.aborted)throw new Error('Thumbnail generation cancelled');
+      const scale=Math.min(1,440/video.videoWidth,440/video.videoHeight);
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.max(1,Math.round(video.videoWidth*scale));
+      canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
+      const ctx=canvas.getContext('2d');
+      if(!ctx)throw new Error('Canvas rendering unavailable');
+      ctx.drawImage(video,0,0,canvas.width,canvas.height);
+      const still=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.78));
+      if(!still)throw new Error('Image encoding failed');
+      return still;
+    }finally{
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      URL.revokeObjectURL(mediaUrl);
+    }
+  }
+  async function generateVideoThumbnail(){
+    const item=state.activeImage;
+    if(!item||mediaKind(item)!=='video'||item.demo||state.posterController)return;
+    if(item.size>MAX_POSTER_VIDEO){
+      $('previewDetails').textContent='This clip exceeds the 12 MB thumbnail limit. You can still play it normally.';
+      return;
+    }
+    const controller=new AbortController();
+    state.posterController=controller;state.posterWorkingId=item.id;
+    $('generatePosterButton').disabled=true;
+    $('previewDetails').textContent='Creating a video thumbnail on this device…';
+    try{
+      const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
+      const source=await googleGet(url,{blob:true,maxBytes:MAX_POSTER_VIDEO,signal:controller.signal});
+      if(controller.signal.aborted||state.posterController!==controller||state.activeImage?.id!==item.id)return;
+      const jpeg=await videoFrameBlob(source,item.mime,controller.signal);
+      if(controller.signal.aborted||state.posterController!==controller||state.activeImage?.id!==item.id)return;
+      const src=URL.createObjectURL(jpeg);
+      state.thumbErrors.delete(item.id);state.posterError.delete(item.id);
+      putThumb(item.id,{src,objectUrl:true,kind:'generated'});
+      $('previewDetails').textContent='Preview frame saved in memory for this session. Original video unchanged.';
+    }catch(error){
+      if(!controller.signal.aborted&&state.activeImage?.id===item.id){
+        const reason=error?.message||'Thumbnail decoding failed';
+        state.posterError.set(item.id,reason);
+        $('previewDetails').textContent=`Could not generate thumbnail: ${reason}. The video can still play.`;
+        renderMediaDiagnostic(item);
+      }
+    }finally{
+      if(state.posterController===controller){
+        state.posterController=null;state.posterWorkingId=null;
+        $('generatePosterButton').disabled=false;
+      }
+    }
   }
   async function playVideo(){
     const item=state.activeImage;
@@ -1194,6 +1374,11 @@
     $('preferencesClose').onclick=()=>$('preferencesDialog').close();
     $('preferencesCancel').onclick=()=>$('preferencesDialog').close();
     $('preferencesForm').onsubmit=savePreferences;
+    $('clearBrowseHistory').onclick=()=>{
+      clearBrowsingPosition();
+      $('clearBrowseHistory').textContent='Saved position cleared ✓';
+      setTimeout(()=>$('clearBrowseHistory').textContent='Forget saved browsing position',1800);
+    };
     $('preferencesConnection').onclick=()=>{
       $('preferencesDialog').close();
       showSettings();
@@ -1230,10 +1415,17 @@
     $('layoutButton').onclick=()=>{state.layout=state.layout==='grid'?'list':'grid';renderGallery();};
     $('closeImage').onclick=closeImage;$('prevImage').onclick=()=>stepImage(-1);$('nextImage').onclick=()=>stepImage(1);
     $('playVideoButton').onclick=playVideo;
+    $('generatePosterButton').onclick=generateVideoThumbnail;
     $('favoriteImage').onclick=()=>{if(!state.activeImage?.demo){toggleFavorite(state.activeImage.id);renderGallery();}};
     $('retryPreview').onclick=()=>{if(state.activeImage){requestThumb(state.activeImage,{priority:true,force:true});renderModalPicture();}};
     $('retryFailedButton').onclick=()=>{for(const item of state.filtered.slice(0,state.page*state.pageSize)){if(state.thumbErrors.has(item.id))requestThumb(item,{force:true});}updatePreviewStats();};
     $('imageDialog').addEventListener('close',()=>{stopVideo();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();});
+    $('backToTop').onclick=()=>window.scrollTo({top:0,behavior:'smooth'});
+    window.addEventListener('scroll',()=>{
+      updateScrollControls();
+      scheduleBrowseSave();
+    },{passive:true});
+    window.addEventListener('pagehide',saveBrowsingPosition);
     window.addEventListener('keydown',event=>{
       if($('imageDialog').open){if(event.key==='ArrowLeft'){event.preventDefault();stepImage(-1);}if(event.key==='ArrowRight'){event.preventDefault();stepImage(1);}return;}
       if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)){
