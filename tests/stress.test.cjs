@@ -743,3 +743,69 @@ test('full discovery ignores unrelated Drive roots and never writes to Drive',as
     return !q.includes('unrelated-folder');
   }));
 });
+
+
+test('both verified library roots are scanned and empty new albums are selectable',async()=>{
+  const memeRoot='rootfolder000000001', photoRoot='photosroot0000001';
+  const memeChild='folder00000000001',photoChild='photosfolder000001',emptyChild='emptyfolder0000001';
+  const folderRecord=id=>({id,name:id===memeRoot?'Memes':id===photoRoot?'Jacks Photos':
+    id===memeChild?'Old':'My Photos',mimeType:folderMime,
+    parents:[memeChild,photoChild].includes(id)?[id===memeChild?memeRoot:photoRoot]:[]});
+  const mediaA=file(980),mediaB=file(981);
+  const {h,calls}=harness(async url=>{
+    const id=url.match(/\/files\/([^?]+)/)?.[1];
+    if(id)return ok(folderRecord(id));
+    const parent=(new URL(url).searchParams.get('q')||'').match(/^'([^']+)' in parents/)?.[1];
+    const listing={
+      [memeRoot]:[folderRecord(memeChild),{id:emptyChild,name:'Empty New Album',mimeType:folderMime}],
+      [photoRoot]:[folderRecord(photoChild)],
+      [memeChild]:[mediaA],[photoChild]:[mediaB],[emptyChild]:[]
+    };
+    if(!(parent in listing))throw new Error('Unknown root or folder '+parent);
+    return ok({files:listing[parent]});
+  });
+  const baseline=[folder('Memes/Old',memeChild),folder('Jacks Photos/My Photos',photoChild)];
+  h.state.baseFolderSources=baseline;h.state.folderSources=[...baseline];
+  h.state.inventory=[inv(mediaA,baseline[0].path),inv(mediaB,baseline[1].path)];
+  h.state.images=[...h.state.inventory];
+  await h.syncWithDrive({quiet:true,full:true});
+  assert.equal(h.state.libraryRoots.length,2);
+  assert.equal(h.state.images.length,2);
+  assert.ok(h.state.folderSources.some(x=>x.path==='Memes/Empty New Album'));
+  assert.ok(h.state.folders.some(x=>x.path==='Memes/Empty New Album'&&x.count===0));
+  assert.ok(calls.every(c=>c.options.method==='GET'));
+});
+
+test('transient rate limiting during folder discovery retries without corrupting the snapshot',async()=>{
+  const tree=testDriveTree();
+  let failures=0;
+  const {h}=harness(async url=>{
+    if(url.includes('/files?')&&failures++===0)return fail(429,'rateLimitExceeded');
+    return tree.mocked(url);
+  });
+  h.state.baseFolderSources=tree.baseline;h.state.folderSources=[...tree.baseline];
+  h.state.inventory=[inv(tree.indexed,'Memes/Old')];h.state.images=[...h.state.inventory];
+  await h.syncWithDrive({quiet:true,full:true});
+  assert.equal(h.state.images.length,4);
+  assert.equal(h.state.discoveryError,null);
+  assert.ok(failures>1,'scanner should retry at least once');
+});
+
+test('temporary discovery failure preserves an earlier verified live tree and cursor',async()=>{
+  const tree=testDriveTree({broken:true});
+  const {h}=harness(tree.mocked);
+  const newItem=file(990);
+  h.state.baseFolderSources=tree.baseline;h.state.folderSources=[
+    ...tree.baseline,{id:tree.root,path:'Memes',discovered:true}
+  ];
+  h.state.libraryRoots=[{id:tree.root,path:'Memes'}];
+  h.state.inventory=[inv(tree.indexed,'Memes/Old')];
+  h.state.syncedFolders=new Map([['Memes/Old',[tree.indexed]],['Memes',[newItem]]]);
+  h.state.images=[...h.state.inventory,inv(newItem,'Memes')];
+  h.state.changeToken='old-cursor';
+  await h.syncWithDrive({quiet:true,full:true});
+  assert.equal(h.state.changeToken,'old-cursor');
+  assert.equal(h.state.images.length,2);
+  assert.equal(h.state.folderSources.length,2);
+  assert.ok(h.state.discoveryError);
+});
