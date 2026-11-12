@@ -6,6 +6,7 @@
   const FAVORITES_STORAGE = 'jack-vault-favorites-v2';
   const REPO_STORAGE = 'jack-vault-public-update-repo-v2';
   const UPDATE_CHECK_STORAGE = 'jack-vault-last-update-check-v2';
+  const DENSITY_STORAGE = 'jack-vault-gallery-density-v1';
   const SCOPES = 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly';
   const FALLBACK_ICONS = ['✦', '☼', '❖', '☺', '◈', '✺', '✻', '✿'];
   const DEMO = [
@@ -32,6 +33,8 @@
     search: '',
     sort: 'name',
     layout: 'grid',
+    density: readDensity(),
+    folderQuery: '',
     page: 1,
     pageSize: 32,
     filtered: [],
@@ -84,12 +87,18 @@
   const humanBytes = n => n ? `${(n / 1024 / 1024).toFixed(1)} MB` : 'Unknown size';
   const SCAN_INTERVAL = 15 * 60 * 1000;
   const MAX_VIDEO_PREVIEW = 32 * 1024 * 1024;
+  const MAX_GIF_PREVIEW = 20 * 1024 * 1024;
+  const isGIF = item => (item?.mime||'').toLowerCase()==='image/gif';
   const linkToDrive = item => safeId(item?.id) ? `https://drive.google.com/file/d/${encodeURIComponent(item.id)}/view` : '';
   function readSettings() {
     try {const p = JSON.parse(localStorage.getItem(SHELL_STORAGE) || '{}'); return {clientId:p.clientId || '', sheetId:p.sheetId || ''};}
     catch {return {clientId:'',sheetId:''};}
   }
   function readUpdateRepo() {try {return localStorage.getItem(REPO_STORAGE) || '';} catch {return '';}}
+  function readDensity() {
+    try{const value=localStorage.getItem(DENSITY_STORAGE);return ['comfortable','compact','large'].includes(value)?value:'comfortable';}
+    catch{return 'comfortable';}
+  }
   function readFavorites() {
     try {const f = JSON.parse(localStorage.getItem(FAVORITES_STORAGE) || '[]'); return Array.isArray(f) ? f.filter(safeId) : [];}
     catch {return [];}
@@ -452,7 +461,8 @@
     state.folders = [...map.values()].sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name));
   }
   function displayPage(view) {
-    state.view=view; state.folder='all';state.page=1;
+    state.view=view; state.folder='all';state.folderQuery='';state.page=1;
+    if($('folderSearch'))$('folderSearch').value='';
     $('homeView').classList.toggle('hidden',view!=='home');
     $('galleryView').classList.toggle('hidden',view==='home'||view==='health');
     $('healthView').classList.toggle('hidden',view!=='health');
@@ -513,11 +523,20 @@
     $('galleryEyebrow').textContent=state.connected?'YOUR PRIVATE LIBRARY':'DESIGN PREVIEW';
     $('galleryDescription').textContent=state.connected ? 'Search the existing Drive inventory. Previews load as you scroll.' : 'Connect your Google Drive to load your real collections and thumbnails.';
     $('galleryGrid').classList.toggle('list',state.layout==='list');
+    $('galleryGrid').dataset.density=state.density;
+    $('densitySelect').value=state.density;
     $('layoutButton').textContent=state.layout==='grid'?'☷':'▦';
     $('layoutButton').setAttribute('aria-label',state.layout==='grid'?'Switch to list view':'Switch to grid view');
     const available=state.folders.filter(f=>state.view==='all'||state.view==='review'||state.view==='favorites'||f.kind===state.view);
-    $('folderChips').innerHTML = `<button class="chip-filter ${state.folder==='all'?'active':''}" data-folder="all">All collections</button>` + available.map(f=>`<button class="chip-filter ${state.folder===f.path?'active':''}" data-folder="${escapeHTML(f.path)}">${escapeHTML(f.name)} <span>${format(f.count)}</span></button>`).join('');
-    $('folderChips').querySelectorAll('[data-folder]').forEach(btn=>btn.onclick=()=>{state.folder=btn.dataset.folder;state.page=1;renderGallery();});
+    const query=state.folderQuery.trim().toLocaleLowerCase();
+    const matched=available.filter(f=>!query||f.path.toLocaleLowerCase().includes(query));
+    // Preserve the selected option even while typing an unrelated query.
+    const selected=available.find(f=>f.path===state.folder);
+    const options=selected&&!matched.some(f=>f.path===selected.path)?[selected,...matched]:matched;
+    $('folderSelect').innerHTML='<option value="all">All collections</option>'+
+      options.map(f=>`<option value="${escapeHTML(f.path)}">${escapeHTML(f.name)} (${format(f.count)})</option>`).join('');
+    $('folderSelect').value=state.folder;
+    $('folderPickerCount').textContent=query?`${matched.length} collections found`:`${available.length} collections`;
     state.filtered=filterImages();const items=state.filtered.slice(0,state.page*state.pageSize);
     $('resultCount').textContent=`${format(state.filtered.length)} ${state.connected?'files':'samples'}`;
     const notice=$('galleryNotice');notice.classList.toggle('hidden',state.connected);
@@ -548,7 +567,7 @@
     const style=folderStyle(item.folder), favorite=state.favorites.has(item.id), kind=mediaKind(item);
     const date=item.captureDate?item.captureDate.slice(0,10):folderName(item.folder);
     const error=state.thumbErrors.get(item.id);
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?'Preview unavailable · open for retry':'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':kind==='video'?'VIDEO':kind==='pdf'?'PDF':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?'Preview unavailable · open for retry':'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):kind==='pdf'?'PDF':isGIF(item)?'GIF':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   function observeThumbs() {
     state.observer?.disconnect();
@@ -860,6 +879,14 @@
     $('exploreButton').onclick=()=>displayPage('all');$('seeAllButton').onclick=()=>displayPage('all');
     $('searchInput').oninput=event=>{state.search=event.target.value;state.page=1;renderGallery();};
     $('mediaTypeSelect').onchange=event=>{state.mediaType=event.target.value;state.page=1;renderGallery();};
+    $('folderSearch').oninput=event=>{state.folderQuery=event.target.value;renderGallery();};
+    $('folderSelect').onchange=event=>{state.folder=event.target.value;state.page=1;renderGallery();};
+    $('densitySelect').onchange=event=>{
+      if(!['comfortable','compact','large'].includes(event.target.value))return;
+      state.density=event.target.value;
+      try{localStorage.setItem(DENSITY_STORAGE,state.density);}catch{}
+      renderGallery();
+    };
     $('syncButton').onclick=()=>syncWithDrive();
     $('healthScanButton').onclick=()=>syncWithDrive();
     $('sortSelect').onchange=event=>{state.sort=event.target.value;renderGallery();};
