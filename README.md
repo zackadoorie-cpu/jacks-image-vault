@@ -13,6 +13,20 @@
 - The app checks the configured public GitHub repository at most once daily while open (on startup), but **never downloads or installs patches without your approval**.
 - Shell-only service worker is network-first, so approved UI patches are visible after reload. No private Drive data is cached by the service worker.
 
+## Importing ChatGPT visual reviews (v2.0.9)
+
+Review batches prepared in ChatGPT can be imported directly without replacing your existing local review records.
+
+1. Download the **image_vault_reviewed_...json** file from ChatGPT.
+2. Install v2.0.9 or newer, connect the same Google account, and open **Needs Review**.
+3. Select **Import ChatGPT review batch** and choose the JSON file.
+4. Review the match/skip count and confirm the local merge. Previous personal corrections take precedence. The app matches Drive file ID and exact filename, skips missing or renamed files, and never modifies source files or Sheets.
+5. Open **Reviewed locally** to inspect the newly imported descriptions. Export a full backup if you'd like to preserve the combined work.
+
+The app distinguishes previously reviewed images from genuinely unreviewed images. Historical labels such as *Visually inspected Phase 21*, *Renamed — verified*, and *Visual review: representative animated frame* count as source-reviewed if a visual description exists. An item flagged for missing capture dates, sensitive PDF review, or metadata-only verification remains pending. Representative frames don't prove full GIF/video motion.
+
+This importer accepts a portable `image-vault-review-batch-v1` JSON file containing up to 500 visually inspected records per batch. A single unreviewed item is never automatically approved based on its filename, folder, or text metadata.
+
 ## Review workspace (v2.0.8)
 
 The **Needs Review** view is now an actionable local review queue, not simply a filter for empty descriptions.
