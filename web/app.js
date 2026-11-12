@@ -1108,6 +1108,13 @@
       if (!map.has(folder)) map.set(folder,{path:folder,name:folderName(folder),kind:folderKind(folder),count:0,described:0});
       const record=map.get(folder);record.count++;if(image.description)record.described++;
     }
+    // Make newly discovered empty albums visible in the collection picker too.
+    if(state.connected){
+      for(const source of state.folderSources){
+        if(!source.discovered||source.missing||state.libraryRoots.some(root=>root.id===source.id)||map.has(source.path))continue;
+        map.set(source.path,{path:source.path,name:folderName(source.path),kind:folderKind(source.path),count:0,described:0});
+      }
+    }
     state.folders = [...map.values()].sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name));
   }
   function displayPage(view,{reset=true,scroll=true}={}) {
