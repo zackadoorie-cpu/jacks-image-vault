@@ -8,7 +8,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
 const suffix = '  init();\n})();';
 assert.ok(source.includes(suffix), 'Application bootstrap changed; adjust the test harness');
-const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, syncWithDrive, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth};\n})();');
+const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, stopVideo, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth};\n})();');
 
 const id = i => 'media' + String(i).padStart(12, '0');
 const folder = (name, folderId = 'folder00000000001') => ({path: name, id: folderId});
@@ -18,7 +18,7 @@ const ok = payload => new Response(JSON.stringify(payload), {status:200,headers:
 const fail = (status,reason) => new Response(JSON.stringify({error:{errors:[{reason}],message:reason}}),{status,headers:{'content-type':'application/json'}});
 
 function harness(onFetch, {instantTimeout=true}={}) {
-  const els = new Map(), calls=[];
+  const els = new Map(), calls=[], storage=new Map();
   function el(name) {
     if(!els.has(name)) {
       els.set(name,{
@@ -26,7 +26,7 @@ function harness(onFetch, {instantTimeout=true}={}) {
         classList:{toggle(){},add(){},remove(){},contains(){return false;}},
         querySelectorAll(){return [];},querySelector(){return null;},addEventListener(){},
         setAttribute(){},removeAttribute(){},close(){},showModal(){},focus(){},pause(){},
-        isConnected:true,open:false
+        isConnected:true,open:false,appendChild(node){this.lastChild=node;},lastChild:null
       });
     }
     return els.get(name);
@@ -36,8 +36,13 @@ function harness(onFetch, {instantTimeout=true}={}) {
     setTimeout: instantTimeout? (fn)=>{queueMicrotask(fn);return 1;} : setTimeout,
     clearTimeout, setInterval:()=>1,clearInterval:()=>{},
     queueMicrotask,location:{origin:'http://localhost:8765',hostname:'localhost',protocol:'http:'},
-    localStorage:{getItem:()=>null,setItem(){},removeItem(){}},
-    navigator:{},document:{getElementById:el,querySelectorAll:()=>[],visibilityState:'visible'},
+    localStorage:{getItem:key=>storage.get(key)||null,setItem(key,value){storage.set(key,String(value));},removeItem(key){storage.delete(key);}},
+    navigator:{},document:{getElementById:el,querySelectorAll:()=>[],visibilityState:'visible',
+      createElement(tag){return {
+        tagName:tag.toUpperCase(),controls:false,playsInline:false,autoplay:false,preload:'',
+        setAttribute(){},canPlayType(){return 'maybe';},
+        pause(){},play(){return Promise.resolve();},appendChild(){},querySelector(){return null;}
+      };}},
     window:{scrollTo(){},google:{accounts:{oauth2:{revoke(_t,cb){cb();}}}}}
   };
   ctx.google = ctx.window.google;
@@ -53,7 +58,7 @@ function harness(onFetch, {instantTimeout=true}={}) {
   h.state.accessToken='test-token-not-a-real-credential';
   h.state.expiry=Date.now()+60_000;
   h.state.view='health';
-  return {h,calls,els,ctx};
+  return {h,calls,els,ctx,storage};
 }
 
 test('paginates 3,000 mixed-media items, deduplicates and keeps all supported formats',async()=>{
