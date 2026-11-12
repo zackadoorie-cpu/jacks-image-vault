@@ -905,6 +905,9 @@
     if(state.videoObjectUrl)URL.revokeObjectURL(state.videoObjectUrl);
     state.videoObjectUrl=null;
     state.playingMediaId=null;
+    // Closing or stepping away while a download is pending must not leave
+    // the Play button disabled for the next image.
+    $('playVideoButton').disabled=false;
   }
   async function playVideo(){
     const item=state.activeImage;
