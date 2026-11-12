@@ -104,3 +104,5 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .pref-toggle small{display:block;color:#aab0c5;font-size:11px;line-height:1.6;margin-top:6px}
 .pref-toggle input{height:20px;width:20px;accent-color:#a991f6;flex:none;cursor:pointer}
 .pref-toggle:focus-within{outline:2px solid #a991f6;outline-offset:5px;border-radius:4px}
+
+.pref-connection{width:100%;justify-content:center;margin:6px 0 8px;border:1px solid #353c52}
