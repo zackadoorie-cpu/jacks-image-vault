@@ -7,6 +7,8 @@
   const REPO_STORAGE = 'jack-vault-public-update-repo-v2';
   const UPDATE_CHECK_STORAGE = 'jack-vault-last-update-check-v2';
   const DENSITY_STORAGE = 'jack-vault-gallery-density-v1';
+  const SYNC_CACHE_STORAGE = 'jack-vault-readonly-sync-cache-v1';
+  const MAX_SYNC_CACHE = 1800000;
   const SCOPES = 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly';
   const FALLBACK_ICONS = ['✦', '☼', '❖', '☺', '◈', '✺', '✻', '✿'];
   const DEMO = [
@@ -66,6 +68,8 @@
     scanController: null,
     scanGeneration: 0,
     scanFailures: new Map(),
+    changeToken: null,
+    lastFullScanAt: null,
     videoObjectUrl: null,
     videoController: null,
     playingMediaId: null,
@@ -245,20 +249,89 @@
       state.inventory = images;
       state.folderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
         .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0)}));
-      state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;
+      state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
+      if(restoreSyncCache())mergeLiveFolders();
       buildFolderIndex(); updateStatus(); render(); clearAlert();
       alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
       scheduleScans();
     } catch (error) {
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
-      state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;
+      state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.lastFullScanAt=null;
       state.images=DEMO;state.connected=false;state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
     }
     finally {btn.disabled = false; btn.textContent = 'Connect Drive';}
+  }
+
+  function syncCacheSignature(){
+    // The cache is tied to this inventory's exact known folders.
+    return state.folderSources.map(f=>f.path+':'+f.id).join('|');
+  }
+  function clearLocalSyncCache(){
+    try{localStorage.removeItem(SYNC_CACHE_STORAGE);}catch{}
+  }
+  function rememberSyncCache(){
+    if(!state.changeToken||state.syncedFolders.size!==state.folderSources.length)return;
+    // Only metadata and Drive's change cursor are stored locally. Never store
+    // private file contents, Google bearer tokens or cached image bytes.
+    const cache={schema:1,sheetId:state.config.sheetId,signature:syncCacheSignature(),
+      savedAt:Date.now(),token:state.changeToken,
+      folders:[...state.syncedFolders].map(([path,files])=>({path,files:files.map(f=>({
+        id:f.id,name:f.name,mimeType:f.mimeType,size:f.size||0,modifiedTime:f.modifiedTime||''
+      }))}))};
+    const json=JSON.stringify(cache);
+    if(json.length>MAX_SYNC_CACHE)return; // Never exhaust localStorage on huge libraries.
+    try{localStorage.setItem(SYNC_CACHE_STORAGE,json);}catch{}
+  }
+  function restoreSyncCache(){
+    let data;
+    try{
+      const raw=localStorage.getItem(SYNC_CACHE_STORAGE);
+      if(!raw||raw.length>MAX_SYNC_CACHE)return false;
+      data=JSON.parse(raw);
+    }catch{return false;}
+    if(!data||data.schema!==1||data.sheetId!==state.config.sheetId||data.signature!==syncCacheSignature())return false;
+    if(!Number.isFinite(data.savedAt)||Date.now()-data.savedAt>30*24*60*60*1000||data.savedAt>Date.now()+60*1000)return false;
+    if(typeof data.token!=='string'||!data.token||data.token.length>2048||!Array.isArray(data.folders))return false;
+    if(data.folders.length!==state.folderSources.length)return false;
+    const allowed=new Set(state.folderSources.map(f=>f.path)), map=new Map();
+    let total=0;
+    for(const entry of data.folders){
+      if(!entry||!allowed.has(entry.path)||map.has(entry.path)||!Array.isArray(entry.files))return false;
+      const files=[];
+      for(const f of entry.files){
+        if(!safeId(f.id)||typeof f.name!=='string'||f.name.length>512||!supportedMedia(f.mimeType))return false;
+        if(++total>20000)return false;
+        files.push({id:f.id,name:f.name,mimeType:f.mimeType,size:Number(f.size)||0,modifiedTime:f.modifiedTime||''});
+      }
+      map.set(entry.path,files);
+    }
+    state.syncedFolders=map;
+    state.changeToken=data.token;
+    state.lastFullScanAt=new Date(data.savedAt).toISOString();
+    state.lastScanAt=state.lastFullScanAt;
+    for(const folder of state.folderSources)refreshFolderHealth(folder.path);
+    return true;
+  }
+  function refreshFolderHealth(path){
+    const files=state.syncedFolders.get(path);
+    if(!files)return;
+    const known=state.inventory.filter(x=>x.folder===path);
+    const knownIDs=new Set(known.map(x=>x.id)),currentIDs=new Set(files.map(x=>x.id));
+    state.health.set(path,{
+      folder:path,sourceCount:known.length,driveCount:files.length,
+      added:files.filter(x=>!knownIDs.has(x.id)).map(x=>({id:x.id,name:x.name,mime:x.mimeType})),
+      missing:known.filter(x=>!currentIDs.has(x.id)).map(x=>({id:x.id,name:x.name,mime:x.mime})),
+      checkedAt:new Date().toISOString()
+    });
+  }
+  async function startChangeCursor(signal){
+    const data=await googleGet('https://www.googleapis.com/drive/v3/changes/startPageToken?fields=startPageToken&supportsAllDrives=true',{signal});
+    if(typeof data.startPageToken!=='string'||!data.startPageToken)throw new Error('Google did not return a changes cursor');
+    return data.startPageToken;
   }
 
   function stopScans() {
@@ -447,7 +520,7 @@
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
-    stopScans();stopVideo();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;
+    stopScans();stopVideo();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
@@ -934,7 +1007,11 @@
       renderGallery();
     };
     $('syncButton').onclick=()=>syncWithDrive();
-    $('healthScanButton').onclick=()=>syncWithDrive();
+    $('healthScanButton').onclick=()=>syncWithDrive({full:true});
+    $('clearSyncCacheButton').onclick=()=>{
+      clearLocalSyncCache();
+      updateScanSummary('Local scan cache cleared. The next sign-in will perform a full read-only scan.');
+    };
     $('sortSelect').onchange=event=>{state.sort=event.target.value;renderGallery();};
     $('layoutButton').onclick=()=>{state.layout=state.layout==='grid'?'list':'grid';renderGallery();};
     $('closeImage').onclick=closeImage;$('prevImage').onclick=()=>stepImage(-1);$('nextImage').onclick=()=>stepImage(1);
