@@ -985,24 +985,61 @@
       }
     }
   }
+
   function renderHealth(){
-    const data=[...state.health.values()].filter(x=>!state.scanFailures.has(x.folder));
-    const added=data.reduce((n,x)=>n+x.added.length,0), missing=data.reduce((n,x)=>n+x.missing.length,0);
-    $('healthSummary').textContent=state.lastScanAt ?
-      `Last checked ${new Date(state.lastScanAt).toLocaleString()} · ${data.length}/${state.folderSources.length} folders · ${added} new · ${missing} missing` :
-      `Inventory snapshot: ${format(state.inventory.length)} files in ${state.folderSources.length} known folders. Select Full rescan to compare Drive.`;
+    const verified=!!state.lastFullScanAt&&state.syncedFolders.size===state.folderSources.length;
+    const snapshotIDs=new Set(state.inventory.map(item=>item.id));
+    const liveIDs=new Set(state.images.filter(item=>!item.demo).map(item=>item.id));
+    const additions=verified?[...liveIDs].filter(id=>!snapshotIDs.has(id)).length:null;
+    const missing=verified?[...snapshotIDs].filter(id=>!liveIDs.has(id)).length:null;
+    $('metricSnapshot').textContent=format(state.inventory.length);
+    $('metricLive').textContent=verified?format(liveIDs.size):'—';
+    $('metricAdded').textContent=verified?format(additions):'—';
+    $('metricMissing').textContent=verified?format(missing):'—';
+    $('metricLiveNote').textContent=verified?'Verified against Drive':'Awaiting full verification';
+
+    const newFolders=state.folderSources.filter(source=>source.discovered&&!state.libraryRoots.some(r=>r.id===source.id));
+    const changedFolders=state.folderSources.filter(source=>source.inventoryPath&&source.inventoryPath!==source.path&&!source.missing);
+    const missingFolders=state.folderSources.filter(source=>source.missing);
+    const roots=state.libraryRoots.length?state.libraryRoots.map(root=>root.path).join(' + '):'Not verified';
+    $('discoverySummary').textContent=state.discoveryError?
+      'Folder discovery incomplete: '+state.discoveryError+'. Previous verified files retained.' :
+      'Watched roots: '+roots+' · '+newFolders.length+' newly discovered subfolders · '+
+      changedFolders.length+' renamed or relocated indexed folders · '+missingFolders.length+
+      ' indexed folders no longer beneath the roots.';
+
+    const checked=state.lastScanAt?new Date(state.lastScanAt).toLocaleString():'Never';
+    const full=state.lastFullScanAt?new Date(state.lastFullScanAt).toLocaleString():'Never';
+    $('healthSummary').textContent='Original spreadsheet: '+format(state.inventory.length)+' media in '+
+      state.baseFolderSources.length+' indexed folders · Watched live folders: '+
+      state.folderSources.length+' · Last Drive change check: '+checked+' · Last full folder verification: '+full+
+      (state.scanning?' · Scan in progress…':'');
+
+    const data=[...state.health.values()].filter(row=>!state.scanFailures.has(row.folder));
     const rows=state.folderSources.map(folder=>{
-      const row=state.health.get(folder.path);
-      const failure=state.scanFailures.get(folder.path);
-      const status=failure?`Scan failed: ${failure}`:row?`${row.added.length} new · ${row.missing.length} missing`:'Not scanned';
-      return `<tr><td>${escapeHTML(folderName(folder.path))}</td><td>${format(row?.sourceCount??state.inventory.filter(x=>x.folder===folder.path).length)}</td><td>${row?format(row.driveCount):'—'}</td><td>${escapeHTML(status)}</td></tr>`;
+      const row=state.health.get(folder.path),failure=state.scanFailures.get(folder.path);
+      const status=failure?'Scan failed: '+failure:
+        !row?'Not verified':
+        (folder.missing?'Folder no longer under library root · ':
+         folder.discovered?'Discovered from Drive · ':
+         folder.inventoryPath!==folder.path?'Moved or renamed · ':'')+
+        row.added.length+' new · '+row.missing.length+' missing';
+      const name=folder.path+(folder.inventoryPath&&folder.inventoryPath!==folder.path?
+        ' (was '+folder.inventoryPath+')':'');
+      return '<tr><td>'+escapeHTML(name)+'</td><td>'+format(row?.sourceCount??state.inventory.filter(x=>x.folder===(folder.inventoryPath||folder.path)).length)+
+        '</td><td>'+(row?format(row.driveCount):'—')+'</td><td>'+escapeHTML(status)+'</td></tr>';
     });
     $('healthRows').innerHTML=rows.join('');
-    const changed=data.filter(x=>x.added.length||x.missing.length);
-    $('healthChanges').innerHTML=changed.length ? changed.map(folder=>{
-      const lines=[...folder.added.map(f=>`<li><span class="health-added">NEW</span> ${escapeHTML(f.name)} <small>${escapeHTML(folderName(folder.folder))}</small></li>`),...folder.missing.map(f=>`<li><span class="health-missing">MISSING</span> ${escapeHTML(f.name)} <small>${escapeHTML(folderName(folder.folder))}</small></li>`)];
-      return lines.join('');
-    }).join('') : '<li>No file differences recorded in scanned folders.</li>';
+    const changed=data.filter(row=>row.added.length||row.missing.length);
+    const lines=changed.flatMap(folder=>[
+      ...folder.added.map(item=>'<li><span class="health-added">NEW</span> '+
+        escapeHTML(item.name)+' <small>'+escapeHTML(folder.folder)+'</small></li>'),
+      ...folder.missing.map(item=>'<li><span class="health-missing">MISSING</span> '+
+        escapeHTML(item.name)+' <small>'+escapeHTML(folder.folder)+'</small></li>')
+    ]);
+    $('healthChanges').innerHTML=lines.length?lines.slice(0,200).join('')+
+      (lines.length>200?'<li>Showing first 200 differences. Narrow your scan or export the inventory for a complete comparison.</li>':''):
+      '<li>No file differences recorded in verified folders.</li>';
   }
 
   function clearThumbnailCache() {
