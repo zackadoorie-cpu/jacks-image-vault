@@ -73,6 +73,7 @@
     baseFolderSources: [], // Stable, read-only folder baseline from the private spreadsheet.
     libraryRoots: [], // Verified Drive root folders, never hard-coded.
     lastDiscoveryAt: null,
+    lastFallbackScanAt: null,
     discoveryError: null,
     syncedFolders: new Map(), // Live metadata held in memory for this session only.
     health: new Map(),
@@ -377,7 +378,7 @@
       state.baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
         .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0),inventoryPath:r[1],discovered:false}));
       state.folderSources=state.baseFolderSources.slice();
-      state.libraryRoots=[];state.lastDiscoveryAt=null;state.discoveryError=null;
+      state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       if(restoreSyncCache())mergeLiveFolders();
@@ -391,7 +392,7 @@
     } catch (error) {
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
-      state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+      state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
       state.images=DEMO;state.connected=false;state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
@@ -521,7 +522,7 @@
     },12000);
     state.scanTimer=setInterval(()=>{
       if(!state.connected||document.visibilityState==='hidden'||state.scanning||Date.now()>=state.expiry)return;
-      const verified=Date.parse(state.lastFullScanAt||'');
+      const verified=Date.parse(state.lastFullScanAt||state.lastFallbackScanAt||'');
       const due=!Number.isFinite(verified)||Date.now()-verified>=FULL_SCAN_INTERVAL;
       syncWithDrive({quiet:true,full:due});
     },SCAN_INTERVAL);
@@ -906,6 +907,7 @@
         state.folderSources=discovery.sources;
         state.libraryRoots=discovery.roots;
         state.lastDiscoveryAt=new Date().toISOString();
+        state.lastFallbackScanAt=null;
         state.discoveryError=null;
         state.syncedFolders=discovery.contents;
         state.health.clear();state.scanFailures.clear();
@@ -926,8 +928,46 @@
       }catch(error){
         if(!active())return;
         state.discoveryError=error?.message||String(error);
-        syncFailed('Folder discovery incomplete: '+state.discoveryError+
-          '. Previous gallery retained; use Full rescan to retry.',quiet);
+        if(state.libraryRoots.length){
+          // Preserve a previously verified tree instead of replacing it with
+          // an incomplete folder listing after a temporary Drive failure.
+          syncFailed('Folder discovery incomplete: '+state.discoveryError+
+            '. Previous verified gallery retained; retry Full rescan.',quiet);
+        }else{
+          // First-run safety fallback: refresh the existing spreadsheet folders
+          // even when Google temporarily cannot resolve their parent hierarchy.
+          // No new folders are claimed and no change cursor is advanced.
+          try{
+            const source=state.baseFolderSources.slice(),results=new Map();
+            let index=0;
+            async function scanKnown(){
+              while(index<source.length){
+                const folder=source[index++];
+                const files=await listKnownFolder(folder,controller.signal);
+                if(!active())return;
+                results.set(folder.path,files);
+              }
+            }
+            await Promise.all([scanKnown(),scanKnown(),scanKnown()]);
+            if(!active())return;
+            state.folderSources=source;
+            state.syncedFolders=results;
+            state.health.clear();state.scanFailures.clear();
+            for(const folder of source)refreshFolderHealth(folder.path);
+            mergeLiveFolders(new Set(source.map(folder=>folder.path)));
+            state.lastScanAt=new Date().toISOString();
+            state.lastFallbackScanAt=state.lastScanAt;
+            state.lastFullScanAt=null;
+            state.changeToken=null;clearLocalSyncCache();
+            syncFailed('Existing indexed folders verified, but new folder discovery is unavailable: '+
+              state.discoveryError+'. Full discovery can be retried.',quiet);
+          }catch(fallbackError){
+            if(!active())return;
+            syncFailed('Folder discovery and indexed-folder verification failed: '+
+              state.discoveryError+'; '+(fallbackError?.message||fallbackError)+
+              '. Previous gallery retained.',quiet);
+          }
+        }
       }finally{
         if(active()){
           state.scanning=false;state.scanController=null;
@@ -1056,7 +1096,7 @@
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
     saveBrowsingPosition();
-    stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+    stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
