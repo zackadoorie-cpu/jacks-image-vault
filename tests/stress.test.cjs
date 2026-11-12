@@ -406,7 +406,7 @@ test('oversized videos never download originals for thumbnail generation',async(
 test('small local video frame generation produces a cached poster without Drive writes',async()=>{
   const {h,calls,ctx}=harness(async()=>new Response(Buffer.from('synthetic-mp4'),{
     status:200,headers:{'content-type':'application/octet-stream'}
-  }));
+  }),{instantTimeout:false});
   const item={...inv(file(89,'video/mp4'),'Memes/Clips'),size:512};
   h.state.activeImage=item;
   ctx.document.createElement=(tag)=>{
