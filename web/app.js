@@ -580,37 +580,94 @@
       return {changes,token:data.newStartPageToken};
     }
   }
+  function fullVerificationError(message){
+    const error=new Error(message);
+    error.needsFullScan=true;
+    return error;
+  }
+  function syncSucceeded(message,quiet){
+    updateScanSummary(message,false);
+    // Clear prior sync error banners after successfully reconciling Drive.
+    if(state.syncErrorVisible){clearAlert();state.syncErrorVisible=false;}
+    if(!quiet)alertUser(message,'success');
+  }
+  function syncFailed(message,quiet){
+    updateScanSummary(message,true);
+    if(!quiet){alertUser(message,'error');state.syncErrorVisible=true;}
+  }
+  async function resolveChangeFile(change,known,signal){
+    let record=change.file;
+    if(change.removed||record?.trashed)return {removed:true,record:null};
+    if(record&&Array.isArray(record.parents))return {removed:false,record};
+    // The Changes API can omit parents or the whole file resource, including
+    // for unrelated files. Never let one missing parents field block deletions.
+    if(!known&&(!record||!supportedMedia(record.mimeType)))return {skip:true};
+    const params=new URLSearchParams({
+      fields:'id,name,mimeType,size,parents,trashed,modifiedTime',
+      supportsAllDrives:'true'
+    });
+    try{
+      record=await googleGet(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(change.fileId)}?${params}`,{signal});
+    }catch(error){
+      if(error.httpStatus===404)return {removed:true,record:null};
+      // A change outside the watched folders may be inaccessible; it is not
+      // evidence that any of our indexed files disappeared.
+      if(!known&&error.httpStatus===403&&!error.retryable)return {skip:true};
+      if(known&&error.httpStatus===403)throw fullVerificationError('A previously indexed file is no longer accessible. Verifying folder contents.');
+      throw error;
+    }
+    if(record?.trashed)return {removed:true,record:null};
+    if(!record||!Array.isArray(record.parents)){
+      if(known)throw fullVerificationError('Google omitted a known file’s location. Verifying folder contents.');
+      return {skip:true};
+    }
+    return {removed:false,record};
+  }
   async function syncDriveChanges({quiet=false}={}){
     if(state.scanning||!state.connected||!state.changeToken)return;
     const generation=++state.scanGeneration,controller=new AbortController();
     const active=()=>state.connected&&state.scanGeneration===generation&&!controller.signal.aborted;
     state.scanController=controller;state.scanning=true;
     $('syncButton').disabled=true;$('healthScanButton').disabled=true;
+    let mustVerify=false;
     try{
       updateScanSummary('Checking recent Drive changes…');
       const result=await listDriveChanges(state.changeToken,controller.signal);
       if(!active())return;
+      // Only reconcile monitored folders. Do not use a Drive change to mutate
+      // files outside the existing, user-selected image collection roots.
       const byFolderID=new Map(state.folderSources.map(f=>[f.id,f.path]));
       const staged=new Map([...state.syncedFolders].map(([path,files])=>[path,files.slice()]));
-      const affected=new Set();
+      if(staged.size!==state.folderSources.length)throw fullVerificationError('Folder baseline is incomplete.');
+      const affected=new Set(), trackedIDs=new Set([...staged.values()].flatMap(files=>files.map(f=>f.id)));
+      let lookups=0,ignored=0;
       for(const change of result.changes){
+        if(!active())return;
         if(!safeId(change.fileId))continue;
-        const id=change.fileId;
-        const record=change.file;
-        if(!change.removed && record && !record.trashed && !Array.isArray(record.parents)){
-          throw new Error('Google did not provide file parents. Use Full rescan.');
+        const id=change.fileId, known=trackedIDs.has(id);
+        if(!change.removed && !change.file?.trashed &&
+            (!change.file||!Array.isArray(change.file.parents)) &&
+            (known||supportedMedia(change.file?.mimeType))){
+          if(++lookups>MAX_AMBIGUOUS_LOOKUPS)throw fullVerificationError('Too many ambiguous file changes to verify individually.');
         }
+        const resolved=await resolveChangeFile(change,known,controller.signal);
+        if(!active())return;
+        if(resolved.skip){ignored++;continue;}
+        // Known changes are applied to a private staged snapshot only.
+        // If any request fails, the visible gallery and sync cursor remain intact.
         for(const [path,files] of staged){
           const at=files.findIndex(f=>f.id===id);
           if(at>=0){files.splice(at,1);affected.add(path);}
         }
-        if(!change.removed && record && !record.trashed && supportedMedia(record.mimeType)){
-          // Ignore unrelated changes outside the 33 indexed folders.
-          const target=(record.parents||[]).map(x=>byFolderID.get(x)).find(Boolean);
+        const record=resolved.record;
+        if(!resolved.removed && record && !record.trashed && supportedMedia(record.mimeType)){
+          const target=record.parents.map(parent=>byFolderID.get(parent)).find(Boolean);
           if(target){
-            const file={id,name:record.name||'Untitled media',mimeType:record.mimeType,
-              size:record.size||0,modifiedTime:record.modifiedTime||''};
-            staged.get(target).push(file);affected.add(target);
+            staged.get(target).push({
+              id,name:record.name||'Untitled media',mimeType:record.mimeType,
+              size:record.size||0,modifiedTime:record.modifiedTime||''
+            });
+            affected.add(target);
           }
         }
       }
@@ -620,22 +677,29 @@
       state.changeToken=result.token;state.lastScanAt=new Date().toISOString();
       if(affected.size)mergeLiveFolders(affected);
       rememberSyncCache();
-      const summary=`Checked ${result.changes.length} Drive changes · ${affected.size} indexed folders updated · read-only`;
-      updateScanSummary(summary);
-      if(!quiet)alertUser(summary,'success');
+      const summary=`Checked ${result.changes.length} Drive changes · ${affected.size} indexed folders updated${ignored?` · ${ignored} unrelated changes skipped`:''} · read-only`;
+      syncSucceeded(summary,quiet);
     }catch(error){
       if(!active())return;
-      // Invalid/expired tokens require a full comparison before trusting a new cursor.
-      if([400,410].includes(error.httpStatus)){state.changeToken=null;clearLocalSyncCache();}
-      const msg=`Incremental check failed: ${error.message}. Use Full rescan if needed.`;
-      updateScanSummary(msg,true);
-      if(!quiet)alertUser(msg,'error');
+      mustVerify=!!error.needsFullScan||[400,410].includes(error.httpStatus);
+      if(mustVerify){
+        // The old token is not trustworthy until a complete file-ID comparison.
+        state.changeToken=null;clearLocalSyncCache();
+        updateScanSummary('Incremental sync needs verification. Checking every indexed folder…');
+      }else{
+        syncFailed(`Drive sync incomplete: ${error.message}. Existing files kept; retry or use Full rescan.`,quiet);
+      }
     }finally{
       if(active()){
         state.scanning=false;state.scanController=null;
         $('syncButton').disabled=false;$('healthScanButton').disabled=false;
         if(state.view==='health')renderHealth();
       }
+    }
+    if(mustVerify&&active()){
+      // Recover automatically rather than leaving deleted items visible forever.
+      // Failed full scans retain prior data and clearly report affected folders.
+      return syncWithDrive({quiet,full:true});
     }
   }
 
@@ -693,9 +757,9 @@
       const current=[...scannedPaths].map(path=>state.health.get(path)).filter(Boolean);
       const added=current.reduce((n,f)=>n+f.added.length,0);
       const missing=current.reduce((n,f)=>n+f.missing.length,0);
-      const summary=`Checked ${scannedPaths.size}/${state.folderSources.length} folders · ${added} new · ${missing} missing from original inventory${failures.length?` · ${failures.length} failed`:''}`;
-      updateScanSummary(summary,!!failures.length);
-      if(!quiet)alertUser(summary,failures.length?'error':'success');
+      const summary=`Verified ${scannedPaths.size}/${state.folderSources.length} Drive folders · ${added} new · ${missing} missing from inventory${failures.length?` · ${failures.length} failed`:''}. Missing files are hidden from the gallery; originals unchanged.`;
+      if(failures.length)syncFailed(summary,quiet);
+      else syncSucceeded(summary,quiet);
     }finally{
       if(active()){
         state.scanning=false;state.scanController=null;
