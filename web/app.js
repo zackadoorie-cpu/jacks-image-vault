@@ -68,6 +68,7 @@
     scanFailures: new Map(),
     videoObjectUrl: null,
     videoController: null,
+    playingMediaId: null,
   };
   const safeId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{10,}$/.test(id);
   const format = n => Number(n || 0).toLocaleString('en-US');
@@ -721,7 +722,9 @@
     $('modalMeta').innerHTML=fields.map(([key,val])=>`<dt>${escapeHTML(key)}</dt><dd>${escapeHTML(val)}</dd>`).join('');
     const link=$('openDriveLink');link.href=linkToDrive(item)||'#';link.classList.toggle('hidden',!linkToDrive(item));
     $('favoriteImage').disabled=item.demo;updateFavoriteButton();
-    $('playVideoButton').classList.toggle('hidden',mediaKind(item)!=='video'||item.demo);
+    const playable=mediaKind(item)==='video'||isGIF(item);
+    $('playVideoButton').classList.toggle('hidden',!playable||item.demo);
+    $('playVideoButton').textContent=isGIF(item)?'▶ Play GIF animation':'▶ Play video';
     renderModalPicture();
   }
   function renderModalPicture() {
@@ -729,8 +732,8 @@
     const entry=state.thumbCache.get(item.id);
     const style=folderStyle(item.folder), error=state.thumbErrors.get(item.id), kind=mediaKind(item);
     $('retryPreview').classList.toggle('hidden',item.demo||!error||kind!=='image');
-    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · select Play video for a local preview (up to 32 MB)` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
-    if(kind==='video' && state.videoObjectUrl) return; // Preserve active player across thumbnail updates.
+    if(state.playingMediaId===item.id && state.videoObjectUrl) return; // Preserve original playback when thumbnails refresh.
+    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · click Play video (32 MB limit). Some codecs require Open in Drive.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · thumbnail may be still; click Play GIF animation (20 MB limit).` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
     $('modalPicture').innerHTML=entry?`<img src="${escapeHTML(entry.src)}" alt="${escapeHTML(item.description||item.name)}">`:`<div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${kind==='video'?'Use Play video to stream a private preview':kind==='pdf'?'Open in Drive to view the document':item.demo?'Design preview':error?'Preview unavailable; use Retry or Open in Drive':'Preview loading…'}</small></div>`;
     const pic=$('modalPicture').querySelector('img');
     if(pic)pic.onerror=()=>{if(entry.kind==='signed')handleSignedImageFailure(item.id);else{state.thumbErrors.set(item.id,'Image format not supported by browser');paintThumb(item.id,null);}};
@@ -741,30 +744,73 @@
     const el=$('modalPicture').querySelector('video');if(el)el.pause();
     if(state.videoObjectUrl)URL.revokeObjectURL(state.videoObjectUrl);
     state.videoObjectUrl=null;
+    state.playingMediaId=null;
   }
   async function playVideo(){
     const item=state.activeImage;
-    if(!item||mediaKind(item)!=='video')return;
-    if(item.size>MAX_VIDEO_PREVIEW){$('previewDetails').textContent='Video exceeds 32 MB. Use Open in Drive to play it.';return;}
+    if(!item)return;
+    const gif=isGIF(item),clip=mediaKind(item)==='video';
+    if(!gif&&!clip)return;
+    const maxBytes=gif?MAX_GIF_PREVIEW:MAX_VIDEO_PREVIEW;
+    if(item.size>maxBytes){
+      $('previewDetails').textContent=`${gif?'GIF':'Video'} exceeds the ${gif?'20':'32'} MB preview limit. Open in Drive instead.`;
+      return;
+    }
+    if(clip){
+      // WebM/MP4 support is determined by the embedded browser's actual codecs.
+      // A .webm extension alone does not guarantee a usable video codec.
+      const probe=document.createElement('video');
+      if(typeof probe.canPlayType==='function' && probe.canPlayType(item.mime||'video/webm')===''){
+        $('previewDetails').textContent='This browser cannot play the video format. Open in Drive to preview it.';
+        return;
+      }
+    }
     stopVideo();
     const controller=new AbortController();state.videoController=controller;
-    $('playVideoButton').disabled=true;
-    $('previewDetails').textContent='Loading private video preview…';
+    const button=$('playVideoButton');button.disabled=true;
+    $('previewDetails').textContent=gif?'Loading animated GIF…':'Loading private video preview…';
     try{
       const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
-      const blob=await googleGet(url,{blob:true,maxBytes:MAX_VIDEO_PREVIEW,signal:controller.signal});
-      if(state.activeImage?.id!==item.id||controller.signal.aborted)return;
-      if(!blob.type.startsWith('video/')&&!item.mime.startsWith('video/'))throw Error('The file is not a playable video.');
-      state.videoObjectUrl=URL.createObjectURL(blob);
+      const source=await googleGet(url,{blob:true,maxBytes,signal:controller.signal});
+      if(state.videoController!==controller||state.activeImage?.id!==item.id||controller.signal.aborted)return;
+      // Drive sometimes returns application/octet-stream. The inventory's verified
+      // MIME tells the browser how to decode this private, in-memory file.
+      const media=new Blob([source],{type:gif?'image/gif':item.mime});
+      if(media.size>maxBytes)throw new Error('Media exceeds preview size limit.');
+      const objectUrl=URL.createObjectURL(media);
+      state.videoObjectUrl=objectUrl;state.playingMediaId=item.id;
       $('modalPicture').innerHTML='';
-      const video=document.createElement('video');video.src=state.videoObjectUrl;video.controls=true;video.playsInline=true;video.autoplay=true;video.preload='metadata';
-      video.setAttribute('aria-label',item.name);
-      video.onerror=()=>{$('previewDetails').textContent='Your browser cannot play this video codec. Open in Drive instead.';};
-      $('modalPicture').appendChild(video);
-      video.play().catch(()=>{});
-      $('previewDetails').textContent='Video loaded locally for this viewing session · no Drive changes';
-    }catch(error){if(!controller.signal.aborted)$('previewDetails').textContent=`Cannot preview video: ${error.message}. Open in Drive instead.`;}
-    finally{$('playVideoButton').disabled=false;}
+      if(gif){
+        const img=document.createElement('img');
+        img.alt=item.description||item.name;
+        img.onerror=()=>{
+          if(state.playingMediaId===item.id)$('previewDetails').textContent='Animated GIF could not be decoded. Open in Drive instead.';
+        };
+        img.src=objectUrl;
+        $('modalPicture').appendChild(img);
+        $('previewDetails').textContent='Animated GIF loaded locally. Close this viewer to free its memory.';
+      }else{
+        const video=document.createElement('video');
+        video.controls=true;video.playsInline=true;video.autoplay=false;video.preload='metadata';
+        video.setAttribute('aria-label',item.name);
+        video.onerror=()=>{
+          if(state.playingMediaId===item.id)$('previewDetails').textContent='This clip uses a codec the browser cannot decode. Open in Drive instead.';
+        };
+        video.src=objectUrl;
+        $('modalPicture').appendChild(video);
+        $('previewDetails').textContent='Video loaded. Use the playback controls; unsupported codecs can be opened in Drive.';
+        // A browser may reject autoplay once the authenticated download finishes.
+        video.play().catch(()=>{
+          if(state.playingMediaId===item.id)$('previewDetails').textContent='Video ready. Press ▶ in the player to start playback.';
+        });
+      }
+    }catch(error){
+      if(!controller.signal.aborted && state.activeImage?.id===item.id){
+        $('previewDetails').textContent=`Cannot preview ${gif?'GIF':'video'}: ${error.message}. Open in Drive instead.`;
+      }
+    }finally{
+      if(state.videoController===controller)button.disabled=false;
+    }
   }
   function stepImage(direction) {
     if(!state.activeImage)return;
