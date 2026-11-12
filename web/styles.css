@@ -117,3 +117,16 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .tile-placeholder small{max-width:92%;text-align:center;padding:0 7px}
 @media(max-width:680px){.back-to-top{right:15px;bottom:17px;padding:11px 14px}.browse-progress{font-size:10px}.gallery-counters{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.back-to-top,.tile-preview img{transition:none}}
+
+
+/* v2.0.7 — source-of-truth and discovery coverage dashboard */
+.index-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:20px 0 14px}
+.index-metric{background:#1a1d2b;border:1px solid #393a53;border-radius:13px;padding:15px;min-width:0;display:flex;flex-direction:column;gap:7px}
+.index-metric span{font-size:11px;font-weight:700;letter-spacing:.02em;color:#b6abdb}
+.index-metric strong{font-size:clamp(23px,2.2vw,30px);font-weight:800;color:#f4efff;font-variant-numeric:tabular-nums;line-height:1.15}
+.index-metric small{font-size:10px;color:#a4abc1;line-height:1.4}
+#discoverySummary{border-left:3px solid #a894f2;line-height:1.65}
+.health-table td:first-child{overflow-wrap:anywhere;max-width:340px;white-space:normal}
+.health-table td:last-child{min-width:170px}
+@media(max-width:900px){.index-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:500px){.index-metrics{grid-template-columns:1fr 1fr;gap:8px}.index-metric{padding:11px}.index-metric strong{font-size:24px}}
