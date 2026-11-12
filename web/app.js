@@ -722,7 +722,7 @@
     for (const controller of state.activeControllers) controller.abort();
     state.activeControllers.clear(); state.loadingThumbs.clear();
     for (const entry of state.thumbCache.values()) if (entry?.objectUrl) URL.revokeObjectURL(entry.src);
-    state.thumbCache.clear(); state.thumbErrors.clear();
+    state.thumbCache.clear(); state.thumbErrors.clear();state.posterError.clear();
     if (state.observer) {state.observer.disconnect();state.observer=null;}
   }
   function disconnect() {
@@ -929,7 +929,7 @@
     const style=folderStyle(item.folder), favorite=state.favorites.has(item.id), kind=mediaKind(item);
     const date=item.captureDate?item.captureDate.slice(0,10):folderName(item.folder);
     const error=state.thumbErrors.get(item.id);
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?'Preview unavailable · open for retry':'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):kind==='pdf'?'PDF':isGIF(item)?'GIF':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${item.description&&!item.demo?'reviewed':''}">${item.demo?'SAMPLE':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):kind==='pdf'?'PDF':isGIF(item)?'GIF':item.description?'DESCRIBED':'UNREVIEWED'}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(item.description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   function observeThumbs() {
     state.observer?.disconnect();
@@ -998,7 +998,7 @@
     // Queue fallback only after this job completes; it must not download all originals at once.
     state.loadingThumbs.delete(job.id);
     if(mediaKind(job.item)!=='image') {
-      state.thumbErrors.set(job.id,'Preview unavailable; open item to play or view it.');
+      state.thumbErrors.set(job.id,`Google video thumbnail unavailable (${error?.message||'unknown reason'}). Playback may still work.`);
       paintThumb(job.id,null);return;
     }
     if(job.token===state.accessToken&&(!job.controller.signal.aborted||job.controller.signal.reason==='timeout')) {
@@ -1041,13 +1041,13 @@
     const text='Google thumbnail unavailable. Trying a small authenticated preview…';
     for(const btn of document.querySelectorAll('[data-open-image]'))if(btn.dataset.openImage===id){const small=btn.querySelector('.tile-placeholder small');if(small)small.textContent=text;}
     if(mediaKind(item)==='image')requestThumb(item,{priority:state.activeImage?.id===id,mediaOnly:true});
-    else {state.thumbErrors.set(id,'Preview unavailable; open item to play or view it.');paintThumb(id,null);}
+    else {state.thumbErrors.set(id,'Google video thumbnail could not be displayed. Playback may still work.');paintThumb(id,null);}
   }
   function paintThumb(id,entry) {
     for(const btn of document.querySelectorAll('[data-open-image]')) {
       if(btn.dataset.openImage!==id)continue;
       const small=btn.querySelector('.tile-placeholder small');
-      if(!entry){if(small)small.textContent='Preview unavailable · open for retry';const old=btn.querySelector('img');old?.remove();continue;}
+      if(!entry){if(small)small.textContent=mediaKind(state.images.find(x=>x.id===id)||{})==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry';const old=btn.querySelector('img');old?.remove();continue;}
       let img=btn.querySelector('img');
       if(!img){img=document.createElement('img');img.alt='';img.loading='eager';img.decoding='async';btn.appendChild(img);}
       const timer=setTimeout(()=>{if(img.isConnected&&!img.classList.contains('ready')) {if(entry.kind==='signed')handleSignedImageFailure(id);else {state.thumbErrors.set(id,'Preview timed out');paintThumb(id,null);}}},12000);
@@ -1092,9 +1092,15 @@
     const item=state.activeImage;if(!item)return;
     const entry=state.thumbCache.get(item.id);
     const style=folderStyle(item.folder), error=state.thumbErrors.get(item.id), kind=mediaKind(item);
-    $('retryPreview').classList.toggle('hidden',item.demo||!error||kind!=='image');
+    $('retryPreview').classList.toggle('hidden',item.demo||!error||kind==='pdf');
+    $('generatePosterButton').classList.toggle('hidden',item.demo||kind!=='video');
+    $('generatePosterButton').disabled=!!state.posterController||item.size>MAX_POSTER_VIDEO||!state.connected;
+    $('generatePosterButton').title=item.size>MAX_POSTER_VIDEO?'12 MB thumbnail limit':'Create a local preview frame without modifying the original';
+    const diagnostic=kind==='video'||isGIF(item)||!!error;
+    $('mediaDiagnostics').classList.toggle('hidden',!diagnostic);
+    if(diagnostic)renderMediaDiagnostic(item);
     if(state.playingMediaId===item.id && state.videoObjectUrl) return; // Preserve original playback when thumbnails refresh.
-    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · click Play video (32 MB limit). Some codecs require Open in Drive.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · thumbnail may be still; click Play GIF animation (20 MB limit).` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
+    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · click Play video (32 MB limit). Missing thumbnails can be generated separately.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · thumbnail may be still; click Play GIF animation (20 MB limit).` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
     $('modalPicture').innerHTML=entry?`<img src="${escapeHTML(entry.src)}" alt="${escapeHTML(item.description||item.name)}">`:`<div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${kind==='video'?'Use Play video to stream a private preview':kind==='pdf'?'Open in Drive to view the document':item.demo?'Design preview':error?'Preview unavailable; use Retry or Open in Drive':'Preview loading…'}</small></div>`;
     const pic=$('modalPicture').querySelector('img');
     if(pic)pic.onerror=()=>{if(entry.kind==='signed')handleSignedImageFailure(item.id);else{state.thumbErrors.set(item.id,'Image format not supported by browser');paintThumb(item.id,null);}};
@@ -1102,6 +1108,8 @@
   function updateFavoriteButton(){const on=state.favorites.has(state.activeImage?.id);$('favoriteImage').textContent=on?'♥ Favorited':'♡ Favorite';}
   function stopVideo(){
     state.videoController?.abort();state.videoController=null;
+    state.posterController?.abort();state.posterController=null;
+    $('generatePosterButton').disabled=false;
     const el=$('modalPicture').querySelector('video');if(el)el.pause();
     if(state.videoObjectUrl)URL.revokeObjectURL(state.videoObjectUrl);
     state.videoObjectUrl=null;
@@ -1321,6 +1329,7 @@
     $('layoutButton').onclick=()=>{state.layout=state.layout==='grid'?'list':'grid';renderGallery();};
     $('closeImage').onclick=closeImage;$('prevImage').onclick=()=>stepImage(-1);$('nextImage').onclick=()=>stepImage(1);
     $('playVideoButton').onclick=playVideo;
+    $('generatePosterButton').onclick=generateVideoThumbnail;
     $('favoriteImage').onclick=()=>{if(!state.activeImage?.demo){toggleFavorite(state.activeImage.id);renderGallery();}};
     $('retryPreview').onclick=()=>{if(state.activeImage){requestThumb(state.activeImage,{priority:true,force:true});renderModalPicture();}};
     $('retryFailedButton').onclick=()=>{for(const item of state.filtered.slice(0,state.page*state.pageSize)){if(state.thumbErrors.has(item.id))requestThumb(item,{force:true});}updatePreviewStats();};
