@@ -72,7 +72,8 @@ test('source review requires actual visual evidence and recognises newer verifie
     ['Source Drive image visually inspected and Drive ID matched','image/jpeg','source-reviewed'],
     ['Visually verified against original Drive image','image/gif','source-reviewed'],
     ['Visually inspected Phase 25 contact sheet','image/png','source-reviewed'],
-    ['Video preview frames visually inspected','video/mp4','pending'],
+    ['Video preview frames visually inspected','video/mp4','source-reviewed'],
+    ['Video preview frame inspected; full motion/audio not verified','video/mp4','source-reviewed'],
     ['Review blocked: video decoder error','video/webm','pending'],
     ['Metadata-only, EXIF capture date verified','image/jpeg','pending'],
     ['Not visually verified','image/png','pending']
