@@ -18,8 +18,10 @@ jobs:
           go-version-file: go.mod
       - name: Go unit and security tests
         run: go test ./...
-      - name: Check JavaScript
-        run: node --check web/app.js
+      - name: Check portable source bundle and JavaScript
+        run: |
+          node scripts/build-media-contract.cjs --check
+          node --check web/app.js
       - name: Run Drive sync and media stress tests
         run: node --test tests/*.test.cjs
       - name: Check patch builder
