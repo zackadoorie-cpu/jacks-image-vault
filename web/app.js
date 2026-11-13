@@ -308,11 +308,16 @@
     if(!effectiveDescription(item).trim()||item.newInDrive||
        /(?:needs review|not reviewed|unreviewed|awaiting review|pending review)/.test(sourceStatus))
       return 'pending';
-    // Historic inventory labels record visual inspections in several forms.
-    // Keep purely date-based, OCR-only and explicitly incomplete records pending.
-    if(/(?:missing capture date|capture date not available|sensitive non-meme|capture date verified)/.test(sourceStatus))
+    // Date/metadata audits are distinct from visual verification. Sampled video
+    // frames and blocked videos still need a full-motion review.
+    if(/(?:missing capture date|capture date not available|sensitive non-meme|capture date verified|^review blocked)/.test(sourceStatus) ||
+       (item.mime?.startsWith('video/')&&/(?:preview|sampled frames?)/.test(sourceStatus)) ||
+       /\bnot visually (?:verified|reviewed|inspected)\b/.test(sourceStatus))
       return 'pending';
-    return /(?:visually reviewed|visually inspected|visual review:|video preview frame inspected|renamed.*verified|reviewed by|review complete|verified by|approved|^verified\b|^reviewed\b)/.test(sourceStatus)?
+    // The live Manifest now uses "Original Drive ... visually verified" as well
+    // as historical "Visually reviewed" labels. Require positive visual evidence,
+    // never a description or EXIF timestamp alone.
+    return /(?:visually verified|visually reviewed|visually inspected|visual review:|renamed.*verified|reviewed by|review complete|verified by|approved|^verified\b|^reviewed\b)/.test(sourceStatus)?
       'source-reviewed':'pending';
   }
   function reviewCounts(){
@@ -602,18 +607,7 @@
     } catch (error) {await reader.cancel().catch(()=>{});throw error;}
     return new Blob(chunks, {type:response.headers.get('content-type') || 'application/octet-stream'});
   }
-  async function loadLiveIndex() {
-    // Invalidate previous scans before loading a refreshed spreadsheet snapshot.
-    stopScans();
-    const btn = $('connectButton'); btn.disabled = true; btn.textContent = 'Reading library…';
-    try {
-      // Bind cached file metadata to the actual signed-in Drive account.
-      // If unavailable, the app continues without using local cache.
-      state.driveIdentity=null;
-      try{
-        const about=await googleGet('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)');
-        if(safeId(about?.user?.permissionId))state.driveIdentity=about.user.permissionId;
-      }catch{}
+  async function readSpreadsheetSnapshot() {
       const id = encodeURIComponent(state.config.sheetId);
       const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G"];
       const params = ranges.map(x => `ranges=${encodeURIComponent(x)}`).join('&');
@@ -635,10 +629,26 @@
         images.push({id,collection:r[0]||'',folder:r[1]||'',name:r[2]||'Untitled image',description:r[4]||'',tags:r[5]||'',captureDate:r[7]||'',review:r[9]||'',confidence:r[11]||'',category:r[12]||'',mime:source.mime,size:source.size,url:linkToDrive({id}),demo:false});
       }
       if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
-      state.inventory = images;
-      state.baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
+      const baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
         .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0),inventoryPath:r[1],discovered:false}));
-      state.folderSources=state.baseFolderSources.slice();
+    return {images,baseFolderSources};
+  }
+  async function loadLiveIndex() {
+    // Invalidate previous scans before loading a refreshed spreadsheet snapshot.
+    stopScans();
+    const btn = $('connectButton'); btn.disabled = true; btn.textContent = 'Reading library…';
+    try {
+      // Bind cached file metadata to the actual signed-in Drive account.
+      // If unavailable, the app continues without using local cache.
+      state.driveIdentity=null;
+      try{
+        const about=await googleGet('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)');
+        if(safeId(about?.user?.permissionId))state.driveIdentity=about.user.permissionId;
+      }catch{}
+      const {images,baseFolderSources}=await readSpreadsheetSnapshot();
+      state.inventory=images;
+      state.baseFolderSources=baseFolderSources;
+      state.folderSources=baseFolderSources.slice();
       state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
@@ -661,6 +671,42 @@
       alertUser(`Could not load the library: ${error.message || error}`,'error');
     }
     finally {btn.disabled = false; btn.textContent = 'Connect Drive';}
+  }
+
+  async function refreshSheetAndDrive() {
+    if(!state.connected)return false;
+    if(state.scanning){
+      updateScanSummary('A Drive scan is in progress. Retry sync when it finishes.');
+      return false;
+    }
+    if(state.reviewDirty){
+      alertUser('Save or discard the review you are editing before syncing. Your changes are untouched.','error');
+      return false;
+    }
+    const button=$('syncButton');
+    button.disabled=true;
+    updateScanSummary('Reloading visual review statuses from the Google Sheet…');
+    let snapshot;
+    try{
+      // Fetch first, commit second: a Sheets error never discards a verified gallery.
+      snapshot=await readSpreadsheetSnapshot();
+    }catch(error){
+      updateScanSummary('Spreadsheet refresh failed: '+(error?.message||error)+'. Previous gallery retained.',true);
+      alertUser('Could not refresh the spreadsheet: '+(error?.message||error)+'. Previous reviews were kept.','error');
+      button.disabled=false;
+      return false;
+    }
+    const signature=folders=>folders.map(f=>f.path+':'+f.id).sort().join('|');
+    const changedFolders=signature(snapshot.baseFolderSources)!==signature(state.baseFolderSources);
+    state.inventory=snapshot.images;
+    state.baseFolderSources=snapshot.baseFolderSources;
+    if(state.syncedFolders.size)mergeLiveFolders();
+    else{state.images=snapshot.images;buildFolderIndex();updateStatus();render();}
+    alertUser('Refreshed '+format(snapshot.images.length)+' inventory entries from Google Sheets. Local reviews preserved.','success');
+    updateScanSummary('Spreadsheet reviews updated. Checking read-only Drive changes…');
+    button.disabled=false;
+    await syncWithDrive({full:changedFolders});
+    return true;
   }
 
   function syncCacheSignature(){
@@ -2104,7 +2150,7 @@
       try{localStorage.setItem(DENSITY_STORAGE,state.density);}catch{}
       renderGallery();
     };
-    $('syncButton').onclick=()=>syncWithDrive();
+    $('syncButton').onclick=()=>refreshSheetAndDrive();
     $('healthScanButton').onclick=()=>syncWithDrive({full:true});
     $('clearSyncCacheButton').onclick=()=>{
       clearLocalSyncCache();
