@@ -41,6 +41,7 @@ jobs:
         run: node --test tests/*.test.cjs
       - name: Check JavaScript and patch builder
         run: |
+          node scripts/build-media-contract.cjs --check
           node --check web/app.js
           python3 -m py_compile make_patch.py
       - name: Build unsigned Windows EXE and versioned UI patch
