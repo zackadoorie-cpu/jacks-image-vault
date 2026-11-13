@@ -2,6 +2,42 @@
 
 **Status:** Working Windows EXE built, Go updater tests passed, local ZIP patch installed and rolled back in an HTTP smoke test. **Live Windows/Google thumbnail verification has not been performed** in the build environment.
 
+## Search 2.0 (v2.1 development)
+
+Search operates **entirely on the private media metadata already loaded in the
+browser**, without sending search terms or photos to any other service.
+Use quotes for a contiguous phrase and combine words across filenames, tags
+and descriptions. Text results rank filename matches first, then tags,
+descriptions, categories and folder names; select **Best match** in the sort
+menu. Other sort choices remain available.
+
+| Syntax | Example | Meaning |
+| --- | --- | --- |
+| Quoted phrase | `"blue balloon"` | Matches the exact phrase |
+| Tag | `tag:cat` | Tags contain the term |
+| Folder | `folder:"Memes/Cats"` | Folder contains the phrase |
+| Media type | `type:image`, `type:video`, `type:pdf`, `type:gif` | Filters media types |
+| Capture date | `after:2025-01-01 before:2025-12-31` | Inclusive known capture/filename date range; unknown dates excluded |
+| Review state | `review:pending` | Uses the current local/source review state |
+| Favorites | `favorite:true` | Only favorited files |
+
+Multiple filters and terms combine with **AND**. Unsupported filter values show
+an error and no results instead of silently returning unrelated files.
+Diacritics are normalized for searching while preserving non-Latin scripts.
+Folders and file names are never changed by the search.
+
+**Saved searches** store up to 30 named search/filter presets in browser storage
+for the current Google account and inventory Sheet. Existing local review notes
+are completely separate. Delete a saved search to remove only the preset, never
+an image. Like reviews and favorites, saved searches are **not synced across
+devices**, and clearing browser site data will remove them.
+
+The pure search implementation is `src/search-engine.js`; run
+`node scripts/build-search-engine.cjs` to regenerate the patch-compatible
+`web/app.js`, then run the same command with `--check` to verify consistency.
+The search controls are part of the UI and are not included in v2.0.11 until a
+separate, tested release is published.
+
 ## v2.1 development (work in progress)
 
 The v2.1 roadmap is tracked in [GitHub issue #12](https://github.com/zackadoorie-cpu/jacks-image-vault/issues/12).

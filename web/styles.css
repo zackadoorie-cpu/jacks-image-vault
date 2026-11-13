@@ -156,3 +156,15 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
   .review-filter-label select{max-width:65%;min-width:0}
   .review-editor-actions .btn{flex:1 1 auto}
 }
+
+/* Search 2.0: local-only query hints and account-scoped saved searches. */
+.search-extras{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:-1px 0 16px}
+.search-hint{font-size:11px;color:var(--muted);line-height:1.6;margin:0;flex:1 1 320px}
+.search-hint.error{color:#ffb7bd}
+.saved-search-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.saved-search-tools .select{min-width:145px;max-width:250px}
+.saved-search-tools .btn{min-height:36px;font-size:11px}
+.search-save-dialog{max-width:470px;width:calc(100% - 32px)}
+.search-save-body{padding:4px 25px 23px}
+.visually-hidden{position:absolute!important;height:1px;width:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media(max-width:680px){.search-extras{align-items:stretch}.saved-search-tools{width:100%}.saved-search-tools .select{max-width:none;flex:1 1 155px}.saved-search-tools .btn{flex:0 1 auto}}
