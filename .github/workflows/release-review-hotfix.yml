@@ -1,0 +1,48 @@
+name: Publish Image Vault 2.0.11 review-sync repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-review-hotfix.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: image-vault-review-hotfix-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current fixed main branch
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run Go and JavaScript regression tests
+        run: |
+          go test ./...
+          node --check web/app.js
+          node --test tests/*.test.cjs
+          python3 -m py_compile make_patch.py
+      - name: Build 2.0.11 Windows application and verified UI patch
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags='-H windowsgui -s -w -X main.builtinVersion=2.0.11' -o dist/Jacks_Image_Vault_2.0.11.exe .
+          python3 make_patch.py --version 2.0.11 --web web --output dist/jacks-image-vault-patch.zip --notes 'Manifest analysis-method visual-review sync fix'
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+      - name: Publish release v2.0.11 (only once)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.0.11 >/dev/null 2>&1; then
+            echo 'Version v2.0.11 already exists; refusing duplicate release' >&2
+            exit 1
+          fi
+          gh release create v2.0.11 dist/* --target "$GITHUB_SHA" --title 'Jack Image Vault v2.0.11' --notes 'Fixes false Needs Review flags by reading verified image inspection methods from the private Google Sheet. Existing Drive files and local review notes remain untouched.'
