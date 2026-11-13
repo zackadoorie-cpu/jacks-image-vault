@@ -308,16 +308,16 @@
     if(!effectiveDescription(item).trim()||item.newInDrive||
        /(?:needs review|not reviewed|unreviewed|awaiting review|pending review)/.test(sourceStatus))
       return 'pending';
-    // Date/metadata audits are distinct from visual verification. Sampled video
-    // frames and blocked videos still need a full-motion review.
+    // Date/metadata audits and blocked files are not visual verification.
+    // Keep legacy frame-preview labels recognized as limited visual reviews;
+    // they must not be mistaken for complete video/audio verification.
     if(/(?:missing capture date|capture date not available|sensitive non-meme|capture date verified|^review blocked)/.test(sourceStatus) ||
-       (item.mime?.startsWith('video/')&&/(?:preview|sampled frames?)/.test(sourceStatus)) ||
        /\bnot visually (?:verified|reviewed|inspected)\b/.test(sourceStatus))
       return 'pending';
     // The live Manifest now uses "Original Drive ... visually verified" as well
     // as historical "Visually reviewed" labels. Require positive visual evidence,
     // never a description or EXIF timestamp alone.
-    return /(?:visually verified|visually reviewed|visually inspected|visual review:|renamed.*verified|reviewed by|review complete|verified by|approved|^verified\b|^reviewed\b)/.test(sourceStatus)?
+    return /(?:visually verified|visually reviewed|visually inspected|visual review:|video preview frame inspected|renamed.*verified|reviewed by|review complete|verified by|approved|^verified\b|^reviewed\b)/.test(sourceStatus)?
       'source-reviewed':'pending';
   }
   function reviewCounts(){
