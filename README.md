@@ -40,8 +40,8 @@ The review queue recognizes newer source statuses such as
 `Original Drive image visually verified` and `Visually verified against original
 Drive image`. A description alone does not count as visual evidence. Missing
 EXIF capture timestamps and near-duplicate decisions remain separate review
-tasks in the spreadsheet; preview-only or blocked **videos** still require
-full-motion review. An explicitly deferred local review stays deferred until
+tasks in the spreadsheet; preview-only **videos** retain their limited visual-preview status, not
+full-motion approval, and blocked videos remain pending for manual review. An explicitly deferred local review stays deferred until
 you decide otherwise.
 
 The **Discover & verify folders** action in Library Health remains a separate
