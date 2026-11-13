@@ -2,6 +2,21 @@
 
 **Status:** Working Windows EXE built, Go updater tests passed, local ZIP patch installed and rolled back in an HTTP smoke test. **Live Windows/Google thumbnail verification has not been performed** in the build environment.
 
+## v2.1 development (work in progress)
+
+The v2.1 roadmap is tracked in [GitHub issue #12](https://github.com/zackadoorie-cpu/jacks-image-vault/issues/12).
+The first foundation PR introduces a portable, versioned media record contract
+with separate visual-evidence and date-provenance states. It is compatible with
+the existing **read-only** Google Drive and Google Sheets workflows. **No v2.1
+feature is released in the installed app until a separately tested release.**
+
+The browser app remains one `web/app.js` file for updater compatibility. The
+shared source for the pure contract is `src/media-contract.js`; use
+`node scripts/build-media-contract.cjs` to regenerate the embedded browser
+copy and `node scripts/build-media-contract.cjs --check` to verify consistency.
+The CI and release checks reject stale generated content. Private Sheets,
+photos, local backups and account identifiers must never be added to Git.
+
 ## What changed
 
 - Keep your existing Google OAuth web client and inventory Sheet ID. The new app runs on the same `http://localhost:8765` origin, so Chrome/Edge should retain your saved client and spreadsheet IDs. Tokens are memory-only: sign in again on a fresh browser page.
