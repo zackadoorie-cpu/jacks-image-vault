@@ -36,6 +36,14 @@ replace personal review edits, rename anything, or clear browser review storage.
 A Sheets error leaves the previously loaded gallery untouched and displays an
 error instead of falsely reporting a successful sync.
 
+The visual-review classifier now uses **Manifest column T (Review status) and
+column AC (Analysis method)** by Drive file ID. A verified photo with no EXIF
+capture date is already visually reviewed, but its date exception stays in the
+separate spreadsheet review queue. Frame-sampled video is acknowledged as a
+preview review, not a claim that full motion or audio was inspected. PDF records
+and videos with blocked decoding remain unresolved. A newly discovered Drive
+file not yet indexed in the Sheet also remains in Needs Review.
+
 The review queue recognizes newer source statuses such as
 `Original Drive image visually verified` and `Visually verified against original
 Drive image`. A description alone does not count as visual evidence. Missing

@@ -302,23 +302,19 @@
     if(note?.status==='reviewed'&&effectiveDescription(item).trim())return 'reviewed';
     if(note?.status==='deferred')return 'deferred';
     if(note?.status==='draft')return 'pending';
-    const sourceStatus=String(item.review||'').toLowerCase();
-    // A description alone does not mean a person verified it. Source review
-    // evidence must be explicit, otherwise the item remains in Needs attention.
+    const status=String(item.review||'').toLowerCase();
+    const method=String(item.analysisMethod||'').toLowerCase();
+    // A description, EXIF date or filename alone is not proof of inspection.
     if(!effectiveDescription(item).trim()||item.newInDrive||
-       /(?:needs review|not reviewed|unreviewed|awaiting review|pending review)/.test(sourceStatus))
+       /(?:needs review|not reviewed|unreviewed|awaiting review|pending review)/.test(status)||
+       /(?:^review blocked|not visually inspected|sensitive non-meme pdf)/.test(status)||
+       /not visually (?:verified|reviewed|inspected)/.test(status))
       return 'pending';
-    // Date/metadata audits and blocked files are not visual verification.
-    // Keep legacy frame-preview labels recognized as limited visual reviews;
-    // they must not be mistaken for complete video/audio verification.
-    if(/(?:missing capture date|capture date not available|sensitive non-meme|capture date verified|^review blocked)/.test(sourceStatus) ||
-       /\bnot visually (?:verified|reviewed|inspected)\b/.test(sourceStatus))
-      return 'pending';
-    // The live Manifest now uses "Original Drive ... visually verified" as well
-    // as historical "Visually reviewed" labels. Require positive visual evidence,
-    // never a description or EXIF timestamp alone.
-    return /(?:visually verified|visually reviewed|visually inspected|visual review:|video preview frame inspected|renamed.*verified|reviewed by|review complete|verified by|approved|^verified\b|^reviewed\b)/.test(sourceStatus)?
-      'source-reviewed':'pending';
+    const statusVisual=/(?:visually verified|visually reviewed|visually inspected|visual review:|video preview (?:frame inspected|reviewed)|renamed.*verified|reviewed by|review complete|verified by|approved|^verified\b|^reviewed\b|direct original drive still(?:[- ]image)? (?:verification|visual verification|inspected|verified)|animated gif checked against original)/.test(status);
+    // A missing EXIF capture date is not a missing visual review.
+    // Manifest column AC supplies independent image/preview evidence.
+    const methodVisual=/(?:actual pixels inspected|actual pixels;|original image .*visually inspected|original image pixels inspected|original image inspected|direct inspection of original pixels|original drive video sampled|preview frames decoded|original drive mp4 previewed|chatgpt visual inspection|sampled animation frames)/.test(method);
+    return statusVisual||methodVisual?'source-reviewed':'pending';
   }
   function reviewCounts(){
     const counts={pending:0,deferred:0,reviewed:0,'source-reviewed':0};
@@ -471,8 +467,9 @@
     const done=counts.reviewed+counts['source-reviewed'];
     const total=counts.pending+counts.deferred+done;
     $('reviewProgress').textContent=format(done)+' reviewed / '+format(total)+' items';
-    $('reviewHelp').textContent=format(counts.pending)+' need attention · '+
-      format(counts.deferred)+' deferred · '+format(counts.reviewed)+' reviewed locally';
+    $('reviewHelp').textContent=format(counts.pending)+' need visual attention · '+
+      format(counts.deferred)+' deferred · '+format(counts.reviewed)+
+      ' reviewed locally. Missing EXIF dates and duplicate decisions are tracked separately in the Sheet.';
   }
   function populateReviewEditor(item){
     const editor=$('reviewForm');
@@ -609,16 +606,24 @@
   }
   async function readSpreadsheetSnapshot() {
       const id = encodeURIComponent(state.config.sheetId);
-      const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G"];
+      const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G", "'Manifest'!T:T", "'Manifest'!AC:AC"];
       const params = ranges.map(x => `ranges=${encodeURIComponent(x)}`).join('&');
       const data = await googleGet(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchGet?${params}&valueRenderOption=FORMATTED_VALUE`);
       const index = data.valueRanges?.[0]?.values || [];
       const manifest = data.valueRanges?.[1]?.values || [];
       const folders = data.valueRanges?.[2]?.values || [];
-      if ((index[0] || [])[0] !== 'Collection' || (manifest[0] || [])[0] !== 'Collection') throw new Error('This spreadsheet does not have the expected Search Index and Manifest headers.');
+      const reviewStatuses = data.valueRanges?.[3]?.values || [];
+      const analysisMethods = data.valueRanges?.[4]?.values || [];
+      if ((index[0] || [])[0] !== 'Collection' || (manifest[0] || [])[0] !== 'Collection' ||
+          reviewStatuses[0]?.[0] !== 'Review status' || analysisMethods[0]?.[0] !== 'Analysis method')
+        throw new Error('This inventory needs Search Index and Manifest visual-review columns. No existing data was changed.');
       const byId = new Map();
-      for (const r of manifest.slice(1)) {
-        if (safeId(r[3])) byId.set(r[3], {url:r[4]||'',mime:r[5]||'',size:Number(r[6]||0)});
+      for (let row=1;row<manifest.length;row++) {
+        const r=manifest[row]||[];
+        if (safeId(r[3])) byId.set(r[3], {
+          url:r[4]||'',mime:r[5]||'',size:Number(r[6]||0),
+          review:reviewStatuses[row]?.[0]||'',analysisMethod:analysisMethods[row]?.[0]||''
+        });
       }
       const images = [];
       const found = new Set();
@@ -626,7 +631,7 @@
         const id = r[10]; const source = byId.get(id);
         if (!safeId(id) || !source || !supportedMedia(source.mime) || found.has(id)) continue;
         found.add(id);
-        images.push({id,collection:r[0]||'',folder:r[1]||'',name:r[2]||'Untitled image',description:r[4]||'',tags:r[5]||'',captureDate:r[7]||'',review:r[9]||'',confidence:r[11]||'',category:r[12]||'',mime:source.mime,size:source.size,url:linkToDrive({id}),demo:false});
+        images.push({id,collection:r[0]||'',folder:r[1]||'',name:r[2]||'Untitled image',description:r[4]||'',tags:r[5]||'',captureDate:r[7]||'',review:source.review||r[9]||'',analysisMethod:source.analysisMethod,confidence:r[11]||'',category:r[12]||'',mime:source.mime,size:source.size,url:linkToDrive({id}),demo:false});
       }
       if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
       const baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
@@ -1578,7 +1583,7 @@
     renderReviewToolbar();
     $('galleryEyebrow').textContent=state.connected?'YOUR PRIVATE LIBRARY':'DESIGN PREVIEW';
     $('galleryDescription').textContent=state.connected ?
-      state.view==='review'?'Approve descriptions, defer uncertain files, and keep personal tags on this device.':
+      state.view==='review'?'Only unresolved visual reviews appear here. Missing EXIF dates and duplicate decisions remain separate in your Sheet.':
       'Search the current Drive library. Previews load as you scroll.' :
       'Connect Google Drive to load your real collections and thumbnails.';
     $('galleryGrid').classList.toggle('list',state.layout==='list');
