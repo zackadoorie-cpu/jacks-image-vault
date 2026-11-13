@@ -52,7 +52,7 @@ const sample=(review='Original Drive still image visually verified 2026-11-13',f
   valueRanges: [
     {values:[
       ['Collection','Folder','Filename','Open','Description','Tags','OCR','Date','Duplicate','Review','File ID','Confidence','Category'],
-      ['Memes','Memes/Test','after.png','Open','A newly verified illustration','new-tag','','','',review,fileId,'Reviewed','Other meme']
+      ['Memes','Memes/Test','after.png','Open','A newly verified illustration','new-tag','','','','Needs review',fileId,'Reviewed','Other meme']
     ]},
     {values:[
       ['Collection','Folder','Filename','Drive file ID','URL','MIME type','Size'],
@@ -61,7 +61,9 @@ const sample=(review='Original Drive still image visually verified 2026-11-13',f
     {values:[
       ['Collection','Folder','Folder ID','URL','Files','Images','Other'],
       ['Memes','Memes/Test',folder,'',1,1,0]
-    ]}
+    ]},
+    {values:[['Review status'],[review]]},
+    {values:[['Analysis method'],['Original image visually inspected and matched by Drive file ID']]}
   ]
 });
 
@@ -74,12 +76,24 @@ test('source review requires actual visual evidence and recognises newer verifie
     ['Visually inspected Phase 25 contact sheet','image/png','source-reviewed'],
     ['Video preview frames visually inspected','video/mp4','source-reviewed'],
     ['Video preview frame inspected; full motion/audio not verified','video/mp4','source-reviewed'],
+    ['Video preview reviewed; 3 sampled frames, full motion/audio not verified','video/webm','source-reviewed'],
+    ['Direct original Drive still-image verification 2026-11-13','image/jpeg','source-reviewed'],
+    ['Animated GIF checked against original; frames sampled','image/gif','source-reviewed'],
     ['Review blocked: video decoder error','video/webm','pending'],
     ['Metadata-only, EXIF capture date verified','image/jpeg','pending'],
     ['Not visually verified','image/png','pending']
   ];
   for(const [review,mime,expected] of cases)
     assert.equal(hooks.reviewStage(img(review,{mime})),expected,review);
+  assert.equal(hooks.reviewStage(img('Missing capture date — manual review',{
+    analysisMethod:'Actual pixels inspected, first frame for animations; EXIF and hashes'})),'source-reviewed');
+  assert.equal(hooks.reviewStage(img('Capture date verified — current name matches',{
+    analysisMethod:'Actual pixels; first frame; EXIF and hashes'})),'source-reviewed');
+  assert.equal(hooks.reviewStage(img('Capture date verified — current name matches')),'pending');
+  assert.equal(hooks.reviewStage(img('Direct original Drive still-image verification',{
+    analysisMethod:''})),'source-reviewed');
+  assert.equal(hooks.reviewStage(img('Not applicable — PDF document; not visually inspected',{
+    analysisMethod:'Verified media classification'})),'pending');
   assert.equal(hooks.reviewStage(img('Original Drive image visually verified',{description:''})), 'pending');
   assert.equal(hooks.reviewStage(img('Original Drive image visually verified',{newInDrive:true})), 'pending');
 });
@@ -101,6 +115,8 @@ test('Sync reads fresh Sheet entries, reuses live file locations and preserves l
   hooks.stubDriveSync(async options=>driveCalls.push({...options}));
   assert.equal(await hooks.refreshSheetAndDrive(),true);
   assert.equal(state.inventory[0].description,'A newly verified illustration');
+  assert.equal(state.inventory[0].review,'Original Drive still image visually verified 2026-11-13');
+  assert.equal(state.inventory[0].analysisMethod,'Original image visually inspected and matched by Drive file ID');
   assert.equal(state.images[0].name,'current-live-name.png');
   assert.equal(state.images[0].description,'A newly verified illustration');
   assert.equal(state.reviewEdits.get(fileId),saved);
@@ -159,4 +175,27 @@ test('Sync does not overwrite an unsaved review or start during a Drive scan',as
   state.reviewDirty=false;state.scanning=true;
   assert.equal(await hooks.refreshSheetAndDrive(),false);
   assert.ok(context.__scanMessages.some(x=>x.message.includes('scan is in progress')));
+});
+
+test('an outdated or incomplete Sheet verification-method response fails safely',async()=>{
+  const {hooks,context}=setup();
+  const state=hooks.state;
+  state.connected=true;state.config={sheetId:'exampleSheetId0099'};
+  const prior=img('Visually reviewed');
+  state.inventory=[prior];state.images=[prior];
+  hooks.stubGoogleGet(async()=>({valueRanges:sample().valueRanges.slice(0,3)}));
+  hooks.stubDriveSync(async()=>{throw new Error('Drive scan should not start');});
+  assert.equal(await hooks.refreshSheetAndDrive(),false);
+  assert.equal(state.inventory[0],prior);
+  assert.equal(state.images[0],prior);
+  assert.ok(context.__alerts.some(x=>x.type==='error'));
+});
+
+test('visual review statuses and EXIF review notes are independent',()=>{
+  const {hooks}=setup();
+  const method='Actual pixels inspected, first frame for animations; EXIF and hashes';
+  const row=img('Missing capture date — manual review',{analysisMethod:method});
+  assert.equal(hooks.reviewStage(row),'source-reviewed');
+  assert.equal(hooks.reviewStage({...row,analysisMethod:''}),'pending');
+  assert.equal(hooks.reviewStage({...row,review:'Review blocked — media not inspected'}),'pending');
 });
