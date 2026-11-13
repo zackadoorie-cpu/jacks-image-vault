@@ -27,6 +27,33 @@ The app distinguishes previously reviewed images from genuinely unreviewed image
 
 This importer accepts a portable `image-vault-review-batch-v1` JSON file containing up to 500 visually inspected records per batch. A single unreviewed item is never automatically approved based on its filename, folder, or text metadata.
 
+## Syncing completed visual reviews from Google Sheets
+
+Choose **Sync Sheet + Drive** in the connected Windows app to fetch the latest
+`Search Index`, `Manifest`, and `Folders` values before reconciling Drive
+changes. This is a **read-only** refresh. It does not import public snapshots,
+replace personal review edits, rename anything, or clear browser review storage.
+A Sheets error leaves the previously loaded gallery untouched and displays an
+error instead of falsely reporting a successful sync.
+
+The review queue recognizes newer source statuses such as
+`Original Drive image visually verified` and `Visually verified against original
+Drive image`. A description alone does not count as visual evidence. Missing
+EXIF capture timestamps and near-duplicate decisions remain separate review
+tasks in the spreadsheet; preview-only or blocked **videos** still require
+full-motion review. An explicitly deferred local review stays deferred until
+you decide otherwise.
+
+The **Discover & verify folders** action in Library Health remains a separate
+full Drive-only scan. If the sheet's monitored folder IDs change, the sync
+automatically requests a full Drive verification.
+
+**Updating an installed EXE:** Changes merged into the GitHub repository do not
+update the already running Windows application. Publish a new numbered GitHub
+Release using the existing `Build and publish Image Vault update` workflow,
+then open **Updates → Check GitHub → Install update** in the app. The app never
+downloads or installs a release without your approval.
+
 ## Review workspace (v2.0.8)
 
 The **Needs Review** view is now an actionable local review queue, not simply a filter for empty descriptions.
