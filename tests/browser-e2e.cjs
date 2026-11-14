@@ -195,8 +195,8 @@ async function main(){
     assert.equal(await p.locator('html').getAttribute('data-theme'),'midnight');
     await p.locator('#settingsButton').click();
     await p.locator('#prefTheme').selectOption('daylight');
-    const light=await p.locator('body').evaluate(el=>getComputedStyle(el).backgroundColor);
-    assert.equal(light,'rgb(238, 242, 248)');
+    // Theme colors animate briefly; wait for the new computed background to settle.
+    await p.waitForFunction(()=>getComputedStyle(document.body).backgroundColor==='rgb(238, 242, 248)');
     await p.locator('#prefAutoReconnect').check();
     await p.locator('#preferencesForm button[type="submit"]').click();
     const binding=await p.evaluate(()=>JSON.parse(localStorage.getItem('jack-vault-autoconnect-binding-v1')));
