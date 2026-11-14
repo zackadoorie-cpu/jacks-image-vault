@@ -68,6 +68,8 @@ jobs:
           node scripts/build-smart-controller.cjs --check
           node scripts/build-memory-lane.cjs --check
           node scripts/build-memory-controller.cjs --check
+          node scripts/build-video-library.cjs --check
+          node scripts/build-video-controller.cjs --check
           node --check web/app.js
           python3 -m py_compile make_patch.py
       - name: Build unsigned Windows EXE and versioned UI patch
