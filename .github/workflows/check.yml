@@ -37,3 +37,23 @@ jobs:
         run: python3 -m py_compile make_patch.py
       - name: Ensure Windows build compiles
         run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/Jacks_Image_Vault.exe .
+
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Windows media, cancellation and similarity regressions
+        shell: pwsh
+        run: node --test tests/video-library.test.cjs tests/similarity-lab.test.cjs tests/stress.test.cjs
+      - name: Build native Image Vault for Windows
+        shell: pwsh
+        run: go build -o "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe" .
+      - name: Launch real Windows EXE and verify both views
+        shell: pwsh
+        run: ./scripts/windows-smoke.ps1 -ExecutablePath "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe"
