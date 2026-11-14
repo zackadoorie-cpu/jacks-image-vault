@@ -72,11 +72,11 @@ async function main(){
     assert.equal(await p.locator('#installDialog').evaluate(d=>d.open),true);
     assert.equal(await p.locator('#winInstallSection').isVisible(),false);
     assert.equal(await p.locator('#installBrowserButton').isVisible(),true);
+    assert.match(await p.locator('#installDialog').innerText(),/edge:\/\/apps/);
+    await p.locator('#installOkay').click();
     await p.locator('#sidebarSettings').click();
     assert.equal(await p.locator('#desktopAuthSection').isVisible(),false,'Browser-only mode must never offer native OAuth');
     await p.locator('#cancelSettings').click();
-    assert.match(await p.locator('#installDialog').innerText(),/edge:\/\/apps/);
-    await p.locator('#installOkay').click();
     // A synthetic Windows capability can expose the option without any write
     // until the user explicitly presses the install button.
     let shortcutCalls=0;
