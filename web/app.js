@@ -2860,6 +2860,22 @@
   function showUpdateMessage(message,error=false){const el=$('updateStatusMessage');el.textContent=message;el.classList.toggle('error',error);}
   function updateRepoValue(){return $('updateRepo').value.trim();}
   function validRepo(repo){return /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo)&&!repo.includes('..');}
+  function vettedReleaseURL(repo, value){
+    if(!validRepo(repo)||typeof value!=='string')return '';
+    try{
+      const url=new URL(value);
+      if(url.protocol!=='https:'||url.hostname!=='github.com'||url.username||url.password)return '';
+      const prefix=`/${repo.toLowerCase()}/releases/tag/`;
+      return url.pathname.toLowerCase().startsWith(prefix)?url.href:'';
+    }catch{return '';}
+  }
+  function setManualReleaseLink(repo, value){
+    const link=$('manualReleaseLink');
+    if(!link)return;
+    const safe=vettedReleaseURL(repo,value);
+    link.hidden=!safe;
+    if(safe)link.href=safe;else link.removeAttribute('href');
+  }
   async function getUpdateStatus(){
     try {
       const res=await fetch('/__vault_update/status',{cache:'no-store'});
@@ -2882,7 +2898,7 @@
   function saveUpdateRepo(){
     const repo=updateRepoValue();
     if(repo&&!validRepo(repo)){showUpdateMessage('Enter a GitHub repository as owner/repo.',true);return false;}
-    state.updateRepo=repo;state.remoteRelease=null;$('githubInstallButton').disabled=true;
+    state.updateRepo=repo;state.remoteRelease=null;$('githubInstallButton').disabled=true;setManualReleaseLink('',null);
     try {if(repo)localStorage.setItem(REPO_STORAGE,repo);else localStorage.removeItem(REPO_STORAGE);localStorage.removeItem(UPDATE_CHECK_STORAGE);}
     catch {showUpdateMessage('Browser storage unavailable; repository saved only until reload.',true);return false;}
     showUpdateMessage(repo?'Repository saved. Updates are checked once per day, and installation is always your choice.':'GitHub repository cleared. Local ZIP patches still work.');return true;
@@ -2890,11 +2906,12 @@
   async function checkGithub({automatic=false}={}){
     const repo=automatic?state.updateRepo:updateRepoValue();
     if(!validRepo(repo)){if(!automatic)showUpdateMessage('Enter a public GitHub repository as owner/repo first.',true);return;}
-    const btn=$('updateCheckButton');btn.disabled=true;$('githubInstallButton').disabled=true;
+    const btn=$('updateCheckButton');btn.disabled=true;$('githubInstallButton').disabled=true;setManualReleaseLink('',null);
     try{
       const res=await fetch(`/__vault_update/check?repo=${encodeURIComponent(repo)}`,{cache:'no-store'});
       const data=await res.json();if(!res.ok)throw new Error(data.error||`GitHub returned HTTP ${res.status}`);
       state.remoteRelease=data;
+      setManualReleaseLink(repo,data.releaseURL);
       $('releaseStatus').textContent=data.hasPatch ? `Latest release: ${data.releaseVersion}. ${data.available?'An update is ready to install.':'You are up to date.'}` : `Latest release ${data.releaseVersion} does not contain the required ZIP patch.`;
       $('githubInstallButton').disabled=!data.available;
       if(data.available){$('updatesButton').classList.add('update-available');$('updatesButton').title=`Update ${data.releaseVersion} available`;}
@@ -2922,7 +2939,7 @@
     if(!confirm(`Install the approved public GitHub release ${state.remoteRelease.releaseVersion}? Your Google Drive files will not be changed.`))return;
     $('githubInstallButton').disabled=true;showUpdateMessage('Downloading, checking SHA-256 hashes and installing…');
     try{await updateRequest('/__vault_update/install-github',{body:JSON.stringify({repo})});await reloadAfterPatch();}
-    catch(error){showUpdateMessage(`Update failed: ${error.message}`,true);$('githubInstallButton').disabled=false;}
+    catch(error){showUpdateMessage(`Update failed: ${error.message}. If GitHub blocks automated downloads, use the release link below to download the ZIP, then choose Verify & install ZIP.`,true);$('githubInstallButton').disabled=false;}
   }
   async function installLocalPatch(){
     const file=$('localPatchFile').files?.[0];
