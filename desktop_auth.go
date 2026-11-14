@@ -27,6 +27,7 @@ const (
  desktopDriveScope = "https://www.googleapis.com/auth/drive.readonly"
  desktopSheetScope = "https://www.googleapis.com/auth/spreadsheets.readonly"
  desktopFlowTTL = 3*time.Minute
+ desktopTokenClaimTTL = 5*time.Minute
 )
 var desktopClientRE = regexp.MustCompile("^[0-9]+-[a-z0-9-]+[.]apps[.]googleusercontent[.]com$")
 
@@ -159,6 +160,14 @@ func (b *desktopAuthBroker) exchange(f *desktopFlow,code string)error{
  if b.active!=f||f.status!="exchanging" {return errors.New("Authorization session expired")}
  f.token=token;f.expires=int(duration);f.status="ready"
  b.closeLocked(f)
+ // A completed token cannot sit in memory indefinitely if the UI closes
+ // before claiming it. This is a one-time, bounded delivery queue.
+ f.timer=time.AfterFunc(desktopTokenClaimTTL,func(){
+  b.mu.Lock();defer b.mu.Unlock()
+  if b.active==f&&f.status=="ready"{
+   f.token="";f.status="error";f.message="Desktop authorization expired before it was claimed. Try again."
+  }
+ })
  return nil
 }
 func (b *desktopAuthBroker) callback(f *desktopFlow,w http.ResponseWriter,r *http.Request){
@@ -203,6 +212,7 @@ func (b *desktopAuthBroker) poll(id string)(map[string]any,error){
  switch f.status{
  case "ready":
   result:=map[string]any{"status":"ready","accessToken":f.token,"expiresIn":f.expires}
+  if f.timer!=nil{f.timer.Stop()}
   f.token="";f.status="claimed";b.active=nil
   return result,nil
  case "error":
