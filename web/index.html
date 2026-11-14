@@ -30,6 +30,7 @@
         <button class="nav-item" data-view="favorites"><span class="nav-icon">♡</span>Favorites</button>
         <button class="nav-item" data-view="smart"><span class="nav-icon">✦</span>Smart Collections</button>
         <button class="nav-item" data-view="memory"><span class="nav-icon">◷</span>Memory Lane</button>
+        <button class="nav-item" data-view="similarity"><span class="nav-icon">▥</span>Similarity Lab</button>
         <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
         <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
       </nav>
@@ -174,6 +175,27 @@
             <button class="btn outline" type="button" id="memoryUnknownButton" disabled>Browse undated</button>
           </div>
           <p class="privacy-note">EXIF and filename timestamps retain their calendar date. Drive creation timestamps are converted to this device's local date and labeled as uploads, not capture dates. On This Day ignores upload dates. Your originals and Sheet remain untouched by browsing.</p>
+        </section>
+        <section id="similarityView" class="view hidden" aria-labelledby="similarityTitle">
+          <div class="gallery-heading"><div><p class="eyebrow">PRIVACY-FIRST IMAGE COMPARISONS</p><h1 id="similarityTitle">Similarity Lab</h1>
+            <p>Find possible duplicates across folders without changing a single Drive file. Metadata candidates are not confirmed duplicates.</p></div></div>
+          <h2 class="similarity-section-title">Possible duplicates in Drive</h2>
+          <p class="similarity-hint">Read-only: matching filenames and exact file byte sizes identify leads. This does <strong>not</strong> prove identical images or SHA-256 hashes. No original files are downloaded for this scan.</p>
+          <label class="similarity-filter"><input type="checkbox" id="similarityCrossFolder"> Show only candidates from different folders</label>
+          <p class="similarity-status" role="status" id="similarityStatus"></p>
+          <p class="similarity-status" id="similarityCandidateCount"></p>
+          <div class="similarity-list" id="similarityCandidateList"></div>
+          <h2 class="similarity-section-title">Compare files you choose</h2>
+          <p class="similarity-hint">Optional and entirely local. Choose up to 24 JPEG, PNG or WebP files, each no larger than 15 MB, 96 MB total. SHA-256 confirms <em>identical bytes</em>; a 64-bit perceptual dHash identifies visually similar previews, which may be false positives. No filenames, images or hashes are uploaded or saved.</p>
+          <div class="similarity-actions">
+            <label class="btn primary similarity-upload" for="similarityFiles">Choose local image files</label>
+            <input id="similarityFiles" class="similarity-input" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple aria-label="Choose up to 24 local image files to compare">
+            <button class="btn outline" id="similarityClear" type="button" disabled>Clear / cancel local comparison</button>
+          </div>
+          <p class="similarity-status" id="similarityLocalStatus" role="status"></p>
+          <p class="similarity-status" id="similarityLocalCounts"></p>
+          <div class="similarity-list" id="similarityLocalResults"></div>
+          <p class="privacy-note">All comparisons are read-only. This feature does not delete, move, rename, upload or modify source photos, spreadsheets or local reviews. Clear local comparison to discard temporary previews and computed fingerprints.</p>
         </section>
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
           <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original spreadsheet snapshot with current Drive files. New subfolders under the verified Memes and Jacks Photos roots are discovered automatically.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Discover &amp; verify folders</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
