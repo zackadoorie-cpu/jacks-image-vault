@@ -72,6 +72,7 @@ async function main(){
     assert.equal(await p.locator('#installDialog').evaluate(d=>d.open),true);
     assert.equal(await p.locator('#winInstallSection').isVisible(),false);
     assert.equal(await p.locator('#installBrowserButton').isVisible(),true);
+    assert.match(await p.locator('#installDialog').innerText(),/edge:\/\/apps/);
     await p.locator('#installOkay').click();
     // A synthetic Windows capability can expose the option without any write
     // until the user explicitly presses the install button.
@@ -125,6 +126,28 @@ async function main(){
     await p.keyboard.press('Alt+3');assert.equal(await p.locator('#videoLibraryView').isVisible(),true);
     await p.keyboard.press('Alt+1');assert.equal(await p.locator('#homeView').isVisible(),true);
   }finally{await preview.ctx.close();}
+  // A native lifecycle is opt-in by capability: mock exactly the local
+  // session API, never launch/stop a real Windows process from this test.
+  const lifecycle=await fixturePage(browser,url);
+  try{
+    const p=lifecycle.page;
+    let joins=0,leaves=0;
+    await p.route('**/__vault_update/status',route=>route.fulfill(reply({
+      version:'2.1.16',source:'built-in',nonce:'fixture-window-nonce',canRollback:false
+    })));
+    await p.route('**/__vault_window/heartbeat',route=>{
+      joins++;return route.fulfill(reply({ok:true}));
+    });
+    await p.route('**/__vault_window/leave',route=>{
+      leaves++;return route.fulfill(reply({ok:true}));
+    });
+    await p.reload({waitUntil:'domcontentloaded'});
+    await p.waitForTimeout(250);
+    assert.equal(joins>=1,true,'App window must register once when native endpoint is available');
+    await p.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide')));
+    await p.waitForTimeout(250);
+    assert.equal(leaves>=1,true,'Window close must release its native heartbeat');
+  }finally{await lifecycle.ctx.close();}
   const connected=await fixturePage(browser,url);
   try{
     const p=connected.page;
