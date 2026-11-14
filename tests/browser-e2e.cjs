@@ -31,11 +31,11 @@ async function server(){
 }
 async function fixturePage(browser,url,{mobile=false}={}){
  const ctx=await browser.newContext({viewport:mobile?{width:375,height:812}:{width:1366,height:860},reducedMotion:mobile?'reduce':'no-preference'});
- let fail=false;const requests=[];
+ let fail=false;const requests=[];let activeAccount='fixture_permission_123456789';
  await ctx.addInitScript(()=>{
    localStorage.setItem('jack-vault-settings-v2',JSON.stringify({clientId:'123456789-fixture.apps.googleusercontent.com',sheetId:'fixture_sheet_123456789'}));
    window.google={accounts:{oauth2:{
-     initTokenClient(opts){return {requestAccessToken(){opts.callback({access_token:'fake-e2e-token',expires_in:3600});}};},
+     initTokenClient(opts){return {requestAccessToken(options){(window.__authPrompts??=[]).push(options?.prompt);opts.callback({access_token:'fake-e2e-token',expires_in:3600});}};},
      revoke(_,fn){fn();}
    }}};
  });
@@ -45,14 +45,14 @@ async function fixturePage(browser,url,{mobile=false}={}){
  await ctx.route('https://www.googleapis.com/**',r=>{
    requests.push(r.request().method());
    const u=new URL(r.request().url());
-   if(u.pathname.endsWith('/about'))return r.fulfill(reply({user:{permissionId:'fixture_permission_123456789'}}));
+   if(u.pathname.endsWith('/about'))return r.fulfill(reply({user:{permissionId:activeAccount}}));
    if(u.pathname.endsWith('/changes/startPageToken'))return r.fulfill(reply({startPageToken:'fixture-cursor'}));
    if(u.pathname.includes('/changes'))return r.fulfill(reply({changes:[],newStartPageToken:'fixture-cursor-2'}));
    if(u.pathname.endsWith('/files'))return r.fulfill(reply({files:[fake,fakeVideo]}));
    return r.fulfill({status:403,body:'Fixture-only access'});
  });
  const page=await ctx.newPage();await page.goto(url,{waitUntil:'domcontentloaded'});
- return {ctx,page,requests,failSheet(){fail=true;}};
+ return {ctx,page,requests,failSheet(){fail=true;},setAccount(id){activeAccount=id;}};
 }
 async function main(){
  const {server:host,url}=await server();let browser;
@@ -64,6 +64,9 @@ async function main(){
     await p.locator('#commandCenter').waitFor({state:'visible'});
     assert.equal((await p.locator('#commandSnapshot').innerText()).trim(),'—');
     assert.match(await p.locator('#commandConnection').innerText(),/Connect Drive/);
+    assert.equal(await p.locator('#homeActionVideos').isVisible(),true);
+    assert.equal(await p.locator('#homeActionRename').isVisible(),true);
+    assert.equal((await p.locator('#homeCoveragePercent').innerText()).trim(),'—');
     await p.locator('#shortcutHelpButton').focus();await p.keyboard.press('?');
     assert.equal(await p.locator('#shortcutsDialog').evaluate(e=>e.open),true);
     assert.equal(await p.evaluate(()=>document.activeElement.id),'shortcutsClose');
@@ -148,6 +151,54 @@ async function main(){
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     assert.equal((await p.evaluate(()=>JSON.stringify(localStorage))).includes('fake-e2e-token'),false);
   }finally{await connected.ctx.close();}
+  // Theme persistence, token-free opt-in reconnect and wrong-account fail closed.
+  const auto=await fixturePage(browser,url);
+  try{
+    const p=auto.page;
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    assert.equal((await p.locator('#homeCoveragePercent').innerText()).trim(),'100%');
+    assert.equal((await p.locator('#homeVideoCount').innerText()).trim(),'1');
+    assert.equal((await p.locator('#homeNeedReview').innerText()).trim(),'0');
+    await p.locator('#settingsButton').click();
+    assert.equal(await p.locator('#prefTheme option').count(),5);
+    await p.locator('#prefTheme').selectOption('ocean');
+    assert.equal(await p.locator('html').getAttribute('data-theme'),'ocean');
+    await p.locator('#preferencesCancel').click();
+    assert.equal(await p.locator('html').getAttribute('data-theme'),'midnight');
+    await p.locator('#settingsButton').click();
+    await p.locator('#prefTheme').selectOption('daylight');
+    const light=await p.locator('body').evaluate(el=>getComputedStyle(el).backgroundColor);
+    assert.equal(light,'rgb(238, 242, 248)');
+    await p.locator('#prefAutoReconnect').check();
+    await p.locator('#preferencesForm button[type="submit"]').click();
+    const binding=await p.evaluate(()=>JSON.parse(localStorage.getItem('jack-vault-autoconnect-binding-v1')));
+    assert.equal(binding.accountId,'fixture_permission_123456789');
+    assert.equal(binding.sheetId,'fixture_sheet_123456789');
+    assert.equal(JSON.stringify(binding).includes('fake-e2e-token'),false);
+    await p.reload({waitUntil:'domcontentloaded'});
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    assert.ok((await p.evaluate(()=>window.__authPrompts||[])).includes('none'));
+    assert.equal(await p.locator('html').getAttribute('data-theme'),'daylight');
+    assert.equal((await p.locator('#homeCoveragePercent').innerText()).trim(),'100%');
+    assert.equal((await p.evaluate(()=>JSON.stringify(localStorage))).includes('fake-e2e-token'),false);
+    const baseline=auto.requests.filter(x=>x==='GET').length;
+    auto.setAccount('fixture_different_account_123456789');
+    await p.reload({waitUntil:'domcontentloaded'});
+    await p.waitForFunction(()=>document.querySelector('#homeReconnectNote')?.textContent.includes('account changed'),null,{timeout:18000});
+    assert.equal((await p.locator('#commandSnapshot').innerText()).trim(),'—');
+    assert.match(await p.locator('#homeReconnectNote').innerText(),/account changed/);
+    assert.equal(auto.requests.filter(x=>x==='GET').length,baseline+1,
+      'Wrong-account silent reconnect must only read the Drive about endpoint, not Sheet data.');
+    // Manual connection remains available, and explicit disconnect disables future startup attempts.
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    await p.locator('#disconnectButton').click();
+    assert.equal(await p.evaluate(()=>localStorage.getItem('jack-vault-autoconnect-binding-v1')),null);
+    await p.reload({waitUntil:'domcontentloaded'});
+    assert.equal((await p.locator('#commandSnapshot').innerText()).trim(),'—');
+    assert.equal((await p.evaluate(()=>window.__authPrompts||[])).length,0);
+  }finally{await auto.ctx.close();}
   const mobile=await fixturePage(browser,url,{mobile:true});
   try{
     const p=mobile.page;await p.locator('#commandCenter').waitFor({state:'visible'});

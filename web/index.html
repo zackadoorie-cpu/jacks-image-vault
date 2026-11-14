@@ -77,21 +77,23 @@
       <main id="main" class="main" tabindex="-1">
         <div class="alert hidden" id="alert" role="status"></div>
         <section id="homeView" class="view">
-          <div class="hero">
+          <div class="hero vault-home-hero">
             <div class="hero-copy">
-              <p class="eyebrow"><span class="eyebrow-dot"></span> A NEW HOME FOR YOUR COLLECTIONS</p>
-              <h1>All your media.<br><em>One beautiful space.</em></h1>
-              <p class="hero-description">Your memes, photographs and memories, transformed into a gallery worth exploring. Same Drive files. A completely different view.</p>
+              <p class="eyebrow"><span class="eyebrow-dot"></span> YOUR PRIVATE CREATIVE UNIVERSE</p>
+              <h1>Your library.<br><em>Every shade of you.</em></h1>
+              <p class="hero-description">One thoughtful home for your photos, memes, clips and favorite moments. Organized for discovery, with originals protected in Google Drive.</p>
               <div class="hero-actions">
-                <button class="btn primary large" id="exploreButton" type="button">Explore gallery <span aria-hidden="true">→</span></button>
-                <button class="btn outline large" id="heroConnectButton" type="button">Connect your Drive</button>
+                <button class="btn primary large" id="exploreButton" type="button">Explore your library <span aria-hidden="true">→</span></button>
+                <button class="btn outline large" id="heroConnectButton" type="button">Connect Google Drive</button>
               </div>
+              <p class="home-reconnect-note" id="homeReconnectNote" role="status">Connect Google Drive to load your private library.</p>
             </div>
-            <div class="hero-art" aria-hidden="true">
-              <div class="art-card art-card-back"><span>✷</span></div>
-              <div class="art-card art-card-mid"><span>✦</span></div>
-              <div class="art-card art-card-front"><span>▧</span></div>
-              <div class="art-glow"></div>
+            <div class="hero-art vault-home-art" aria-hidden="true">
+              <div class="vault-orbit vault-orbit-one"></div><div class="vault-orbit vault-orbit-two"></div>
+              <div class="vault-art-tile tile-a"><span>✦</span><small>MEMORIES</small></div>
+              <div class="vault-art-tile tile-b"><span>▦</span><small>DISCOVER</small></div>
+              <div class="vault-art-tile tile-c"><span>◈</span><small>CREATE</small></div>
+              <div class="vault-art-core">J<span>V</span></div>
             </div>
           </div>
           <div class="stats" id="stats">
@@ -100,6 +102,35 @@
             <div class="stat"><span>▧</span><strong id="statPhotos">—</strong><small>Photo files in gallery</small></div>
             <div class="stat"><span>✓</span><strong id="statDescribed">—</strong><small>Descriptions available</small></div>
           </div>
+          <section class="home-dashboard" aria-label="Library highlights and quick actions">
+            <div class="home-dashboard-top">
+              <div><p class="eyebrow">YOUR LIBRARY AT A GLANCE</p><h2>Pick up where you left off</h2>
+                <p>Meaningful shortcuts and review progress, grounded in your connected library.</p></div>
+              <span class="home-liveness" id="homeLiveness">Private preview</span>
+            </div>
+            <div class="home-dashboard-grid">
+              <article class="home-progress-card">
+                <div class="home-progress-head"><span>Descriptions available</span><strong id="homeCoveragePercent">—</strong></div>
+                <div class="home-progress-track" role="progressbar" id="homeCoverageProgress" aria-label="Fraction of indexed media with descriptions" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                  <span id="homeCoverageBar"></span>
+                </div>
+                <p id="homeCoverageSummary">Connect to see indexed description coverage.</p>
+                <button type="button" class="home-text-link" id="homeActionReview">Open review queue →</button>
+              </article>
+              <div class="home-mini-metrics">
+                <div><strong id="homeVideoCount">—</strong><span>Video clips</span></div>
+                <div><strong id="homeFolderCount">—</strong><span>Collections</span></div>
+                <div><strong id="homeFavoriteCount">—</strong><span>Favorites</span></div>
+                <div><strong id="homeNeedReview">—</strong><span>Need review</span></div>
+              </div>
+            </div>
+            <div class="home-shortcuts">
+              <button type="button" id="homeActionVideos" class="home-shortcut"><span class="home-shortcut-icon">▶</span><strong>Video Library</strong><small>Titles, descriptions and clips</small><span aria-hidden="true">↗</span></button>
+              <button type="button" id="homeActionRename" class="home-shortcut"><span class="home-shortcut-icon">✎</span><strong>Rename Desk</strong><small>Review filename proposals</small><span aria-hidden="true">↗</span></button>
+              <button type="button" id="homeActionCollections" class="home-shortcut"><span class="home-shortcut-icon">✦</span><strong>Smart Collections</strong><small>Explore your curated views</small><span aria-hidden="true">↗</span></button>
+              <button type="button" id="homeActionHealth" class="home-shortcut"><span class="home-shortcut-icon">◈</span><strong>Library Health</strong><small>Sync status and integrity</small><span aria-hidden="true">↗</span></button>
+            </div>
+          </section>
                     <section id="commandCenter" class="command-center" aria-labelledby="commandCenterTitle">
             <div class="command-heading">
               <div><p class="eyebrow">TRUSTWORTHY LIBRARY OPERATIONS</p>
@@ -443,9 +474,27 @@
         <select class="field" id="prefBatchSize"><option value="16">16 — conservative</option><option value="32">32 — balanced</option><option value="48">48 — faster browsing</option></select>
         <p class="field-help">Images still load lazily. Switching Auto-load off restores the manual Load More button.</p>
         <label class="pref-toggle" for="prefRememberBrowsing"><span><strong>Resume where I left off</strong><small>Remember the last collection, filters and position for this Google account on this device.</small></span><input id="prefRememberBrowsing" type="checkbox" checked></label>
+        <label class="pref-toggle" for="prefAutoReconnect"><span><strong>Try reconnecting to Google automatically</strong><small>Opt in to a single silent sign-in attempt at startup using Google's existing authorization. No tokens or passwords are stored. Your browser may require a manual click.</small></span><input id="prefAutoReconnect" type="checkbox"></label>
+        <p class="field-help" id="prefReconnectStatus" role="status">Enable after connecting a verified Google account.</p>
         <button class="btn quiet history-clear" id="clearBrowseHistory" type="button">Forget saved browsing position</button>
       </div>
       <div class="preference-section">
+        <div class="theme-preference" aria-label="Vault appearance">
+          <label class="field-label" for="prefTheme">Color palette</label>
+          <select class="field" id="prefTheme">
+            <option value="midnight">Midnight Violet · classic dark</option>
+            <option value="ocean">Deep Ocean · blue and teal</option>
+            <option value="ember">Ember Glow · charcoal and copper</option>
+            <option value="forest">Evergreen · green and slate</option>
+            <option value="daylight">Daylight Pearl · light mode</option>
+          </select>
+          <div class="theme-preview-strip" aria-hidden="true">
+            <span class="palette-dot palette-midnight"></span><span class="palette-dot palette-ocean"></span>
+            <span class="palette-dot palette-ember"></span><span class="palette-dot palette-forest"></span>
+            <span class="palette-dot palette-daylight"></span>
+          </div>
+          <p class="field-help">Preview a palette immediately. Cancel returns to your previous choice. Save to keep it across app updates.</p>
+        </div>
         <label class="field-label" for="prefDensity">Gallery tile size</label>
         <select class="field" id="prefDensity"><option value="compact">Compact</option><option value="comfortable">Comfortable</option><option value="large">Large</option></select>
       </div>

@@ -22,7 +22,7 @@ function harness(onFetch, {instantTimeout=true}={}) {
   function el(name) {
     if(!els.has(name)) {
       els.set(name,{
-        id:name,textContent:'',innerHTML:'',className:'',disabled:false,checked:false,value:'',
+        id:name,textContent:'',innerHTML:'',className:'',disabled:false,checked:false,value:'',style:{},
         classList:{toggle(){},add(){},remove(){},contains(){return false;}},
         querySelectorAll(){return [];},querySelector(){return null;},addEventListener(){},
         setAttribute(){},removeAttribute(){},close(){},showModal(){},focus(){},pause(){},

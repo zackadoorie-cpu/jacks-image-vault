@@ -8,6 +8,8 @@
   const UPDATE_CHECK_STORAGE = 'jack-vault-last-update-check-v2';
   const DENSITY_STORAGE = 'jack-vault-gallery-density-v1';
   const APP_PREFS_STORAGE = 'jack-vault-app-preferences-v1';
+  const AUTO_CONNECT_STORAGE = 'jack-vault-autoconnect-binding-v1';
+  const VAULT_THEMES = Object.freeze(['midnight','ocean','ember','forest','daylight']);
   const BROWSE_STORAGE = 'jack-vault-resume-position-v1';
   const REVIEW_STORAGE = 'jack-vault-local-reviews-v1';
   const SAVED_SEARCHES_STORAGE = 'jack-vault-searches-v2.1';
@@ -65,6 +67,11 @@
     pageSize: startingPrefs.batchSize,
     autoLoad: startingPrefs.autoLoad,
     rememberBrowsing: startingPrefs.rememberBrowsing,
+    autoReconnect: startingPrefs.autoReconnect,
+    theme: startingPrefs.theme,
+    authEpoch: 0,
+    authMode: 'idle',
+    autoReconnectStatus: '',
     browseSaveTimer: null,
     resumeScrollY: null,
     renderedCount: 0,
@@ -1148,19 +1155,60 @@
     catch{return 'comfortable';}
   }
   function readPreferences() {
+    const defaults={autoLoad:true,batchSize:32,rememberBrowsing:true,autoReconnect:false,theme:'midnight'};
     try{
       const raw=JSON.parse(localStorage.getItem(APP_PREFS_STORAGE)||'{}');
       return {autoLoad:typeof raw.autoLoad==='boolean'?raw.autoLoad:true,
         batchSize:[16,32,48].includes(raw.batchSize)?raw.batchSize:32,
-        rememberBrowsing:typeof raw.rememberBrowsing==='boolean'?raw.rememberBrowsing:true};
-    }catch{return {autoLoad:true,batchSize:32,rememberBrowsing:true};}
+        rememberBrowsing:typeof raw.rememberBrowsing==='boolean'?raw.rememberBrowsing:true,
+        autoReconnect:raw.autoReconnect===true,
+        theme:VAULT_THEMES.includes(raw.theme)?raw.theme:'midnight'};
+    }catch{return defaults;}
+  }
+  function applyVaultTheme(theme){
+    const next=VAULT_THEMES.includes(theme)?theme:'midnight';
+    document.documentElement.dataset.theme=next;
+    const meta=document.querySelector('meta[name="theme-color"]');
+    if(meta)meta.content=next==='daylight'?'#f0f3f8':
+      next==='ocean'?'#081c29':next==='ember'?'#201513':
+      next==='forest'?'#0e1b17':'#10121b';
+  }
+  function readAutoBinding(){
+    try{
+      const r=JSON.parse(localStorage.getItem(AUTO_CONNECT_STORAGE)||'null');
+      if(r?.schema!==1||r.clientId!==state.config.clientId||
+        r.sheetId!==state.config.sheetId||!safeId(r.accountId))return null;
+      return r;
+    }catch{return null;}
+  }
+  function saveAutoBinding(){
+    if(!state.autoReconnect||!state.connected||!safeId(state.driveIdentity))return;
+    try{localStorage.setItem(AUTO_CONNECT_STORAGE,JSON.stringify({
+      schema:1,clientId:state.config.clientId,sheetId:state.config.sheetId,
+      accountId:state.driveIdentity
+    }));}catch{
+      state.autoReconnectStatus='Automatic reconnect could not be saved in this browser.';
+    }
+  }
+  function clearAutoBinding(){
+    try{localStorage.removeItem(AUTO_CONNECT_STORAGE);}catch{}
   }
   function showPreferences(){
     $('prefAutoLoad').checked=state.autoLoad;
     $('prefBatchSize').value=String(state.pageSize);
     $('prefDensity').value=state.density;
     $('prefRememberBrowsing').checked=state.rememberBrowsing;
+    $('prefAutoReconnect').checked=state.autoReconnect;
+    $('prefReconnectStatus').textContent=state.connected&&safeId(state.driveIdentity)?
+      'Current Google account verified. This remembers only its account ID, the OAuth client ID and Sheet ID.':
+      'Automatic reconnect starts after your next successful manual connection to a verified Google account.';
+    $('prefTheme').value=state.theme;
+    applyVaultTheme(state.theme);
     $('preferencesDialog').showModal();
+  }
+  function cancelPreferences(){
+    applyVaultTheme(state.theme);
+    if($('preferencesDialog').open)$('preferencesDialog').close();
   }
   function savePreferences(event){
     event.preventDefault();
@@ -1168,23 +1216,30 @@
     const batchSize=Number($('prefBatchSize').value);
     const density=$('prefDensity').value;
     const rememberBrowsing=$('prefRememberBrowsing').checked;
-    if(![16,32,48].includes(batchSize)||!['compact','comfortable','large'].includes(density))return;
+    const autoReconnect=$('prefAutoReconnect').checked;
+    const theme=$('prefTheme').value;
+    if(![16,32,48].includes(batchSize)||!['compact','comfortable','large'].includes(density)||
+      !VAULT_THEMES.includes(theme))return;
     const shown=state.renderedCount;
     state.autoLoad=autoLoad;
     state.pageSize=batchSize;
     state.density=density;
     state.rememberBrowsing=rememberBrowsing;
+    state.autoReconnect=autoReconnect;
+    state.theme=theme;
+    applyVaultTheme(theme);
     if(!rememberBrowsing)clearBrowsingPosition();
     state.page=Math.max(1,Math.ceil(shown/batchSize));
+    if(!autoReconnect)clearAutoBinding();else saveAutoBinding();
     try{
-      localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({autoLoad,batchSize,rememberBrowsing}));
+      localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({autoLoad,batchSize,rememberBrowsing,autoReconnect,theme}));
       localStorage.setItem(DENSITY_STORAGE,density);
     }catch{alertUser('App preferences could not be saved to this device. They will apply for this session.', 'error');}
     $('preferencesDialog').close();
     if(state.view!=='home'&&state.view!=='health'){
       renderGallery();
       if(rememberBrowsing)scheduleBrowseSave();
-    }
+    }else if(state.view==='home')renderHome();
   }
   function clearBrowsingPosition(){
     if(state.browseSaveTimer)clearTimeout(state.browseSaveTimer);
@@ -1880,6 +1935,8 @@
     status.className = 'connection-status' + (expired ? ' error' : state.connected ? ' online' : '');
     status.innerHTML = `<i></i>${expired ? 'Session expired' : state.connected ? 'Drive connected' : 'Preview mode'}`;
     $('connectButton').classList.toggle('hidden', state.connected && !expired);
+    if($('homeReconnectNote'))$('homeReconnectNote').textContent=state.autoReconnectStatus||
+      (state.connected?'Private Google Drive connection active.':state.autoReconnect?'Automatic reconnect enabled; Google may still need your confirmation.':'Connect Google Drive to load your private library.');
     $('disconnectButton').classList.toggle('hidden', !state.connected);
     $('heroConnectButton').classList.toggle('hidden', state.connected);
     $('allCount').textContent = state.connected ? format(state.images.length) : '—';
@@ -1911,6 +1968,10 @@
     $('clientIdInput').setCustomValidity(''); $('sheetIdInput').setCustomValidity('');
     const changed = clientId !== state.config.clientId || sheetId !== state.config.sheetId;
     if (changed && state.connected) disconnect();
+    if(changed){
+      clearAutoBinding();state.autoReconnect=false;state.authEpoch++;
+      try{localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({...readPreferences(),autoReconnect:false}));}catch{}
+    }
     state.config = {clientId, sheetId};
     try {
       if ($('rememberConfig').checked) localStorage.setItem(SHELL_STORAGE, JSON.stringify(state.config));
@@ -1920,28 +1981,104 @@
     $('settingsDialog').close();
     alertUser('Connection settings saved on this device' + ($('rememberConfig').checked ? '.' : ' for this tab only.') + ' Select Connect Drive to authorize read-only access.', 'success');
   }
-  async function connect() {
-    clearAlert();
-    if (!state.config.clientId || !state.config.sheetId) {showSettings(); return;}
-    if (!window.google?.accounts?.oauth2) {alertUser('Google sign-in is still loading, or it is blocked by your browser. Check your connection, then select Connect Drive again.', 'error');return;}
-    try {
-      if (!state.tokenClient) {
-        state.tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: state.config.clientId,
-          scope: SCOPES,
-          callback: async response => {
-            if (!response?.access_token) {alertUser('Google authorization did not return an access token. Try connecting again.', 'error');return;}
-            state.accessToken = response.access_token;
-            state.expiry = Date.now() + Math.max(60, Number(response.expires_in || 3600) - 60) * 1000;
-            await loadLiveIndex();
-          },
-          error_callback: response => alertUser(`Google sign-in could not open: ${response?.type || 'unknown error'}.`, 'error')
-        });
-      }
-      state.tokenClient.requestAccessToken({prompt: 'consent'});
-    } catch (error) {alertUser(`Connection could not start: ${error.message || error}`, 'error');}
+  async function connect({automatic=false}={}) {
+    if(!automatic)clearAlert();
+    if(state.connected&&Date.now()<state.expiry)return;
+    if(!state.config.clientId||!state.config.sheetId){
+      if(!automatic)showSettings();
+      return;
+    }
+    if(!window.google?.accounts?.oauth2){
+      if(!automatic)alertUser('Google sign-in is still loading. Check your connection, then select Connect Drive again.', 'error');
+      return;
+    }
+    const binding=automatic?readAutoBinding():null;
+    if(automatic&&(!state.autoReconnect||!binding))return;
+    const epoch=++state.authEpoch;
+    const clientId=state.config.clientId,sheetId=state.config.sheetId;
+    state.authMode=automatic?'automatic':'manual';
+    if(automatic){
+      state.autoReconnectStatus='Checking your existing Google session…';
+      updateStatus();
+    }
+    try{
+      const client=google.accounts.oauth2.initTokenClient({
+        client_id:clientId,
+        scope:SCOPES,
+        callback:async response=>{
+          if(epoch!==state.authEpoch||state.config.clientId!==clientId||state.config.sheetId!==sheetId)return;
+          state.authMode='idle';
+          if(!response?.access_token){
+            if(automatic){
+              state.autoReconnectStatus='Google needs a manual connection. Choose Connect Drive.';
+              updateStatus();
+            }else alertUser('Google did not authorize access. Try Connect Drive again.','error');
+            return;
+          }
+          state.accessToken=response.access_token;
+          state.expiry=Date.now()+Math.max(60,Number(response.expires_in||3600)-60)*1000;
+          if(automatic){
+            let actual=null;
+            try{
+              const about=await googleGet('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)');
+              actual=about?.user?.permissionId;
+            }catch{}
+            if(epoch!==state.authEpoch)return;
+            if(!safeId(actual)||actual!==binding.accountId){
+              state.accessToken=null;state.expiry=0;
+              state.autoReconnectStatus='Google account changed or could not be verified. Choose Connect Drive manually.';
+              updateStatus();
+              return;
+            }
+          }
+          await loadLiveIndex();
+          if(epoch!==state.authEpoch)return;
+          if(state.connected){
+            state.autoReconnectStatus='';
+            saveAutoBinding();
+          }else if(automatic){
+            state.autoReconnectStatus='Automatic connection could not load your Sheet. Choose Connect Drive.';
+            updateStatus();
+          }
+        },
+        error_callback:response=>{
+          if(epoch!==state.authEpoch)return;
+          state.authMode='idle';
+          if(automatic){
+            state.autoReconnectStatus='Google needs your confirmation. Choose Connect Drive to continue.';
+            updateStatus();
+          }else alertUser('Google sign-in could not open: '+(response?.type||'unknown error'),'error');
+        }
+      });
+      state.tokenClient=client;
+      // Never persist a bearer token. Previously granted sessions may be
+      // recovered silently, subject to Google and browser policy.
+      client.requestAccessToken({prompt:automatic?'none':''});
+    }catch(error){
+      if(epoch!==state.authEpoch)return;
+      state.authMode='idle';
+      if(automatic){
+        state.autoReconnectStatus='Automatic reconnect unavailable. Choose Connect Drive.';
+        updateStatus();
+      }else alertUser('Connection could not start: '+(error.message||error),'error');
+    }
   }
-  async function googleGet(url, {blob = false, maxBytes = null, signal = undefined} = {}) {
+  function tryAutoReconnect(){
+    if(!state.autoReconnect||!readAutoBinding()||!state.config.clientId||!state.config.sheetId)return;
+    if(location.protocol==='file:')return;
+    let attempts=0;
+    const check=()=>{
+      if(state.connected||state.authMode!=='idle'||!state.autoReconnect)return;
+      if(window.google?.accounts?.oauth2)connect({automatic:true});
+      else if(++attempts<35)setTimeout(check,200);
+      else{
+        state.autoReconnectStatus='Google sign-in library did not load. Choose Connect Drive.';
+        updateStatus();
+      }
+    };
+    check();
+  }
+    async function googleGet(url, {blob = false, maxBytes = null, signal = undefined} = {}) {
     if (!state.accessToken || Date.now() > state.expiry) { updateStatus(); throw new Error('Your Google session expired. Choose Connect Drive to authorize again.'); }
     // Never send a Google access token to a thumbnail URL or any non-API host.
     const host = new URL(url).hostname;
@@ -2023,6 +2160,7 @@
     return {images,baseFolderSources};
   }
   async function loadLiveIndex() {
+    const authorizationEpoch=state.authEpoch;
     // Invalidate previous scans before loading a refreshed spreadsheet snapshot.
     stopScans();
     const btn = $('connectButton'); btn.disabled = true; btn.textContent = 'Reading library…';
@@ -2035,6 +2173,7 @@
         if(safeId(about?.user?.permissionId))state.driveIdentity=about.user.permissionId;
       }catch{}
       const {images,baseFolderSources}=await readSpreadsheetSnapshot();
+      if(authorizationEpoch!==state.authEpoch||!state.accessToken)return;
       state.snapshotLoadedAt=new Date().toISOString();
       state.lastSyncError='';
       state.inventory=images;
@@ -2053,10 +2192,12 @@
       displayPage(resumed?state.view:'home',{reset:false,scroll:false});
       if(resumed)finishBrowsingRestore();
       clearAlert();
+      saveAutoBinding();
       if(reviewLoadWarning)alertUser('Drive connected, but '+reviewLoadWarning,'error');
       else alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
       scheduleScans();
     } catch (error) {
+      if(authorizationEpoch!==state.authEpoch)return;
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
       state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
@@ -2824,6 +2965,12 @@
   function disconnect() {
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
     const token = state.accessToken;
+    state.authEpoch++;
+    state.authMode='idle';
+    state.autoReconnect=false;
+    state.autoReconnectStatus='';
+    clearAutoBinding();
+    try{localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({...readPreferences(),autoReconnect:false}));}catch{}
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
     saveBrowsingPosition();
     stopScans();stopVideo();similarityClearLocal();state.videoSessionEvidence.clear();renameDeskClear();
@@ -3580,6 +3727,24 @@
     $('statMemes').textContent=count(state.images.filter(x=>folderKind(x.folder)==='memes').length);
     $('statPhotos').textContent=count(state.images.filter(x=>folderKind(x.folder)==='photos').length);
     $('statDescribed').textContent=count(state.images.filter(x=>!!effectiveDescription(x).trim()).length);
+    const files=state.connected?state.images.filter(x=>!x.demo):[];
+    const described=files.filter(x=>!!effectiveDescription(x).trim()).length;
+    const videos=files.filter(x=>mediaKind(x)==='video').length;
+    const reviews=state.connected?reviewCounts():null;
+    const total=files.length;
+    const coverage=total?Math.round(100*described/total):0;
+    $('homeCoveragePercent').textContent=state.connected?coverage+'%':'—';
+    $('homeCoverageBar').style.width=(state.connected?coverage:0)+'%';
+    $('homeCoverageProgress').setAttribute('aria-valuenow',String(state.connected?coverage:0));
+    $('homeCoverageSummary').textContent=state.connected?
+      format(described)+' of '+format(total)+' loaded files have descriptions. This is not a full verification measure.':
+      'Connect to see coverage based on the current Sheet and Drive gallery.';
+    $('homeVideoCount').textContent=count(videos);
+    $('homeFolderCount').textContent=count(state.folders.length);
+    $('homeFavoriteCount').textContent=count(files.filter(x=>state.favorites.has(x.id)).length);
+    $('homeNeedReview').textContent=count((reviews?.pending||0)+(reviews?.deferred||0));
+    $('homeLiveness').textContent=state.connected?'● Drive linked · read-only':'○ Private preview';
+
     commandRender();
     // Featured collections are selected from the private inventory at runtime.
     // Never bake personal folder names into a public GitHub application bundle.
@@ -4320,8 +4485,10 @@
     $('settingsButton').onclick=showPreferences;
     $('sidebarPreferences').onclick=showPreferences;
     $('sidebarSettings').onclick=showSettings;
-    $('preferencesClose').onclick=()=>$('preferencesDialog').close();
-    $('preferencesCancel').onclick=()=>$('preferencesDialog').close();
+    $('preferencesClose').onclick=cancelPreferences;
+    $('preferencesCancel').onclick=cancelPreferences;
+    $('preferencesDialog').addEventListener('cancel',()=>applyVaultTheme(state.theme));
+    $('prefTheme').onchange=event=>applyVaultTheme(event.target.value);
     $('preferencesForm').onsubmit=savePreferences;
     $('clearBrowseHistory').onclick=()=>{
       clearBrowsingPosition();
@@ -4341,9 +4508,14 @@
     $('clientIdInput').oninput=()=>$('clientIdInput').setCustomValidity('');
     $('sheetIdInput').oninput=()=>$('sheetIdInput').setCustomValidity('');
     $('settingsForm').onsubmit=saveSettings;
-    $('connectButton').onclick=connect;$('heroConnectButton').onclick=connect;$('disconnectButton').onclick=disconnect;
+    $('connectButton').onclick=()=>connect();$('heroConnectButton').onclick=()=>connect();$('disconnectButton').onclick=disconnect;
     $('installButton').onclick=installApp;$('installClose').onclick=()=>$('installDialog').close();$('installOkay').onclick=()=>$('installDialog').close();
     $('exploreButton').onclick=()=>displayPage('all');$('seeAllButton').onclick=()=>displayPage('all');
+    $('homeActionReview').onclick=()=>displayPage('review-inbox');
+    $('homeActionVideos').onclick=()=>displayPage('video-library');
+    $('homeActionRename').onclick=()=>displayPage('rename-desk');
+    $('homeActionCollections').onclick=()=>displayPage('smart');
+    $('homeActionHealth').onclick=()=>displayPage('health');
     $('commandSync').onclick=()=>refreshSheetAndDrive();
     $('commandFullScan').onclick=()=>syncWithDrive({full:true});
     $('commandReview').onclick=()=>displayPage('review');
@@ -4513,12 +4685,14 @@
     window.addEventListener('appinstalled',()=>{state.installPrompt=null;alertUser('Image Vault installed. You can launch it from your Windows Start menu or taskbar.', 'success');});
   }
   function init() {
+    applyVaultTheme(state.theme);
     buildFolderIndex();initEvents();updateStatus();render();$('originText').textContent=location.origin;
     if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){
       navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(()=>{});
     }
     if(location.protocol==='file:')alertUser('This is a design preview. Launch the Windows EXE to connect Google Drive.');
     autoCheckOnStartup();
+    tryAutoReconnect();
   }
   init();
 })();
