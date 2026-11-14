@@ -123,7 +123,7 @@ function reviewInboxFilenamePreview(entry,candidate,allFiles){
     return {kind:'preview-only',ok:false,reason:'Inconsistent indexed/Drive-new evidence.'};
   if(!['reviewed','source-reviewed'].includes(entry.stage))
     return {kind:'preview-only',ok:false,reason:'Visual review must be completed before naming.'};
-  const filename=reviewInboxText(candidate).trim();
+  const filename=reviewInboxText(candidate);
   if(filename.toLowerCase()===entry.name.toLowerCase())
     return {kind:'preview-only',ok:false,reason:'The filename would not change.'};
   if(reviewInboxExt(filename)!==reviewInboxExt(entry.name))
