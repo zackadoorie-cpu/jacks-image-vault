@@ -3,6 +3,7 @@
 package main
 
 import (
+    "errors"
     "os"
     "path/filepath"
     "strings"
@@ -39,4 +40,25 @@ func TestWindowsSetupUsesCurrentUserAndPreventsShortcutHijack(t *testing.T) {
         strings.Contains(windowsShortcutScript,"Startup") {
         t.Fatal("setup must not configure autorun or registry values")
     }
+}
+
+func TestWindowsInstallRemovesOnlyNewCopyIfShortcutCommitFails(t *testing.T) {
+    root:=t.TempDir()
+    source:=filepath.Join(root,"downloads","Jacks_Image_Vault_2.1.16.exe")
+    target:=filepath.Join(root,"Programs","JacksImageVault","Jacks_Image_Vault_2.1.16.exe")
+    if err:=os.MkdirAll(filepath.Dir(source),0755);err!=nil {t.Fatal(err)}
+    if err:=os.WriteFile(source,[]byte("test launcher"),0644);err!=nil {t.Fatal(err)}
+    fail:=func(string)error{return errors.New("simulated Desktop write failure")}
+    if err:=copyAndInstallWindowsShortcuts(source,target,fail);err==nil {t.Fatal("expected shortcut failure")}
+    if _,err:=os.Stat(target);!os.IsNotExist(err) {t.Fatalf("orphan launcher remained: %v",err)}
+    if err:=copyWindowsLauncher(source,target);err!=nil {t.Fatal(err)}
+    if err:=copyAndInstallWindowsShortcuts(source,target,fail);err==nil {t.Fatal("expected retry failure")}
+    if b,err:=os.ReadFile(target);err!=nil||string(b)!="test launcher" {
+        t.Fatalf("preexisting launcher must survive setup errors: %q %v",b,err)
+    }
+    succeed:=func(got string)error{
+        if got!=target {t.Fatalf("unexpected target %q",got)}
+        return nil
+    }
+    if err:=copyAndInstallWindowsShortcuts(source,target,succeed);err!=nil {t.Fatal(err)}
 }
