@@ -372,3 +372,34 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .review-inbox-status{color:#d6ceeb;font-size:12px;line-height:1.7;margin:13px 0}
 @media(max-width:840px){.review-inbox-item{grid-template-columns:1fr}.review-inbox-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:500px){.review-inbox-metrics{grid-template-columns:1fr}.review-inbox-item{padding:12px}.review-inbox-item-main{gap:9px}.review-inbox-item-actions{flex-direction:column}.review-inbox-item-actions .btn{width:100%}}
+
+
+/* Compact, keyboard-native sidebar sections. All existing data-view routes remain. */
+.sidebar .nav{overflow-y:auto;overflow-x:hidden;min-height:0;flex-shrink:1;scrollbar-width:thin;scrollbar-color:#3a3d52 transparent}
+.nav-group{margin:3px 0 2px;min-width:0;border-top:1px solid #242736;padding-top:9px}
+.nav-group-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:38px;padding:8px 13px;color:#b7b5ce;font-size:10px;font-weight:800;letter-spacing:1.35px;cursor:pointer;border-radius:9px;list-style:none;user-select:none}
+.nav-group-toggle::-webkit-details-marker{display:none}
+.nav-group-toggle:hover{background:#ffffff0b;color:#eae6fa}
+.nav-group-toggle:focus-visible{outline:2px solid var(--purple);outline-offset:-2px}
+.nav-group-chevron{font-size:16px;line-height:1;color:#a7a2cb;transform:rotate(-90deg);transition:transform .16s ease}
+.nav-group[open]>.nav-group-toggle .nav-group-chevron{transform:rotate(0deg)}
+.nav-group-items{display:flex;flex-direction:column;gap:3px;padding:2px 0 5px}
+.nav-group .nav-item{min-height:39px;padding:8px 12px 8px 18px;font-size:12px;gap:8px}
+.nav-group .nav-icon{font-size:17px;width:22px}
+.sidebar .nav-group:has(.nav-item.active)>.nav-group-toggle{color:#d9cdff}
+.sidebar .nav-group:has(.nav-item.active)>.nav-group-toggle::before{content:'•';color:#b5a2ff;margin-right:3px}
+.sidebar .nav-group:has(.nav-item.active)>.nav-group-toggle span:first-child{margin-right:auto}
+.video-library-card .video-display-title{color:#f2edff;font-size:14px;line-height:1.35;font-weight:750;overflow-wrap:anywhere}
+.video-library-card .video-original-name{font-size:10px;line-height:1.5;color:#c5b9dc;overflow-wrap:anywhere;margin:3px 0 2px}
+.video-library-card .video-title-provenance{display:block;font-size:10px;color:#9da6bd;line-height:1.5;margin:0 0 5px}
+.video-library-bar{flex-wrap:wrap;row-gap:10px}
+.video-library-bar #videoTitleMode{max-width:220px}
+@media(max-width:680px){
+ .sidebar .nav{overflow-x:auto;overflow-y:visible;min-height:0;flex-shrink:0;scrollbar-width:thin}
+ .nav-group{flex:none;width:auto;border-top:0;padding-top:0;margin:0}
+ .nav-group-toggle{min-height:38px;padding:7px 10px;white-space:nowrap;border:1px solid #34354a;font-size:10px;letter-spacing:.4px}
+ .nav-group-items{flex-direction:row;gap:5px;padding:4px 0}
+ .nav-group .nav-item{flex:none;width:auto;min-height:38px;padding:8px 10px;font-size:11px}
+ .sidebar .nav-group:has(.nav-item.active)>.nav-group-toggle::before{display:none}
+}
+@media(prefers-reduced-motion:reduce){.nav-group-chevron{transition:none}}
