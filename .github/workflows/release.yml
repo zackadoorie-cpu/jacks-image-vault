@@ -121,7 +121,8 @@ jobs:
           node scripts/build-similarity-lab.cjs --check
           node scripts/build-similarity-controller.cjs --check
           node --check web/app.js
-          python3 -m py_compile make_patch.py
+          python3 -m py_compile make_patch.py scripts/verify-release-assets.py
+          python3 -m unittest discover -s tests -p 'test_verify_release_assets.py'
       - name: Build unsigned Windows EXE and versioned UI patch
         shell: bash
         run: |
