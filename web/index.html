@@ -488,12 +488,24 @@
             <option value="forest">Evergreen · green and slate</option>
             <option value="daylight">Daylight Pearl · light mode</option>
           </select>
-          <div class="theme-preview-strip" aria-hidden="true">
-            <span class="palette-dot palette-midnight"></span><span class="palette-dot palette-ocean"></span>
-            <span class="palette-dot palette-ember"></span><span class="palette-dot palette-forest"></span>
-            <span class="palette-dot palette-daylight"></span>
+          <div class="palette-choice-grid" role="group" aria-label="Preview color palettes">
+            <button class="palette-choice" type="button" data-palette="midnight" aria-pressed="false">
+              <span class="palette-choice-scene" aria-hidden="true"></span><span class="palette-choice-name">Midnight Violet</span><span class="palette-choice-note">Electric violet · ink</span>
+            </button>
+            <button class="palette-choice" type="button" data-palette="ocean" aria-pressed="false">
+              <span class="palette-choice-scene" aria-hidden="true"></span><span class="palette-choice-name">Deep Ocean</span><span class="palette-choice-note">Lagoon teal · cobalt</span>
+            </button>
+            <button class="palette-choice" type="button" data-palette="ember" aria-pressed="false">
+              <span class="palette-choice-scene" aria-hidden="true"></span><span class="palette-choice-name">Ember Glow</span><span class="palette-choice-note">Burnished copper · wine</span>
+            </button>
+            <button class="palette-choice" type="button" data-palette="forest" aria-pressed="false">
+              <span class="palette-choice-scene" aria-hidden="true"></span><span class="palette-choice-name">Evergreen</span><span class="palette-choice-note">Jade · deep pine</span>
+            </button>
+            <button class="palette-choice" type="button" data-palette="daylight" aria-pressed="false">
+              <span class="palette-choice-scene" aria-hidden="true"></span><span class="palette-choice-name">Daylight Pearl</span><span class="palette-choice-note">Porcelain · iris</span>
+            </button>
           </div>
-          <p class="field-help">Preview a palette immediately. Cancel returns to your previous choice. Save to keep it across app updates.</p>
+          <p class="field-help">Choose a palette card or use the menu above. Preview instantly, click outside or Cancel to revert, and Save to keep your choice.</p>
         </div>
         <label class="field-label" for="prefDensity">Gallery tile size</label>
         <select class="field" id="prefDensity"><option value="compact">Compact</option><option value="comfortable">Comfortable</option><option value="large">Large</option></select>

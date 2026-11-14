@@ -75,6 +75,19 @@ async function main(){
     await p.keyboard.press('Escape');
     assert.equal(await p.locator('#shortcutsDialog').evaluate(e=>e.open),false);
     assert.equal(await p.evaluate(()=>document.activeElement.id),'shortcutHelpButton');
+    // Native backdrop closes help but retains the origin control for keyboard users.
+    await p.locator('#shortcutHelpButton').click();
+    assert.equal(await p.locator('#shortcutsDialog').evaluate(e=>e.open),true);
+    await p.mouse.click(5,5);
+    assert.equal(await p.locator('#shortcutsDialog').evaluate(e=>e.open),false);
+    assert.equal(await p.evaluate(()=>document.activeElement.id),'shortcutHelpButton');
+    // Drive setup also closes on backdrop, without submitting the form.
+    await p.locator('#sidebarSettings').click();
+    assert.equal(await p.locator('#settingsDialog').evaluate(e=>e.open),true);
+    await p.locator('#settingsTitle').click();
+    assert.equal(await p.locator('#settingsDialog').evaluate(e=>e.open),true);
+    await p.mouse.click(5,5);
+    assert.equal(await p.locator('#settingsDialog').evaluate(e=>e.open),false);
     assert.equal(await p.locator('#navigation details[data-nav-group]').count(),3);
     await p.locator('#navigation details[data-nav-group="library"] summary').click();
     assert.equal(await p.locator('#navigation details[data-nav-group="library"]').getAttribute('open'),null);
@@ -102,8 +115,12 @@ async function main(){
     assert.equal(await p.locator('#reviewInboxDraftName').inputValue(),'orange cat - reaction meme.jpg');
     await p.locator('#reviewInboxDraftCheck').click();
     assert.match(await p.locator('#reviewInboxFilenameStatus').innerText(),/Valid draft/);
-    await p.keyboard.press('Escape');
+    await p.mouse.click(5,5);
     assert.equal(await p.locator('#reviewInboxPreviewDialog').evaluate(d=>d.open),false);
+    await p.locator('[data-inbox-action="open"]').first().click();
+    assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),true);
+    await p.mouse.click(5,5);
+    assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),false);
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     await p.keyboard.press('Alt+1');
     await p.locator('#commandVideos').click();
@@ -162,14 +179,24 @@ async function main(){
     assert.equal((await p.locator('#homeNeedReview').innerText()).trim(),'0');
     await p.locator('#settingsButton').click();
     assert.equal(await p.locator('#prefTheme option').count(),5);
+    assert.equal(await p.locator('button[data-palette]').count(),5);
+    await p.locator('button[data-palette="ember"]').click();
+    assert.equal(await p.locator('html').getAttribute('data-theme'),'ember');
+    assert.equal(await p.locator('button[data-palette="ember"]').getAttribute('aria-pressed'),'true');
+    await p.locator('#preferencesTitle').click(); // A click inside never dismisses.
+    assert.equal(await p.locator('#preferencesDialog').evaluate(d=>d.open),true);
+    await p.mouse.click(5,5); // Backdrop rolls back an unsaved preview.
+    assert.equal(await p.locator('#preferencesDialog').evaluate(d=>d.open),false);
+    assert.equal(await p.locator('html').getAttribute('data-theme'),'midnight');
+    await p.locator('#settingsButton').click();
     await p.locator('#prefTheme').selectOption('ocean');
     assert.equal(await p.locator('html').getAttribute('data-theme'),'ocean');
     await p.locator('#preferencesCancel').click();
     assert.equal(await p.locator('html').getAttribute('data-theme'),'midnight');
     await p.locator('#settingsButton').click();
     await p.locator('#prefTheme').selectOption('daylight');
-    const light=await p.locator('body').evaluate(el=>getComputedStyle(el).backgroundColor);
-    assert.equal(light,'rgb(238, 242, 248)');
+    // Theme colors animate briefly; wait for the new computed background to settle.
+    await p.waitForFunction(()=>getComputedStyle(document.body).backgroundColor==='rgb(238, 242, 248)');
     await p.locator('#prefAutoReconnect').check();
     await p.locator('#preferencesForm button[type="submit"]').click();
     const binding=await p.evaluate(()=>JSON.parse(localStorage.getItem('jack-vault-autoconnect-binding-v1')));

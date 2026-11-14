@@ -1169,9 +1169,44 @@
     const next=VAULT_THEMES.includes(theme)?theme:'midnight';
     document.documentElement.dataset.theme=next;
     const meta=document.querySelector('meta[name="theme-color"]');
-    if(meta)meta.content=next==='daylight'?'#f0f3f8':
-      next==='ocean'?'#081c29':next==='ember'?'#201513':
-      next==='forest'?'#0e1b17':'#10121b';
+    if(meta)meta.content=next==='daylight'?'#eef2f8':
+      next==='ocean'?'#081726':next==='ember'?'#170f15':
+      next==='forest'?'#0b1816':'#0b0c18';
+    document.querySelectorAll('button[data-palette]').forEach(button=>{
+      button.setAttribute('aria-pressed',String(button.dataset.palette===next));
+    });
+  }
+  // Only a pointer gesture that starts AND ends on the native dialog backdrop dismisses it.
+  // This keeps clicks within dialog padding, selections and drags from closing the editor.
+  function isDialogBackdropHit(event,dialog){
+    if(event.target!==dialog)return false;
+    const box=dialog.getBoundingClientRect();
+    return event.clientX<box.left||event.clientX>box.right||
+      event.clientY<box.top||event.clientY>box.bottom;
+  }
+  function dismissBackdropDialog(dialog){
+    if(dialog.id==='preferencesDialog')cancelPreferences();
+    else if(dialog.id==='imageDialog')closeImage(); // Retains unsaved-review confirmation.
+    else if(dialog.id==='shortcutsDialog')commandCloseHelp();
+    else if(dialog.id==='reviewInboxPreviewDialog')reviewInboxClosePreview();
+    else if(dialog.id==='smartEditorDialog'){state.smartDraft=null;dialog.close();}
+    else dialog.close();
+  }
+  function enableBackdropDismissal(){
+    document.querySelectorAll('dialog.dialog').forEach(dialog=>{
+      let startedOutside=false;
+      dialog.addEventListener('pointerdown',event=>{
+        startedOutside=isDialogBackdropHit(event,dialog);
+      });
+      dialog.addEventListener('click',event=>{
+        const clickedOutside=startedOutside&&isDialogBackdropHit(event,dialog);
+        startedOutside=false;
+        if(!clickedOutside||!dialog.open)return;
+        const active=[...document.querySelectorAll('dialog[open]')];
+        if(active[active.length-1]===dialog)dismissBackdropDialog(dialog);
+      });
+      dialog.addEventListener('close',()=>{startedOutside=false;});
+    });
   }
   function readAutoBinding(){
     try{
@@ -4489,6 +4524,13 @@
     $('preferencesCancel').onclick=cancelPreferences;
     $('preferencesDialog').addEventListener('cancel',()=>applyVaultTheme(state.theme));
     $('prefTheme').onchange=event=>applyVaultTheme(event.target.value);
+    document.querySelectorAll('button[data-palette]').forEach(button=>{
+      button.onclick=()=>{
+        if(!VAULT_THEMES.includes(button.dataset.palette))return;
+        $('prefTheme').value=button.dataset.palette;
+        applyVaultTheme(button.dataset.palette);
+      };
+    });
     $('preferencesForm').onsubmit=savePreferences;
     $('clearBrowseHistory').onclick=()=>{
       clearBrowsingPosition();
@@ -4496,7 +4538,7 @@
       setTimeout(()=>$('clearBrowseHistory').textContent='Forget saved browsing position',1800);
     };
     $('preferencesConnection').onclick=()=>{
-      $('preferencesDialog').close();
+      cancelPreferences();
       showSettings();
     };
     $('updatesButton').onclick=openUpdates;$('sidebarUpdates').onclick=openUpdates;
@@ -4584,6 +4626,7 @@
     };
     $('smartEditorForm').onsubmit=saveSmartEditor;
     $('smartEditorCancel').onclick=()=>{$('smartEditorDialog').close();state.smartDraft=null;};
+    $('smartEditorDialog').addEventListener('close',()=>{state.smartDraft=null;});
     $('smartImportButton').onclick=()=>$('smartImportFile').click();
     $('smartImportFile').onchange=async event=>{
       const file=event.target.files?.[0];if(!file)return;
@@ -4686,7 +4729,7 @@
   }
   function init() {
     applyVaultTheme(state.theme);
-    buildFolderIndex();initEvents();updateStatus();render();$('originText').textContent=location.origin;
+    buildFolderIndex();initEvents();enableBackdropDismissal();updateStatus();render();$('originText').textContent=location.origin;
     if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){
       navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(()=>{});
     }
