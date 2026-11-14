@@ -28,7 +28,10 @@ test('release preflight prevents duplicate tags and old versions before any buil
 test('release workflow still publishes the versioned EXE, patch ZIP and checksum after checks',()=>{
   assert.match(source,/GOOS=windows GOARCH=amd64/);
   assert.match(source,/make_patch\.py --version/);
-  assert.match(source,/sha256sum \* > SHA256SUMS\.txt/);
+  assert.match(source,/sha256sum Jacks_Image_Vault_\*\.exe jacks-image-vault-patch\.zip Jacks_Image_Vault_Desktop_Bundle_v\*\.zip > SHA256SUMS\.txt/);
+  assert.match(source,/scripts\/build-desktop-bundle\.py/);
+  assert.match(source,/actions\/upload-artifact@v4/);
+  assert.match(source,/actions\/download-artifact@v4/);
   assert.match(source,/gh release create "\$TAG" dist\/\*/);
   assert.match(source,/permissions:\s*\n\s*contents: write/);
 });
