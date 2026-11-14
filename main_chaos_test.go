@@ -4,7 +4,6 @@ import (
     "archive/zip"
     "bytes"
     "encoding/json"
-    "io"
     "math/rand"
     "net/http"
     "net/http/httptest"
