@@ -756,3 +756,21 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 :root[data-theme="daylight"] .result-count,
 :root[data-theme="daylight"] .browse-progress{background:#faf9ff;color:#354869;border-color:#cbd3e7}
 :root[data-theme="daylight"] .preview-stat{color:#586a87}
+
+
+/* Native Windows installation is opt-in and distinct from browser PWA setup. */
+#winInstallSection[hidden]{display:none!important}
+.windows-install-section,.browser-install-section{
+  border:1px solid var(--line);border-radius:14px;
+  padding:16px;margin:15px 0;background:var(--surface2);
+}
+.windows-install-section{
+  background:linear-gradient(135deg,color-mix(in srgb,var(--purple) 9%,var(--surface2)),var(--surface));
+}
+.windows-install-heading{display:flex;align-items:flex-start;gap:12px}
+.windows-install-heading>span{font-size:28px;color:var(--purple);line-height:1.25}
+.install-dialog h3{font-size:14px;color:var(--text);margin:0 0 6px}
+.windows-install-heading p{font-size:12px;line-height:1.6;color:var(--muted);margin:0 0 13px}
+.windows-install-section .field-help,.browser-install-section .field-help{margin:10px 0 0;color:var(--muted)}
+.windows-install-section .btn,.browser-install-section .btn{white-space:normal;text-align:center}
+.browser-install-section .dialog-copy{margin:3px 0 14px}
