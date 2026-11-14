@@ -1,6 +1,43 @@
 # Jack's Image Vault — Windows image and media library
 
-**Status:** v2.1.0 is published with Search 2.0, Smart Collections and Memory Lane. The v2.1.1 updater recovery patch is in development. GitHub CI can validate builds, but a live Windows upgrade and Google thumbnail smoke test still require Windows testing.
+**Status (2026-11-14):** v2.1.3 is the latest published release. Phase 4 Similarity Lab and Phase 5 Video Library have been merged into main but are not in that release. Phase 6 Command Center is developed in a separate PR pending review and test validation. The next update must use an unused version tag after the relevant release gate passes.
+
+## Phase 6: Command Center, accessibility and browser E2E (PR development)
+
+The Overview screen is now a **Command Center** that separates data sources, evidence
+and operational states rather than reporting guessed live totals.
+
+- **Sheet snapshot:** The number of media records loaded from the latest authorized
+  Sheets read, labeled as such with the session-local load timestamp.
+- **Verified Drive:** Live file counts and differences appear only after complete
+  folder verification with no outstanding folder failures, discovery errors, or
+  in-flight scans. Partial scans, cached metadata and failed checks cannot be
+  mistaken for a fresh full verification.
+- **Sync evidence:** Last attempt, last successful Drive sync in this browser
+  session, last change check and last full verification are separate. Even quiet
+  background errors remain visible until the next successful check. The user can
+  initiate a safe Sheet+Drive refresh or full Drive metadata rescan.
+- **Review and media:** Local review queue status, four separate video visual
+  evidence levels, and browser preview failure/queue telemetry are presented
+  without claiming that posters or playback events verify full video or audio.
+- **Keyboard and accessibility:** A skip link, accessible heading and status
+  regions, visible focus styles, native dialog focus handling and return,
+  keyboard-help modal, Alt+1/2/3/4 navigation, ? for shortcut help, / for search,
+  small-screen layouts and reduced-motion scrolling.
+- **Privacy:** Original Google Drive files, Google Sheets and OAuth scopes are
+  unchanged. No background uploads, deletions, renames, or recording of private
+  image content. Only fabricated Drive and Sheets records are allowed in the
+  Playwright browser test.
+
+Run `node --test tests/command-center.test.cjs`, both
+`scripts/build-command-*.cjs --check` scripts, and `node tests/browser-e2e.cjs`
+with Playwright Chromium installed. CI enforces these alongside existing Linux
+and Windows native executable smoke tests.
+
+**Release gate:** This phase is not published. The final interactive Windows
+Edge/Chrome check still needs to verify keyboard shortcuts, full sync status
+changes, failed Google refresh, modal focus return and small-screen behavior
+against the intended app. Never silently update an installed EXE.
 
 ## Phase 4: Similarity Lab (development, not released)
 
