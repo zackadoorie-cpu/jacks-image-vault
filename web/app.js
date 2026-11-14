@@ -701,7 +701,8 @@
       const syncedFolders=commandSafeCount(input.syncedFolderCount);
       const failedFolders=commandSafeCount(input.failedFolders);
       const fullVerified=connected&&!!commandTime(input.fullVerifiedAt)&&folderCount>0&&
-        syncedFolders===folderCount&&failedFolders===0&&!input.discoveryError;
+        syncedFolders===folderCount&&failedFolders===0&&!input.discoveryError&&
+        !input.scanning&&!input.lastError;
       const idSet=new Set(inventory.map(x=>x?.id).filter(Boolean));
       const liveIDs=new Set(live.map(x=>x.id).filter(Boolean));
       const added=fullVerified?[...liveIDs].filter(id=>!idSet.has(id)).length:null;
@@ -1811,12 +1812,14 @@
     }
     const button=$('syncButton');
     button.disabled=true;
+    state.lastSyncAttemptAt=new Date().toISOString();
     updateScanSummary('Reloading visual review statuses from the Google Sheet…');
     let snapshot;
     try{
       // Fetch first, commit second: a Sheets error never discards a verified gallery.
       snapshot=await readSpreadsheetSnapshot();
     }catch(error){
+      state.lastSyncError='Spreadsheet refresh failed. Previous gallery and reviews retained.';
       updateScanSummary('Spreadsheet refresh failed: '+(error?.message||error)+'. Previous gallery retained.',true);
       alertUser('Could not refresh the spreadsheet: '+(error?.message||error)+'. Previous reviews were kept.','error');
       button.disabled=false;
@@ -1825,6 +1828,8 @@
     const signature=folders=>folders.map(f=>f.path+':'+f.id).sort().join('|');
     const changedFolders=signature(snapshot.baseFolderSources)!==signature(state.baseFolderSources);
     state.inventory=snapshot.images;
+    state.snapshotLoadedAt=new Date().toISOString();
+    state.lastSyncError='';
     state.baseFolderSources=snapshot.baseFolderSources;
     if(state.syncedFolders.size)mergeLiveFolders();
     else{state.images=snapshot.images;buildFolderIndex();updateStatus();render();}
@@ -2990,7 +2995,7 @@
   function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
-    $('statImages').textContent=count(state.images.length);
+    $('statImages').textContent=count(state.inventory.length);
     $('statMemes').textContent=count(state.images.filter(x=>folderKind(x.folder)==='memes').length);
     $('statPhotos').textContent=count(state.images.filter(x=>folderKind(x.folder)==='photos').length);
     $('statDescribed').textContent=count(state.images.filter(x=>!!effectiveDescription(x).trim()).length);
