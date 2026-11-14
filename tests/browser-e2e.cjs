@@ -211,7 +211,7 @@ async function main(){
     assert.equal(await p.evaluate(()=>JSON.parse(localStorage.getItem('jack-vault-settings-v2')).sheetId),'fixture_native_sheet_123456789');
     assert.equal(await p.evaluate(()=>window.__authPrompts?.length||0),0,
       'Embedded WebView2 must never launch the browser GIS OAuth popup');
-    await p.locator('#cancelSettings').click();
+    await p.locator('#settingsClose').click();
   }finally{await nativeHost.ctx.close();}
   const connected=await fixturePage(browser,url);
   try{
