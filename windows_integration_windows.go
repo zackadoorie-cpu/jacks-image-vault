@@ -121,8 +121,7 @@ $locations = @(
     [Environment]::GetFolderPath('DesktopDirectory')
 )
 $shell = New-Object -ComObject WScript.Shell
-# Only reuse a shortcut that already belongs to our per-user install directory.
-# A matching EXE filename elsewhere is not proof of ownership.
+# Reuse only shortcuts owned by this per-user installation.
 $ownedFolder = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Programs\JacksImageVault'))
 $ownedPrefix = $ownedFolder.TrimEnd([char]'\') + '\'
 $shortcuts = @()
@@ -135,50 +134,7 @@ foreach ($location in $locations) {
         $existing = $shell.CreateShortcut($path)
         $existingTarget = [System.IO.Path]::GetFullPath($existing.TargetPath)
         $name = [System.IO.Path]::GetFileName($existingTarget)
-        if ($name -notmatch '^Jacks_Image_Vault_[0-9]+\.[0-9]+\.[0-9]+\.exe
-    }
-    $shortcuts += $path
-}
-foreach ($path in $shortcuts) {
-    $shortcut = $shell.CreateShortcut($path)
-    $shortcut.TargetPath = $exe
-    $shortcut.WorkingDirectory = [System.IO.Path]::GetDirectoryName($exe)
-    $shortcut.IconLocation = "$exe,0"
-    $shortcut.Description = "Jack's Image Vault — private Google Drive library"
-    $shortcut.Save()
-}
-`
-
-func createWindowsShortcuts(target string) error {
-    ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-    defer cancel()
-    command := exec.CommandContext(ctx, "powershell.exe",
-        "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", windowsShortcutScript)
-    // Avoid interpolation of user-controlled Windows paths into PowerShell code.
-    command.Env = append(os.Environ(), "JACKS_VAULT_INSTALL_EXE="+target)
-    output, err := command.CombinedOutput()
-    if err != nil {
-        if ctx.Err() != nil { return errors.New("Windows shortcut setup timed out") }
-        return fmt.Errorf("Windows shortcut setup failed: %s: %w", strings.TrimSpace(string(output)), err)
-    }
-    return nil
-}
-
-func installWindowsIntegration() (string, error) {
-    target, err := windowsInstalledExe()
-    if err != nil { return "", err }
-    source, err := os.Executable()
-    if err != nil { return "", err }
-    if !nativeConfirm("Install Jack's Image Vault",
-        "Create a per-user Windows app copy and branded Desktop + Start Menu shortcuts?\n\n"+
-        "No administrator access, Windows startup setting, or Google Drive change is needed.") {
-        return "", errWindowsSetupCancelled
-    }
-    if err := copyWindowsLauncher(source, target); err != nil { return "", err }
-    if err := createWindowsShortcuts(target); err != nil { return "", err }
-    return "Installed to your Windows user apps. Desktop and Start Menu shortcuts now use the multicolor folder icon. You can pin the Desktop shortcut to the taskbar yourself.", nil
-}
- -or
+        if ($name -notmatch '^Jacks_Image_Vault_[0-9]+\.[0-9]+\.[0-9]+\.exe$' -or
             -not $existingTarget.StartsWith($ownedPrefix, [StringComparison]::OrdinalIgnoreCase)) {
             throw "Shortcut belongs to an unknown app or location; leaving it unchanged"
         }
