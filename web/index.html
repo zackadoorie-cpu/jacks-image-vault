@@ -22,20 +22,34 @@
         <img src="./icons/icon.svg" class="brand-icon" alt="">
         <div><strong>JACK'S VAULT</strong><span>IMAGE LIBRARY</span></div>
       </div>
-      <div class="nav-label">EXPLORE</div>
       <nav class="nav" id="navigation" aria-label="Library views">
         <button class="nav-item active" data-view="home"><span class="nav-icon">▤</span>Command Center</button>
-        <button class="nav-item" data-view="all"><span class="nav-icon">▦</span>All media <span class="nav-count" id="allCount">—</span></button>
-        <button class="nav-item" data-view="memes"><span class="nav-icon">☺</span>Memes</button>
-        <button class="nav-item" data-view="photos"><span class="nav-icon">▧</span>Photos</button>
-        <button class="nav-item" data-view="favorites"><span class="nav-icon">♡</span>Favorites</button>
-        <button class="nav-item" data-view="smart"><span class="nav-icon">✦</span>Smart Collections</button>
-        <button class="nav-item" data-view="memory"><span class="nav-icon">◷</span>Memory Lane</button>
-        <button class="nav-item" data-view="video-library"><span class="nav-icon">▶</span>Video Library</button>
-        <button class="nav-item" data-view="similarity"><span class="nav-icon">▥</span>Similarity Lab</button>
-        <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
-        <button class="nav-item" data-view="review-inbox"><span class="nav-icon">▤</span>Review Inbox</button>
-        <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
+        <details class="nav-group" data-nav-group="library" open>
+          <summary class="nav-group-toggle"><span>LIBRARY</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
+          <div class="nav-group-items">
+            <button class="nav-item" data-view="all"><span class="nav-icon">▦</span>All media <span class="nav-count" id="allCount">—</span></button>
+            <button class="nav-item" data-view="memes"><span class="nav-icon">☺</span>Memes</button>
+            <button class="nav-item" data-view="photos"><span class="nav-icon">▧</span>Photos</button>
+            <button class="nav-item" data-view="video-library"><span class="nav-icon">▶</span>Videos</button>
+            <button class="nav-item" data-view="favorites"><span class="nav-icon">♡</span>Favorites</button>
+          </div>
+        </details>
+        <details class="nav-group" data-nav-group="explore">
+          <summary class="nav-group-toggle"><span>EXPLORE TOOLS</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
+          <div class="nav-group-items">
+            <button class="nav-item" data-view="smart"><span class="nav-icon">✦</span>Smart Collections</button>
+            <button class="nav-item" data-view="memory"><span class="nav-icon">◷</span>Memory Lane</button>
+            <button class="nav-item" data-view="similarity"><span class="nav-icon">▥</span>Similarity Lab</button>
+          </div>
+        </details>
+        <details class="nav-group" data-nav-group="manage">
+          <summary class="nav-group-toggle"><span>REVIEW &amp; HEALTH</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
+          <div class="nav-group-items">
+            <button class="nav-item" data-view="review-inbox"><span class="nav-icon">▤</span>Review Inbox</button>
+            <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
+            <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
+          </div>
+        </details>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-safety"><span class="safety-dot"></span> READ-ONLY ACCESS</div>
@@ -280,6 +294,11 @@
             <select id="videoCatalogFilter" class="select">
               <option value="all">All videos</option><option value="unverified">Visual review unverified</option>
               <option value="reviewed">Some source visual evidence</option><option value="oversized">Cannot generate storyboard</option>
+            </select>
+            <label for="videoTitleMode">Card names</label>
+            <select id="videoTitleMode" class="select" aria-label="Video card title style">
+              <option value="title">Readable titles</option>
+              <option value="filename">Original Drive filenames</option>
             </select>
           </div>
           <p id="videoCatalogSummary" class="video-library-summary" role="status">Connect Drive to see your video files.</p>
