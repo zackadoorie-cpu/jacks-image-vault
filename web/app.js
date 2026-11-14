@@ -2424,7 +2424,7 @@
     state.storyboardFrames=[];
     state.storyboardWorkingId=null;
     $('storyboardPanel').classList.add('hidden');
-    $('storyboardFrames').replaceChildren();
+    $('storyboardFrames').innerHTML='';
     $('storyboardStatus').textContent='';
     $('storyboardButton').disabled=false;
     $('storyboardCancel').classList.add('hidden');
