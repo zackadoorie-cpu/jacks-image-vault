@@ -4,6 +4,7 @@ package main
 
 import (
     "context"
+    _ "embed"
     "crypto/sha256"
     "errors"
     "fmt"
@@ -111,45 +112,8 @@ func copyWindowsLauncher(source, target string) error {
 
 // The operating system provides DesktopDirectory (including redirected/OneDrive
 // desktops) and Programs. We will never remove an unrelated shortcut.
-const windowsShortcutScript = `$ErrorActionPreference = 'Stop'
-$exe = $env:JACKS_VAULT_INSTALL_EXE
-if ([string]::IsNullOrWhiteSpace($exe) -or -not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-    throw 'Windows launcher is missing'
-}
-$locations = @(
-    [Environment]::GetFolderPath('Programs'),
-    [Environment]::GetFolderPath('DesktopDirectory')
-)
-$shell = New-Object -ComObject WScript.Shell
-# Reuse only shortcuts owned by this per-user installation.
-$ownedFolder = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Programs\JacksImageVault'))
-$ownedPrefix = $ownedFolder.TrimEnd([char]'\') + '\'
-$shortcuts = @()
-foreach ($location in $locations) {
-    if ([string]::IsNullOrWhiteSpace($location) -or -not (Test-Path -LiteralPath $location -PathType Container)) {
-        throw 'Start Menu or Desktop directory is unavailable'
-    }
-    $path = Join-Path $location "Jack's Image Vault.lnk"
-    if (Test-Path -LiteralPath $path) {
-        $existing = $shell.CreateShortcut($path)
-        $existingTarget = [System.IO.Path]::GetFullPath($existing.TargetPath)
-        $name = [System.IO.Path]::GetFileName($existingTarget)
-        if ($name -notmatch '^Jacks_Image_Vault_[0-9]+\.[0-9]+\.[0-9]+\.exe$' -or
-            -not $existingTarget.StartsWith($ownedPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Shortcut belongs to an unknown app or location; leaving it unchanged"
-        }
-    }
-    $shortcuts += $path
-}
-foreach ($path in $shortcuts) {
-    $shortcut = $shell.CreateShortcut($path)
-    $shortcut.TargetPath = $exe
-    $shortcut.WorkingDirectory = [System.IO.Path]::GetDirectoryName($exe)
-    $shortcut.IconLocation = "$exe,0"
-    $shortcut.Description = "Jack's Image Vault — private Google Drive library"
-    $shortcut.Save()
-}
-`
+//go:embed scripts/windows-shortcuts.ps1
+var windowsShortcutScript string
 
 func createWindowsShortcuts(target string) error {
     ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
@@ -166,6 +130,24 @@ func createWindowsShortcuts(target string) error {
     return nil
 }
 
+// If shortcut setup fails, do not leave an orphaned copy of a newly installed
+// launcher. Never remove a preexisting file, even an old verified version.
+func copyAndInstallWindowsShortcuts(source, target string, installShortcuts func(string)error) error {
+    _, statErr := os.Lstat(target)
+    hadTarget := statErr == nil
+    if statErr != nil && !os.IsNotExist(statErr) { return statErr }
+    if err := copyWindowsLauncher(source, target); err != nil { return err }
+    if err := installShortcuts(target); err != nil {
+        if !hadTarget && !sameWindowsPath(source,target) {
+            a, e1 := fileDigest(source)
+            b, e2 := fileDigest(target)
+            if e1==nil && e2==nil && a==b { _ = os.Remove(target) }
+        }
+        return err
+    }
+    return nil
+}
+
 func installWindowsIntegration() (string, error) {
     target, err := windowsInstalledExe()
     if err != nil { return "", err }
@@ -176,7 +158,6 @@ func installWindowsIntegration() (string, error) {
         "No administrator access, Windows startup setting, or Google Drive change is needed.") {
         return "", errWindowsSetupCancelled
     }
-    if err := copyWindowsLauncher(source, target); err != nil { return "", err }
-    if err := createWindowsShortcuts(target); err != nil { return "", err }
-    return "Installed to your Windows user apps. Desktop and Start Menu shortcuts now use the multicolor folder icon. You can pin the Desktop shortcut to the taskbar yourself.", nil
+    if err := copyAndInstallWindowsShortcuts(source, target, createWindowsShortcuts); err != nil { return "", err }
+    return "Windows shortcuts installed. Pin the installed browser app from Edge for the best taskbar identity. The EXE shortcut remains available as a launcher.", nil
 }
