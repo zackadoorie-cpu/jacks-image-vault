@@ -7,6 +7,9 @@ import (
 	"os"
 )
 
+func openBrowser(url string) error { return fmt.Errorf("System browser desktop OAuth is only supported in Windows EXE") }
+func desktopAuthSupported() bool { return false }
+
 func nativeMessage(title, message string) { fmt.Fprintln(os.Stderr, title+": "+message) }
 func launchApp() error                    { return fmt.Errorf("Windows browser launcher only") }
 

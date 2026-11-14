@@ -14,6 +14,8 @@ import (
 	"unsafe"
 )
 
+func desktopAuthSupported() bool { return true }
+
 func nativeMessage(title, message string) {
 	if runtime.GOOS != "windows" {
 		fmt.Fprintln(os.Stderr, title+": "+message)

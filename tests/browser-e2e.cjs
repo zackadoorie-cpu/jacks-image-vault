@@ -74,6 +74,9 @@ async function main(){
     assert.equal(await p.locator('#installBrowserButton').isVisible(),true);
     assert.match(await p.locator('#installDialog').innerText(),/edge:\/\/apps/);
     await p.locator('#installOkay').click();
+    await p.locator('#sidebarSettings').click();
+    assert.equal(await p.locator('#desktopAuthSection').isVisible(),false,'Browser-only mode must never offer native OAuth');
+    await p.locator('#cancelSettings').click();
     // A synthetic Windows capability can expose the option without any write
     // until the user explicitly presses the install button.
     let shortcutCalls=0;
@@ -148,6 +151,45 @@ async function main(){
     await p.waitForTimeout(250);
     assert.equal(leaves>=1,true,'Window close must release its native heartbeat');
   }finally{await lifecycle.ctx.close();}
+  const desktop=await fixturePage(browser,url);
+  try{
+    const p=desktop.page;
+    let starts=0,polls=0;
+    await p.route('**/__vault_desktop_auth/status',route=>route.fulfill(reply({
+      available:true,scopes:['https://www.googleapis.com/auth/drive.readonly','https://www.googleapis.com/auth/spreadsheets.readonly'],
+      storesRefreshTokens:false
+    })));
+    await p.route('**/__vault_update/status',route=>route.fulfill(reply({
+      version:'2.1.18',source:'built-in',canRollback:false,nonce:'fixture-native-nonce'
+    })));
+    await p.route('**/__vault_desktop_auth/start',route=>{
+      starts++;
+      const args=route.request().postDataJSON();
+      assert.equal(args.clientId,'123456789-desktopfixture.apps.googleusercontent.com');
+      assert.equal(args.clientSecret,'fixture-public-secret');
+      return route.fulfill(reply({status:'pending',flowId:'fixture-desktop-flow-id'}));
+    });
+    await p.route('**/__vault_desktop_auth/poll',route=>{
+      polls++;
+      return route.fulfill(reply(polls===1?{status:'pending'}:
+        {status:'ready',accessToken:'fake-e2e-token',expiresIn:3600}));
+    });
+    await p.locator('#sidebarSettings').click();
+    await p.locator('#desktopAuthSection').waitFor({state:'visible'});
+    await p.locator('#desktopClientIdInput').fill('123456789-desktopfixture.apps.googleusercontent.com');
+    await p.locator('#desktopClientSecretInput').fill('fixture-public-secret');
+    await p.locator('#desktopAuthConnectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    assert.equal(starts,1);
+    assert.equal(polls>=2,true);
+    assert.equal(await p.locator('#settingsDialog').evaluate(d=>d.open),false);
+    assert.equal(await p.locator('#desktopClientSecretInput').inputValue(),'');
+    const cached=await p.evaluate(()=>JSON.stringify(localStorage));
+    assert.equal(cached.includes('fixture-public-secret'),false,'Desktop secret persisted to browser storage');
+    assert.equal(cached.includes('fake-e2e-token'),false,'Desktop access token persisted to browser storage');
+    assert.equal(await p.evaluate(()=>localStorage.getItem('jack-vault-autoconnect-binding-v1')),null,
+      'Desktop access must not accidentally authorize browser auto reconnect');
+  }finally{await desktop.ctx.close()}
   const connected=await fixturePage(browser,url);
   try{
     const p=connected.page;
