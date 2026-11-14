@@ -781,6 +781,30 @@ func (v *vault) handleReset(w http.ResponseWriter, r *http.Request) {
 	}
 	response(w, 200, v.status())
 }
+func (v *vault) handleWindowsStatus(w http.ResponseWriter, r *http.Request) {
+    if !v.guard(w, r, false) { return }
+    if r.Method != "GET" {
+        http.Error(w, "GET required", http.StatusMethodNotAllowed)
+        return
+    }
+    response(w, http.StatusOK, windowsIntegrationStatus())
+}
+func (v *vault) handleWindowsSetup(w http.ResponseWriter, r *http.Request) {
+    // This endpoint can create per-user shortcuts and a versioned local EXE
+    // ONLY after the current app session's CSRF token and a native Yes prompt.
+    // Never accept arbitrary paths, startup options or user-controlled scripts.
+    if !v.guard(w, r, true) { return }
+    if r.Header.Get("Content-Type") != "application/json" {
+        fail(w, http.StatusUnsupportedMediaType, "JSON required")
+        return
+    }
+    message, err := installWindowsIntegration()
+    if err != nil {
+        fail(w, http.StatusConflict, err.Error())
+        return
+    }
+    response(w, http.StatusOK, map[string]any{"installed": true, "message": message})
+}
 func (v *vault) handleFile(w http.ResponseWriter, r *http.Request) {
 	if !v.guard(w, r, false) {
 		return
@@ -847,6 +871,8 @@ func (v *vault) handler() http.Handler {
 	mux.HandleFunc("/__vault_update/install-github", v.handleGithub)
 	mux.HandleFunc("/__vault_update/rollback", v.handleRollback)
 	mux.HandleFunc("/__vault_update/reset", v.handleReset)
+    mux.HandleFunc("/__vault_windows/status", v.handleWindowsStatus)
+    mux.HandleFunc("/__vault_windows/install", v.handleWindowsSetup)
 	mux.HandleFunc("/", v.handleFile)
 	return mux
 }
@@ -889,8 +915,12 @@ func main() {
 				nativeMessage("Jack's Image Vault", "Bundled UI restored. Restart the app. Your Drive account settings are preserved.")
 			}
 			return
+		case "--windows-setup":
+            message, setupErr := installWindowsIntegration()
+            if setupErr != nil { nativeMessage("Windows setup", setupErr.Error()) } else { nativeMessage("Windows setup", message) }
+            return
 		case "--help":
-			nativeMessage("Jack's Image Vault", "Double-click to open. Updates > Check GitHub or Install local patch. Use --rollback or --repair from Command Prompt if necessary. Settings and UI patches live in %LOCALAPPDATA%\\JacksImageVault.")
+			nativeMessage("Jack's Image Vault", "Double-click to open. Install app > Set up Windows launcher creates per-user Desktop and Start Menu shortcuts. --windows-setup can also be used from Command Prompt. Settings and UI patches live in %LOCALAPPDATA%\\JacksImageVault.")
 			return
 		}
 	}

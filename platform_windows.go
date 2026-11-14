@@ -24,6 +24,15 @@ func nativeMessage(title, message string) {
 	m, _ := syscall.UTF16PtrFromString(message)
 	proc.Call(0, uintptr(unsafe.Pointer(m)), uintptr(unsafe.Pointer(t)), 0x40)
 }
+func nativeConfirm(title, message string) bool {
+    user32 := syscall.NewLazyDLL("user32.dll")
+    proc := user32.NewProc("MessageBoxW")
+    t, _ := syscall.UTF16PtrFromString(title)
+    m, _ := syscall.UTF16PtrFromString(message)
+    // MB_YESNO | MB_ICONQUESTION; only the user's explicit Yes authorizes setup.
+    answer, _, _ := proc.Call(0, uintptr(unsafe.Pointer(m)), uintptr(unsafe.Pointer(t)), 0x24)
+    return answer == 6
+}
 func openBrowser(url string) error {
 	if runtime.GOOS != "windows" {
 		return errors.New("Windows launcher only")

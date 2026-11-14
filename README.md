@@ -1,5 +1,40 @@
 # Jack's Image Vault — Windows image and media library
 
+## Windows integration: native Start Menu and Desktop shortcuts (proposed)
+
+The install panel now distinguishes **Windows launcher setup** from an optional
+Edge/Chrome browser-app installation. In a newly built Windows EXE, open
+**Install app → Set up Windows shortcuts** and confirm the native Windows dialog.
+The native installer then:
+
+- Copies the running signed-or-unsigned launcher (unchanged bytes) to a
+  versioned per-user location, `%LOCALAPPDATA%\\Programs\\JacksImageVault\\`,
+  and verifies its SHA-256. An existing different executable is **not overwritten**.
+- Creates or updates `Jack's Image Vault.lnk` on the current user's Desktop
+  (including OneDrive redirected Desktop locations) and in the Start Menu.
+  Each shortcut points to the **versioned EXE with the embedded four-color icon**.
+  A shortcut belonging to a different app is never replaced.
+- Keeps the same localhost origin and browser profile for the existing Google
+  OAuth flow and on-device settings. No Drive or Sheets writes, elevated privileges,
+  registry changes, scheduled tasks, or auto-start entries are made.
+
+The feature uses a nonce-checked, same-origin POST endpoint plus a separate
+Windows confirmation. A browser-only preview or an older EXE cannot expose the
+native setup action. UI-only ZIP patches **cannot add the native installer**;
+download a newly built EXE first. To refresh the shortcuts after a newer native
+release, run that EXE and choose **Set up Windows shortcuts** again; older
+versioned EXEs remain for manual recovery.
+
+Windows can pin the new Desktop/Start Menu shortcut to the taskbar. The live
+gallery window is still hosted by Edge or Chrome in `--app` mode, so its
+taskbar grouping and title-bar icon can depend on the browser's PWA/cache
+behavior. This does **not** promise full native WebView2 window ownership.
+The launcher may remain running after the browser window closes; close the
+old launcher before switching native versions.
+
+Windows setup can also be invoked manually as `Jacks_Image_Vault_VERSION.exe --windows-setup`.
+The setup is entirely optional and makes no change merely by opening the panel.
+
 ## Multicolor folder branding and Daylight contrast (next UI release)
 
 **New app mark.** The sidebar, browser tab and PWA reference one clean folder/photo

@@ -33,6 +33,19 @@ try {
   }
   $status = Invoke-RestMethod -Uri "$base/__vault_update/status" -TimeoutSec 10
   if (-not $status.version) { throw 'Native update endpoint did not return an app version' }
+  $integration = Invoke-RestMethod -Uri "$base/__vault_windows/status" -TimeoutSec 10
+  if ($integration.available -ne $true -or -not $integration.shortcutName) {
+    throw 'Windows integration capability is not available to the native EXE'
+  }
+  # Never actually install Windows shortcuts on CI; only test capability
+  # discovery and reject unauthenticated mutation attempts.
+  $refused = $false
+  try {
+    Invoke-WebRequest -Method POST -Uri "$base/__vault_windows/install" -Body '{}' -ContentType 'application/json' -UseBasicParsing -TimeoutSec 10 | Out-Null
+  } catch {
+    $refused = ([int]$_.Exception.Response.StatusCode -eq 403)
+  }
+  if (-not $refused) { throw 'Native Windows install endpoint allowed a request without app nonce' }
   Write-Host ("Windows native HTTP smoke passed: " + $status.version)
   Write-Host 'Both Phase 4/5 views and runtime bundles served from the real Windows EXE.'
   Write-Host 'No Drive account used, no media downloaded, no spreadsheet or files changed.'

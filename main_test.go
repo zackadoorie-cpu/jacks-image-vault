@@ -224,3 +224,38 @@ func TestGitHubAssetMetadataCannotBeInstalledAsZip(t *testing.T) {
 		t.Fatalf("non-ZIP response accepted: %v", err)
 	}
 }
+
+
+func TestWindowsIntegrationEndpointsFailClosed(t *testing.T) {
+    v, err := newVault(t.TempDir())
+    if err != nil { t.Fatal(err) }
+    h := v.handler()
+    call := func(method, path, origin, nonce, contentType string) *httptest.ResponseRecorder {
+        t.Helper()
+        req := httptest.NewRequest(method, "http://localhost:8765"+path, strings.NewReader("{}"))
+        req.Host = "localhost:8765"
+        if origin != "" { req.Header.Set("Origin", origin) }
+        if nonce != "" { req.Header.Set("X-Vault-Nonce", nonce) }
+        if contentType != "" { req.Header.Set("Content-Type", contentType) }
+        recorder := httptest.NewRecorder()
+        h.ServeHTTP(recorder, req)
+        return recorder
+    }
+    status := call("GET", "/__vault_windows/status", "", "", "")
+    if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "\"available\"") ||
+        !strings.Contains(status.Body.String(), "\"installedHere\"") {
+        t.Fatalf("Windows status must return minimal capability flags: %d %s", status.Code, status.Body.String())
+    }
+    if r := call("POST", "/__vault_windows/status", "", "", ""); r.Code != http.StatusMethodNotAllowed {
+        t.Fatalf("Windows status accepted non-GET: %d", r.Code)
+    }
+    if r := call("POST", "/__vault_windows/install", "", "", "application/json"); r.Code != http.StatusForbidden {
+        t.Fatalf("Windows install accepted request without nonce: %d", r.Code)
+    }
+    if r := call("POST", "/__vault_windows/install", "http://attacker.example", v.nonce, "application/json"); r.Code != http.StatusForbidden {
+        t.Fatalf("Windows install accepted foreign origin: %d", r.Code)
+    }
+    if r := call("POST", "/__vault_windows/install", "", v.nonce, "text/plain"); r.Code != http.StatusUnsupportedMediaType {
+        t.Fatalf("Windows install accepted non-JSON body: %d", r.Code)
+    }
+}
