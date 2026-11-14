@@ -43,8 +43,31 @@ jobs:
         run: |
           python3 -m py_compile make_patch.py scripts/verify-release-assets.py
           python3 -m unittest discover -s tests -p 'test_verify_release_assets.py'
-      - name: Ensure Windows build compiles
-        run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/Jacks_Image_Vault.exe .
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Render and validate new PWA and Windows icon assets
+        run: |
+          python3 -m pip install --disable-pip-version-check "CairoSVG==2.8.2" "Pillow>=11,<13"
+          python3 scripts/render-brand-icons.py --ico build/Jacks_Image_Vault.ico
+          python3 - <<'PY'
+          from PIL import Image
+          for name, size in [('icon-180.png',180),('icon-192.png',192),
+                             ('icon-512.png',512),('icon-maskable-512.png',512)]:
+              with Image.open('web/icons/'+name) as im:
+                  assert im.size == (size,size), name
+          with Image.open('build/Jacks_Image_Vault.ico') as im:
+              assert im.format == 'ICO'
+              assert (256,256) in im.info['sizes']
+          PY
+      - name: Ensure Windows build embeds app icon and compiles
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-mingw-w64-x86-64
+          x86_64-w64-mingw32-windres -i scripts/vault-icon.rc -o vault-icon.syso -O coff
+          test -s vault-icon.syso
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/Jacks_Image_Vault.exe .
+          test -s /tmp/Jacks_Image_Vault.exe
 
   windows-smoke:
     runs-on: windows-latest
