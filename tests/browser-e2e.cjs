@@ -208,7 +208,7 @@ async function main(){
         inputText:color('#folderSearch').color,
         progress:color('#browseProgress').backgroundColor,
         progressText:color('#browseProgress').color,
-        navActive:color('.sidebar .nav-group:has(.nav-item.active)>.nav-group-toggle').color
+        navActive:color('.sidebar .nav-group-toggle').color
       };
     });
     assert.equal(lightControls.picker,'rgb(240, 237, 250)');
