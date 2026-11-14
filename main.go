@@ -6,6 +6,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+    "context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -72,6 +73,7 @@ type vault struct {
 	warning        string
 	notice         string
 	client         *http.Client
+    windows        *windowSessions
 }
 
 func randNonce() string {
@@ -106,7 +108,7 @@ func newVault(dir string) (*vault, error) {
 		}
 		return nil
 	}}
-	v := &vault{root: dir, nonce: randNonce(), currentVersion: builtinVersion, client: c}
+	v := &vault{root: dir, nonce: randNonce(), currentVersion: builtinVersion, client: c, windows: newWindowSessions()}
 	var choice selectedPatch
 	if b, err := os.ReadFile(filepath.Join(dir, "current.json")); err == nil && json.Unmarshal(b, &choice) == nil {
 		v.choice = choice
@@ -876,6 +878,8 @@ func (v *vault) handler() http.Handler {
 	mux.HandleFunc("/__vault_update/reset", v.handleReset)
     mux.HandleFunc("/__vault_windows/status", v.handleWindowsStatus)
     mux.HandleFunc("/__vault_windows/install", v.handleWindowsSetup)
+    mux.HandleFunc("/__vault_window/heartbeat", v.handleWindowHeartbeat)
+    mux.HandleFunc("/__vault_window/leave", v.handleWindowLeave)
 	mux.HandleFunc("/", v.handleFile)
 	return mux
 }
@@ -980,6 +984,18 @@ func main() {
 	}()
 	if err = launchApp(); err != nil {
 		nativeMessage("Browser launch failed", "Please open "+appURL+" in Edge or Chrome.\n"+err.Error())
+        return
 	}
-	select {}
+    // Closing the last registered app window releases the local port. A short
+    // grace period permits reloads and browser restarts without losing state.
+    // A UI patch too old to send heartbeats is never shut down unexpectedly.
+    ticker := time.NewTicker(2*time.Second)
+    defer ticker.Stop()
+    for range ticker.C {
+        if !v.windows.shouldStop(time.Now()) { continue }
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        _ = server.Shutdown(ctx)
+        cancel()
+        return
+    }
 }
