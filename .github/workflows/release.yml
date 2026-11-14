@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ ! "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Invalid version '$RELEASE_VERSION'. Use three numbers like 2.0.12 or 2.1.0 (no leading v, spaces, or trailing dot)."
+            echo "::error::Invalid version '$RELEASE_VERSION'. Use three numbers like 2.1.1 (no leading v, spaces, or trailing dot)."
             exit 1
           fi
           TAG="v${RELEASE_VERSION}"
