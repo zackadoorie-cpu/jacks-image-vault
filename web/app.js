@@ -123,6 +123,12 @@
     posterWorkingId: null,
     posterError: new Map(),
     videoLibraryFilter: 'all',
+    videoQuery: '',
+    renameQuery: '',
+    renameFilter: 'all',
+    renamePage: 1,
+    renameDrafts: new Map(),
+    renameStaged: new Set(),
     videoTitleMode: 'title',
     videoLibraryPage: 1,
     videoSessionEvidence: new Map(),
@@ -907,6 +913,110 @@
     return {REVIEW_INBOX_SCHEMA,REVIEW_INBOX_MAX_SCAN,REVIEW_INBOX_PAGE_SIZE,REVIEW_INBOX_FILTERS,reviewInboxId,reviewInboxOpaqueName,reviewInboxCleanSegment,reviewInboxSafeFilename,reviewInboxSuggest,reviewInboxEntries,reviewInboxPage,reviewInboxFilenamePreview,reviewInboxConflict};
   })();
   /* GENERATED REVIEW INBOX END */
+  /* GENERATED RENAME DESK START */
+  const renameDeskEngine=(()=>{
+    const RENAME_DESK_SCHEMA = 'image-vault-rename-plan-v1';
+    const RENAME_DESK_MAX_EXPORT = 25;
+    const RENAME_DESK_MAX_RECORDS = 1000;
+    const RENAME_DESK_EXTENSIONS = Object.freeze(['.mp4','.webm','.mov','.m4v']);
+    function renameDeskExtension(name){
+      const match=/(\.[a-zA-Z0-9]{2,6})$/.exec(typeof name==='string'?name:'');
+      return match?match[1].toLowerCase():'';
+    }
+    function renameDeskDisplayName(title,original){
+      const ext=renameDeskExtension(original);
+      if(!RENAME_DESK_EXTENSIONS.includes(ext)||typeof title!=='string')return '';
+      const normalized=title.normalize('NFKC').replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g,' ')
+        .replace(/[.·–—]+/g,' - ').replace(/\s+/g,' ')
+        .replace(/^[\s._-]+|[\s._-]+$/g,'').trim();
+      return normalized?normalized.slice(0,95-ext.length).trim()+ext:'';
+    }
+    function renameDeskSafeName(candidate,oldName){
+      if(typeof candidate!=='string'||candidate.length<5||candidate.length>95||
+         candidate.trim()!==candidate||candidate.endsWith('.')||candidate==='.'||candidate==='..'||
+         /[\u0000-\u001f\u007f\\/:*?"<>|]/.test(candidate))return {ok:false,reason:'Use a Windows-safe filename (up to 95 characters).'};
+      const ext=renameDeskExtension(candidate);
+      if(!RENAME_DESK_EXTENSIONS.includes(ext)||ext!==renameDeskExtension(oldName))
+        return {ok:false,reason:'Keep the exact original video extension.'};
+      if(candidate.toLocaleLowerCase('en-US')===oldName.toLocaleLowerCase('en-US'))
+        return {ok:false,reason:'The proposed name matches the current filename.'};
+      const stem=candidate.slice(0,-ext.length);
+      if(/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem))return {ok:false,reason:'Reserved Windows device name.'};
+      if(!/[a-zA-Z0-9\u00c0-\uffff]/.test(stem))return {ok:false,reason:'Name must contain descriptive text.'};
+      return {ok:true,reason:'Filename format is valid.'};
+    }
+    function renameDeskRow(item,titleInfo,reviewStage,evidence){
+      if(!item||typeof item.id!=='string'||!/^[A-Za-z0-9_-]{10,}$/.test(item.id)||
+         typeof item.mime!=='string'||!item.mime.startsWith('video/')||item.demo)return null;
+      const oldName=String(item.name||'');
+      const ext=renameDeskExtension(oldName);
+      const eligible=['reviewed','source-reviewed'].includes(reviewStage)&&!item.newInDrive&&
+        Number.isSafeInteger(item.manifestRow)&&item.manifestRow>=2&&
+        RENAME_DESK_EXTENSIONS.includes(ext);
+      const suggested=eligible&&titleInfo?.suggested?renameDeskDisplayName(titleInfo.title,oldName):'';
+      return {
+        id:item.id,oldName,folder:String(item.folder||''),mime:item.mime,
+        manifestRow:Number.isSafeInteger(item.manifestRow)?item.manifestRow:null,
+        reviewStage:String(reviewStage||''),evidence:String(evidence||''),
+        proposed:suggested,eligible,
+        reason:eligible&&suggested?'Suggested from previously indexed review metadata. Verify the video first.':
+          eligible?'No automatic suggestion; enter a descriptive name if you want to rename this video.':
+          'This video needs verified source evidence and a Manifest row before naming.'
+      };
+    }
+    function renameDeskValidate(row,next,library,otherStaged=[]){
+      if(!row||!row.eligible||typeof row.id!=='string')
+        return {ok:false,reason:'This record needs a verified review and indexed Manifest row.'};
+      const format=renameDeskSafeName(next,row.oldName);
+      if(!format.ok)return format;
+      const matches=(Array.isArray(library)?library:[]).some(item=>
+        item&&item.id!==row.id&&String(item.folder||'').toLocaleLowerCase('en-US')===
+          row.folder.toLocaleLowerCase('en-US')&&
+        String(item.name||'').toLocaleLowerCase('en-US')===next.toLocaleLowerCase('en-US'));
+      if(matches)return {ok:false,reason:'Another file in this folder already has this name.'};
+      const stagedClash=(Array.isArray(otherStaged)?otherStaged:[]).some(other=>other.id!==row.id&&
+        String(other.folder||'').toLocaleLowerCase('en-US')===row.folder.toLocaleLowerCase('en-US')&&
+        String(other.proposed||'').toLocaleLowerCase('en-US')===next.toLocaleLowerCase('en-US'));
+      if(stagedClash)return {ok:false,reason:'Another staged rename in this folder uses the same name.'};
+      return {ok:true,reason:'Local preview checks passed. Recheck the live Drive file before any rename.'};
+    }
+    function renameDeskExport(rows,selected,library,{account,sheetId}={}){
+      if(typeof account!=='string'||!account||typeof sheetId!=='string'||!sheetId)
+        throw new Error('Connect a verified Drive account and Sheet before exporting.');
+      const selectedSet=selected instanceof Set?selected:new Set();
+      if(selectedSet.size===0||selectedSet.size>RENAME_DESK_MAX_EXPORT)
+        throw new Error('Stage 1 to 25 proposals individually before exporting.');
+      const all=Array.isArray(rows)?rows:[];
+      if(all.length>RENAME_DESK_MAX_RECORDS)throw new Error('Rename catalog is too large.');
+      const byId=new Map(all.filter(r=>r?.id).map(r=>[r.id,r]));
+      if(byId.size!==all.filter(r=>r?.id).length)throw new Error('Duplicate Drive IDs in rename catalog.');
+      const staged=[];
+      for(const id of selectedSet){
+        const row=byId.get(id);
+        if(!row)throw new Error('A staged record is no longer in the current catalog. Refresh.');
+        const live=(Array.isArray(library)?library:[]).find(x=>x?.id===id);
+        if(!live||live.name!==row.oldName||live.folder!==row.folder||live.mime!==row.mime||
+           live.manifestRow!==row.manifestRow)
+          throw new Error('Source metadata has changed. Reconnect/sync and review the proposal.');
+        const check=renameDeskValidate(row,row.proposed,library,staged);
+        if(!check.ok)throw new Error(row.oldName+': '+check.reason);
+        staged.push(row);
+      }
+      const entries=staged.map(row=>({
+        driveId:row.id,manifestRow:row.manifestRow,folder:row.folder,mime:row.mime,
+        expectedName:row.oldName,proposedName:row.proposed,
+        evidence:row.evidence,reviewStage:row.reviewStage,
+        undo:{expectedCurrentName:row.proposed,restoreName:row.oldName}
+      }));
+      return {schema:RENAME_DESK_SCHEMA,kind:'approval-review-only',status:'unapplied',
+        sourceAccount:account,sourceSheetId:sheetId,
+        generatedAt:new Date().toISOString(),
+        warning:'No Drive files or Sheet cells were modified. Live metadata and authorization must be rechecked before each approved write or undo.',
+        entries};
+    }
+    return {RENAME_DESK_SCHEMA,RENAME_DESK_MAX_EXPORT,renameDeskExtension,renameDeskDisplayName,renameDeskSafeName,renameDeskRow,renameDeskValidate,renameDeskExport};
+  })();
+  /* GENERATED RENAME DESK END */
   /* GENERATED SIMILARITY LAB START */
   const similarityEngine=(()=>{
     const SIMILARITY_MAX_SCAN=20000;
@@ -2716,7 +2826,7 @@
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
     saveBrowsingPosition();
-    stopScans();stopVideo();similarityClearLocal();state.videoSessionEvidence.clear();
+    stopScans();stopVideo();similarityClearLocal();state.videoSessionEvidence.clear();renameDeskClear();
     state.snapshotLoadedAt=null;state.lastSyncAttemptAt=null;state.lastSyncSuccessAt=null;state.lastSyncError='';
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
@@ -2910,7 +3020,11 @@
     const all=state.connected?state.images:[];
     const count=all.filter(x=>mediaKind(x)==='video').length;
     const described=all.filter(x=>mediaKind(x)==='video'&&String(effectiveDescription(x)||'').trim()).length;
-    const listing=videoLibrary.videoList(all,{filter:state.videoLibraryFilter,page:state.videoLibraryPage});
+    const query=String(state.videoQuery||'').trim().toLocaleLowerCase('en-US').slice(0,120);
+    const matching=query?all.filter(item=>mediaKind(item)==='video'&&[
+      item.name,item.folder,videoTitleInfo(item).title,effectiveDescription(item),effectiveTags(item)
+    ].some(value=>String(value||'').toLocaleLowerCase('en-US').includes(query))):all;
+    const listing=videoLibrary.videoList(matching,{filter:state.videoLibraryFilter,page:state.videoLibraryPage});
     state.videoLibraryPage=Math.min(listing.page,listing.pageCount);
     $('videoCatalogSummary').textContent=state.connected?
       format(count)+' video files · '+format(described)+' with descriptions · '+format(listing.total)+' match this filter · page '+
@@ -2918,6 +3032,7 @@
       'Connect Drive to inspect videos already indexed in your private Google Sheet.';
     $('videoCatalogFilter').value=state.videoLibraryFilter;
     $('videoTitleMode').value=state.videoTitleMode;
+    $('videoSearch').value=state.videoQuery;
     $('videoCatalogPrev').disabled=listing.page<=1;
     $('videoCatalogNext').disabled=listing.page>=listing.pageCount;
     $('videoCatalogList').innerHTML=listing.entries.length?listing.entries.map(item=>{
@@ -3280,6 +3395,130 @@
     else if(btn.dataset.inboxAction==='preview')reviewInboxOpenFilename(id,btn);
   }
   /* GENERATED REVIEW INBOX CONTROLLER END */
+  /* GENERATED RENAME DESK CONTROLLER START */
+  function renameDeskRows(){
+    if(!state.connected)return [];
+    return state.images.filter(item=>mediaKind(item)==='video'&&!item.demo).slice(0,1000)
+      .map(item=>{
+        const info=videoTitleInfo(item),evidence=videoLibrary.videoEvidence(item);
+        const row=renameDeskEngine.renameDeskRow(item,info,reviewStage(item),
+          evidence.label+' · '+evidence.origin);
+        if(!row)return null;
+        return {...row,proposed:state.renameDrafts.has(item.id)?
+          state.renameDrafts.get(item.id):row.proposed};
+      }).filter(Boolean);
+  }
+  function renameDeskVisible(rows){
+    const q=state.renameQuery.trim().toLocaleLowerCase('en-US');
+    return rows.filter(row=>{
+      if(state.renameFilter==='suggested'&&!row.proposed)return false;
+      if(state.renameFilter==='staged'&&!state.renameStaged.has(row.id))return false;
+      if(state.renameFilter==='blocked'&&row.eligible)return false;
+      if(!q)return true;
+      return [row.oldName,row.proposed,row.folder,row.evidence].some(value=>
+        String(value).toLocaleLowerCase('en-US').includes(q));
+    });
+  }
+  function renameDeskRender(){
+    const rows=renameDeskRows(),visible=renameDeskVisible(rows),connected=state.connected;
+    const library=state.images;
+    const suggested=rows.filter(row=>row.proposed&&row.eligible).length;
+    $('renameDeskTotal').textContent=connected?format(rows.length):'—';
+    $('renameDeskSuggested').textContent=connected?format(suggested):'—';
+    $('renameDeskStagedCount').textContent=connected?format(state.renameStaged.size):'—';
+    $('renameDeskSearch').value=state.renameQuery;
+    $('renameDeskSearch').disabled=!connected;
+    $('renameDeskFilter').value=state.renameFilter;
+    $('renameDeskFilter').disabled=!connected;
+    $('renameDeskExport').disabled=!connected||!state.renameStaged.size;
+    const pages=Math.max(1,Math.ceil(visible.length/12));
+    state.renamePage=Math.max(1,Math.min(pages,state.renamePage));
+    const begin=(state.renamePage-1)*12;
+    const shown=visible.slice(begin,begin+12);
+    $('renameDeskPrev').disabled=!connected||state.renamePage<=1;
+    $('renameDeskNext').disabled=!connected||state.renamePage>=pages;
+    $('renameDeskPage').textContent=state.renamePage+' / '+pages;
+    $('renameDeskSummary').textContent=!connected?
+      'Connect Drive to see a private video rename preview.':
+      format(rows.length)+' videos indexed · '+format(suggested)+' with draft titles · '+
+      format(visible.length)+' match filters · '+format(state.renameStaged.size)+
+      ' staged only on this device. No Drive or Sheet writes.';
+    $('renameDeskList').innerHTML=!connected?
+      '<p class="rename-desk-empty">Connect Drive to prepare filename proposals.</p>':
+      !shown.length?'<p class="rename-desk-empty">No video records match these filters.</p>':
+      shown.map(row=>{
+        const check=renameDeskEngine.renameDeskValidate(row,row.proposed,library,
+          rows.filter(other=>other.id!==row.id&&state.renameStaged.has(other.id)));
+        const staged=state.renameStaged.has(row.id);
+        const notes=row.eligible?(check.ok?
+          'Ready for review · original Drive file unchanged':check.reason):row.reason;
+        const status=check.ok?'ready':'blocked';
+        return '<article class="rename-desk-row" data-rename-row="'+escapeHTML(row.id)+'">'+
+          '<div class="rename-desk-details"><span class="rename-desk-chip '+status+'">'+
+          (check.ok?'Draft ready':'Needs attention')+'</span><h3>'+escapeHTML(row.oldName)+'</h3>'+
+          '<p class="rename-desk-folder">'+escapeHTML(row.folder)+'</p>'+
+          '<p class="rename-desk-evidence">Evidence: '+escapeHTML(row.evidence)+'</p>'+
+          '<button class="btn quiet" type="button" data-rename-open="'+escapeHTML(row.id)+'">Inspect video</button></div>'+
+          '<div class="rename-desk-edit"><label for="rename-draft-'+escapeHTML(row.id)+'">Proposed Drive filename</label>'+
+          '<input class="field" id="rename-draft-'+escapeHTML(row.id)+'" type="text" maxlength="95" '+
+          'data-rename-draft="'+escapeHTML(row.id)+'" value="'+escapeHTML(row.proposed)+'" '+
+          (row.eligible?'':'disabled ')+'spellcheck="false">'+
+          '<p class="rename-desk-validation">'+escapeHTML(notes)+'</p>'+
+          '<label class="rename-desk-stage"><input type="checkbox" data-rename-stage="'+escapeHTML(row.id)+'" '+
+          (staged?'checked ':'')+(check.ok?'':'disabled ')+'>'+
+          ' Stage for export (does not rename)</label></div></article>';
+      }).join('');
+  }
+  function renameDeskEvents(event){
+    const target=event.target;
+    if(!state.connected||!target)return;
+    const id=target.dataset?.renameDraft||target.dataset?.renameStage;
+    if(!safeId(id))return;
+    const row=renameDeskRows().find(item=>item.id===id);
+    if(!row)return;
+    if(target.dataset.renameDraft){
+      state.renameDrafts.set(id,target.value);
+      state.renameStaged.delete(id);
+      state.renamePage=Math.max(1,state.renamePage);
+      renameDeskRender();
+    }else if(target.dataset.renameStage){
+      const all=renameDeskRows(),current=all.find(x=>x.id===id);
+      const other=all.filter(x=>x.id!==id&&state.renameStaged.has(x.id));
+      const result=renameDeskEngine.renameDeskValidate(current,current.proposed,state.images,other);
+      if(target.checked&&result.ok&&state.renameStaged.size<25)state.renameStaged.add(id);
+      else state.renameStaged.delete(id);
+      renameDeskRender();
+    }
+  }
+  function renameDeskExportSelected(){
+    if(!state.connected)return;
+    try{
+      const rows=renameDeskRows();
+      const plan=renameDeskEngine.renameDeskExport(rows,state.renameStaged,state.images,{
+        account:state.driveIdentity,sheetId:state.config.sheetId
+      });
+      const serialized=JSON.stringify(plan,null,2);
+      if(serialized.length>100000)throw new Error('Plan too large to export.');
+      const url=URL.createObjectURL(new Blob([serialized],{type:'application/json'}));
+      const link=document.createElement('a');
+      link.href=url;
+      link.download='image-vault-video-renames-'+new Date().toISOString().slice(0,10)+'.json';
+      document.body.appendChild(link);link.click();link.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),10000);
+      $('renameDeskMessage').textContent='Exported '+plan.entries.length+
+        ' staged proposals. Nothing has been renamed. Approve exact files before any future Drive update.';
+    }catch(error){
+      $('renameDeskMessage').textContent='Cannot export: '+(error.message||'validation failed');
+    }
+  }
+  function renameDeskClear(){
+    state.renameDrafts.clear();
+    state.renameStaged.clear();
+    state.renameQuery='';
+    state.renameFilter='all';
+    state.renamePage=1;
+  }
+  /* GENERATED RENAME DESK CONTROLLER END */
   function setupSidebarGroups(){
     const groups=Array.from(document.querySelectorAll('#navigation details[data-nav-group]'));
     const key='jack-vault-sidebar-groups-v1';
@@ -3308,7 +3547,7 @@
   }
   function displayPage(view,{reset=true,scroll=true}={}) {
     if(state.connected&&browsingView())saveBrowsingPosition();
-    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'){
+    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'){
       state.autoLoadObserver?.disconnect();
       state.autoLoadObserver=null;
       state.galleryRevision++;
@@ -3321,8 +3560,9 @@
       if($('folderSearch'))$('folderSearch').value='';
     }
     $('homeView').classList.toggle('hidden',view!=='home');
-    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox');
+    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk');
     $('reviewInboxView').classList.toggle('hidden',view!=='review-inbox');
+    $('renameDeskView').classList.toggle('hidden',view!=='rename-desk');
     $('videoLibraryView').classList.toggle('hidden',view!=='video-library');
     $('similarityView').classList.toggle('hidden',view!=='similarity');
     $('memoryView').classList.toggle('hidden',view!=='memory');
@@ -3333,7 +3573,7 @@
     if(scroll)window.scrollTo({top:0,behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth'});
     updateScrollControls();
   }
-  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else renderGallery();}
+  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else if(state.view==='rename-desk')renameDeskRender();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
     $('statImages').textContent=count(state.inventory.length);
@@ -4057,6 +4297,26 @@
   function initEvents() {
     setupSidebarGroups();
     document.querySelectorAll('[data-view]').forEach(btn=>btn.onclick=()=>displayPage(btn.dataset.view));
+    $('renameDeskSearch').oninput=event=>{
+      state.renameQuery=event.target.value.slice(0,120);state.renamePage=1;renameDeskRender();
+    };
+    $('renameDeskFilter').onchange=event=>{
+      if(!['all','suggested','staged','blocked'].includes(event.target.value))return;
+      state.renameFilter=event.target.value;state.renamePage=1;renameDeskRender();
+    };
+    $('renameDeskPrev').onclick=()=>{state.renamePage=Math.max(1,state.renamePage-1);renameDeskRender();};
+    $('renameDeskNext').onclick=()=>{state.renamePage++;renameDeskRender();};
+    $('renameDeskExport').onclick=renameDeskExportSelected;
+    $('renameDeskClear').onclick=()=>{
+      renameDeskClear();renameDeskRender();$('renameDeskMessage').textContent='Staging cleared on this device.';
+    };
+    $('renameDeskList').addEventListener('change',renameDeskEvents);
+    $('renameDeskList').addEventListener('click',event=>{
+      const button=event.target.closest('button[data-rename-open]');
+      if(button&&$('renameDeskList').contains(button)&&safeId(button.dataset.renameOpen))
+        openImage(button.dataset.renameOpen,button);
+    });
+    $('videoOpenRenameDesk').onclick=()=>displayPage('rename-desk');
     $('settingsButton').onclick=showPreferences;
     $('sidebarPreferences').onclick=showPreferences;
     $('sidebarSettings').onclick=showSettings;
@@ -4121,6 +4381,11 @@
     $('memorySourceSelect').onchange=e=>{state.memorySource=e.target.value;renderMemoryLane();scheduleBrowseSave();};
     $('memoryTodayButton').onclick=()=>memoryOpenGroup('today');
     $('memoryUnknownButton').onclick=()=>memoryOpenGroup('unknown');
+    $('videoSearch').oninput=event=>{
+      state.videoQuery=event.target.value.slice(0,120);
+      state.videoLibraryPage=1;
+      videoRenderCatalog();
+    };
     $('videoCatalogFilter').onchange=event=>{
       if(!['all','unverified','reviewed','oversized'].includes(event.target.value))return;
       state.videoLibraryFilter=event.target.value;state.videoLibraryPage=1;videoRenderCatalog();
