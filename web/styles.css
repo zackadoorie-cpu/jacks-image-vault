@@ -707,3 +707,52 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
  .home-shortcut,.home-progress-track span{transition:none}
  .home-shortcut:hover{transform:none}
 }
+
+
+/* Theme contrast audit: collection picker, progress badges, and older management
+   panels must not retain hard-coded dark surfaces in Daylight Pearl. */
+:root[data-theme] .collection-search{
+  background:var(--surface2);border-color:var(--line);color:var(--purple);
+}
+:root[data-theme] .collection-search input[type="search"]{
+  background:transparent;color:var(--text);border:0;box-shadow:none;
+}
+:root[data-theme] .collection-search input[type="search"]::placeholder{color:var(--muted);opacity:1}
+:root[data-theme] .collection-search:focus-within{
+  border-color:var(--purple);box-shadow:0 0 0 3px color-mix(in srgb,var(--purple) 18%,transparent);
+}
+:root[data-theme] .collection-select{background:var(--surface2);color:var(--text);border-color:var(--line)}
+:root[data-theme] .browse-progress{
+  background:color-mix(in srgb,var(--purple) 8%,var(--surface));
+  border-color:color-mix(in srgb,var(--purple) 25%,var(--line));
+  color:var(--muted);
+}
+:root[data-theme] .preview-stat,:root[data-theme] .autoload-progress,
+:root[data-theme] .autoload-complete{color:var(--muted)}
+:root[data-theme] .sidebar .nav{scrollbar-color:var(--line) transparent}
+:root[data-theme] .sidebar .nav-group:has(.nav-item.active)>.nav-group-toggle{
+  color:var(--purple);
+}
+:root[data-theme] .sidebar .nav-group:has(.nav-item.active)>.nav-group-toggle::before,
+:root[data-theme] .nav-group-chevron{color:var(--purple)}
+:root[data-theme] .review-toolbar,:root[data-theme] .media-diagnostics{
+  background:var(--surface);color:var(--text);border-color:var(--line);
+}
+:root[data-theme] .review-toolbar-heading strong,:root[data-theme] .review-editor h3,
+:root[data-theme] .review-inbox-metrics span{color:var(--text)}
+:root[data-theme] .review-toolbar-heading small,:root[data-theme] .review-privacy,
+:root[data-theme] .review-editor-note,:root[data-theme] .review-editor-status,
+:root[data-theme] .review-inbox-status{color:var(--muted)}
+:root[data-theme] .review-editor{border-color:var(--line)}
+:root[data-theme] .review-inbox-type{
+  background:var(--surface2);color:var(--purple);
+}
+:root[data-theme] .review-inbox-suggestion strong{color:var(--text)}
+:root[data-theme] .review-inbox-suggestion small{color:var(--muted)}
+:root[data-theme] .gallery-notice{background:var(--surface2);color:var(--text);border-color:var(--line)}
+:root[data-theme] .search-hint{color:var(--muted)}
+:root[data-theme="daylight"] .tile-placeholder,
+:root[data-theme="daylight"] .tile-placeholder small{color:#465b7c}
+:root[data-theme="daylight"] .result-count,
+:root[data-theme="daylight"] .browse-progress{background:#faf9ff;color:#354869;border-color:#cbd3e7}
+:root[data-theme="daylight"] .preview-stat{color:#586a87}

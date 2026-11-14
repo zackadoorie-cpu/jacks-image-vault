@@ -9,3 +9,7 @@ private/
 *.exe
 *.zip
 .DS_Store
+
+# Regenerated branding and cross-compiled Windows resources.
+build/
+*.syso

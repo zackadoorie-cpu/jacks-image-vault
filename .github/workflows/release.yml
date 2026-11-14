@@ -133,6 +133,16 @@ jobs:
           node --check web/app.js
           python3 -m py_compile make_patch.py scripts/verify-release-assets.py
           python3 -m unittest discover -s tests -p 'test_verify_release_assets.py'
+      - name: Render branded app icons and embed Windows EXE icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check "CairoSVG==2.8.2" "Pillow>=11,<13"
+          python3 scripts/render-brand-icons.py --ico build/Jacks_Image_Vault.ico
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-mingw-w64-x86-64
+          x86_64-w64-mingw32-windres --preprocessor=cpp -i scripts/vault-icon.rc -o vault-icon.syso -O coff
+          test -s vault-icon.syso
       - name: Build unsigned Windows EXE and versioned UI patch
         shell: bash
         run: |
