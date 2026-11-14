@@ -8,6 +8,8 @@
   const UPDATE_CHECK_STORAGE = 'jack-vault-last-update-check-v2';
   const DENSITY_STORAGE = 'jack-vault-gallery-density-v1';
   const APP_PREFS_STORAGE = 'jack-vault-app-preferences-v1';
+  const AUTO_CONNECT_STORAGE = 'jack-vault-autoconnect-binding-v1';
+  const VAULT_THEMES = Object.freeze(['midnight','ocean','ember','forest','daylight']);
   const BROWSE_STORAGE = 'jack-vault-resume-position-v1';
   const REVIEW_STORAGE = 'jack-vault-local-reviews-v1';
   const SAVED_SEARCHES_STORAGE = 'jack-vault-searches-v2.1';
@@ -65,6 +67,11 @@
     pageSize: startingPrefs.batchSize,
     autoLoad: startingPrefs.autoLoad,
     rememberBrowsing: startingPrefs.rememberBrowsing,
+    autoReconnect: startingPrefs.autoReconnect,
+    theme: startingPrefs.theme,
+    authEpoch: 0,
+    authMode: 'idle',
+    autoReconnectStatus: '',
     browseSaveTimer: null,
     resumeScrollY: null,
     renderedCount: 0,
@@ -1148,19 +1155,60 @@
     catch{return 'comfortable';}
   }
   function readPreferences() {
+    const defaults={autoLoad:true,batchSize:32,rememberBrowsing:true,autoReconnect:false,theme:'midnight'};
     try{
       const raw=JSON.parse(localStorage.getItem(APP_PREFS_STORAGE)||'{}');
       return {autoLoad:typeof raw.autoLoad==='boolean'?raw.autoLoad:true,
         batchSize:[16,32,48].includes(raw.batchSize)?raw.batchSize:32,
-        rememberBrowsing:typeof raw.rememberBrowsing==='boolean'?raw.rememberBrowsing:true};
-    }catch{return {autoLoad:true,batchSize:32,rememberBrowsing:true};}
+        rememberBrowsing:typeof raw.rememberBrowsing==='boolean'?raw.rememberBrowsing:true,
+        autoReconnect:raw.autoReconnect===true,
+        theme:VAULT_THEMES.includes(raw.theme)?raw.theme:'midnight'};
+    }catch{return defaults;}
+  }
+  function applyVaultTheme(theme){
+    const next=VAULT_THEMES.includes(theme)?theme:'midnight';
+    document.documentElement.dataset.theme=next;
+    const meta=document.querySelector('meta[name="theme-color"]');
+    if(meta)meta.content=next==='daylight'?'#f0f3f8':
+      next==='ocean'?'#081c29':next==='ember'?'#201513':
+      next==='forest'?'#0e1b17':'#10121b';
+  }
+  function readAutoBinding(){
+    try{
+      const r=JSON.parse(localStorage.getItem(AUTO_CONNECT_STORAGE)||'null');
+      if(r?.schema!==1||r.clientId!==state.config.clientId||
+        r.sheetId!==state.config.sheetId||!safeId(r.accountId))return null;
+      return r;
+    }catch{return null;}
+  }
+  function saveAutoBinding(){
+    if(!state.autoReconnect||!state.connected||!safeId(state.driveIdentity))return;
+    try{localStorage.setItem(AUTO_CONNECT_STORAGE,JSON.stringify({
+      schema:1,clientId:state.config.clientId,sheetId:state.config.sheetId,
+      accountId:state.driveIdentity
+    }));}catch{
+      state.autoReconnectStatus='Automatic reconnect could not be saved in this browser.';
+    }
+  }
+  function clearAutoBinding(){
+    try{localStorage.removeItem(AUTO_CONNECT_STORAGE);}catch{}
   }
   function showPreferences(){
     $('prefAutoLoad').checked=state.autoLoad;
     $('prefBatchSize').value=String(state.pageSize);
     $('prefDensity').value=state.density;
     $('prefRememberBrowsing').checked=state.rememberBrowsing;
+    $('prefAutoReconnect').checked=state.autoReconnect;
+    $('prefReconnectStatus').textContent=state.connected&&safeId(state.driveIdentity)?
+      'Current Google account verified. This remembers only its account ID, the OAuth client ID and Sheet ID.':
+      'Automatic reconnect starts after your next successful manual connection to a verified Google account.';
+    $('prefTheme').value=state.theme;
+    applyVaultTheme(state.theme);
     $('preferencesDialog').showModal();
+  }
+  function cancelPreferences(){
+    applyVaultTheme(state.theme);
+    if($('preferencesDialog').open)$('preferencesDialog').close();
   }
   function savePreferences(event){
     event.preventDefault();
@@ -1168,23 +1216,30 @@
     const batchSize=Number($('prefBatchSize').value);
     const density=$('prefDensity').value;
     const rememberBrowsing=$('prefRememberBrowsing').checked;
-    if(![16,32,48].includes(batchSize)||!['compact','comfortable','large'].includes(density))return;
+    const autoReconnect=$('prefAutoReconnect').checked;
+    const theme=$('prefTheme').value;
+    if(![16,32,48].includes(batchSize)||!['compact','comfortable','large'].includes(density)||
+      !VAULT_THEMES.includes(theme))return;
     const shown=state.renderedCount;
     state.autoLoad=autoLoad;
     state.pageSize=batchSize;
     state.density=density;
     state.rememberBrowsing=rememberBrowsing;
+    state.autoReconnect=autoReconnect;
+    state.theme=theme;
+    applyVaultTheme(theme);
     if(!rememberBrowsing)clearBrowsingPosition();
     state.page=Math.max(1,Math.ceil(shown/batchSize));
+    if(!autoReconnect)clearAutoBinding();else saveAutoBinding();
     try{
-      localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({autoLoad,batchSize,rememberBrowsing}));
+      localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({autoLoad,batchSize,rememberBrowsing,autoReconnect,theme}));
       localStorage.setItem(DENSITY_STORAGE,density);
     }catch{alertUser('App preferences could not be saved to this device. They will apply for this session.', 'error');}
     $('preferencesDialog').close();
     if(state.view!=='home'&&state.view!=='health'){
       renderGallery();
       if(rememberBrowsing)scheduleBrowseSave();
-    }
+    }else if(state.view==='home')renderHome();
   }
   function clearBrowsingPosition(){
     if(state.browseSaveTimer)clearTimeout(state.browseSaveTimer);
@@ -1880,6 +1935,8 @@
     status.className = 'connection-status' + (expired ? ' error' : state.connected ? ' online' : '');
     status.innerHTML = `<i></i>${expired ? 'Session expired' : state.connected ? 'Drive connected' : 'Preview mode'}`;
     $('connectButton').classList.toggle('hidden', state.connected && !expired);
+    if($('homeReconnectNote'))$('homeReconnectNote').textContent=state.autoReconnectStatus||
+      (state.connected?'Private Google Drive connection active.':state.autoReconnect?'Automatic reconnect enabled; Google may still need your confirmation.':'Connect Google Drive to load your private library.');
     $('disconnectButton').classList.toggle('hidden', !state.connected);
     $('heroConnectButton').classList.toggle('hidden', state.connected);
     $('allCount').textContent = state.connected ? format(state.images.length) : '—';
@@ -1911,6 +1968,7 @@
     $('clientIdInput').setCustomValidity(''); $('sheetIdInput').setCustomValidity('');
     const changed = clientId !== state.config.clientId || sheetId !== state.config.sheetId;
     if (changed && state.connected) disconnect();
+    if(changed){clearAutoBinding();state.autoReconnect=false;state.authEpoch++;}
     state.config = {clientId, sheetId};
     try {
       if ($('rememberConfig').checked) localStorage.setItem(SHELL_STORAGE, JSON.stringify(state.config));
@@ -4320,8 +4378,10 @@
     $('settingsButton').onclick=showPreferences;
     $('sidebarPreferences').onclick=showPreferences;
     $('sidebarSettings').onclick=showSettings;
-    $('preferencesClose').onclick=()=>$('preferencesDialog').close();
-    $('preferencesCancel').onclick=()=>$('preferencesDialog').close();
+    $('preferencesClose').onclick=cancelPreferences;
+    $('preferencesCancel').onclick=cancelPreferences;
+    $('preferencesDialog').addEventListener('cancel',()=>applyVaultTheme(state.theme));
+    $('prefTheme').onchange=event=>applyVaultTheme(event.target.value);
     $('preferencesForm').onsubmit=savePreferences;
     $('clearBrowseHistory').onclick=()=>{
       clearBrowsingPosition();
@@ -4341,7 +4401,7 @@
     $('clientIdInput').oninput=()=>$('clientIdInput').setCustomValidity('');
     $('sheetIdInput').oninput=()=>$('sheetIdInput').setCustomValidity('');
     $('settingsForm').onsubmit=saveSettings;
-    $('connectButton').onclick=connect;$('heroConnectButton').onclick=connect;$('disconnectButton').onclick=disconnect;
+    $('connectButton').onclick=()=>connect();$('heroConnectButton').onclick=()=>connect();$('disconnectButton').onclick=disconnect;
     $('installButton').onclick=installApp;$('installClose').onclick=()=>$('installDialog').close();$('installOkay').onclick=()=>$('installDialog').close();
     $('exploreButton').onclick=()=>displayPage('all');$('seeAllButton').onclick=()=>displayPage('all');
     $('commandSync').onclick=()=>refreshSheetAndDrive();
@@ -4513,12 +4573,14 @@
     window.addEventListener('appinstalled',()=>{state.installPrompt=null;alertUser('Image Vault installed. You can launch it from your Windows Start menu or taskbar.', 'success');});
   }
   function init() {
+    applyVaultTheme(state.theme);
     buildFolderIndex();initEvents();updateStatus();render();$('originText').textContent=location.origin;
     if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){
       navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(()=>{});
     }
     if(location.protocol==='file:')alertUser('This is a design preview. Launch the Windows EXE to connect Google Drive.');
     autoCheckOnStartup();
+    tryAutoReconnect();
   }
   init();
 })();
