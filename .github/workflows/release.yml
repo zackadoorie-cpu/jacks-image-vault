@@ -122,6 +122,8 @@ jobs:
           node scripts/build-memory-controller.cjs --check
           node scripts/build-command-center.cjs --check
           node scripts/build-command-controller.cjs --check
+          node scripts/build-review-inbox.cjs --check
+          node scripts/build-review-inbox-controller.cjs --check
           node scripts/build-video-library.cjs --check
           node scripts/build-video-controller.cjs --check
           node scripts/build-similarity-lab.cjs --check
