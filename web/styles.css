@@ -482,7 +482,7 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
   color-scheme:light;--bg:#eef2f8;--sidebar:#fcfbff;--surface:#ffffff;--surface2:#f0edfa;
   --line:#cbd3e7;--text:#1d2942;--muted:#53647c;--dim:#67778d;--purple:#5946aa;--purple2:#6d69cd;
   --blue:#2c709f;--green:#24755b;--orange:#956132;--hero-a:#e7dfff;--hero-b:#dbe9fc;
-  --theme-highlight:#e1d9ff;--theme-ink:#ffffff;--theme-glow:#b3a4f02c;--theme-glow-2:#94c3ee28;
+  --theme-highlight:#49368f;--theme-ink:#ffffff;--theme-glow:#b3a4f02c;--theme-glow-2:#94c3ee28;
   --shadow:0 22px 55px #293e6b20;
 }
 :root[data-theme] .sidebar{background:var(--sidebar);border-right-color:var(--line)}
@@ -665,6 +665,7 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
   border:1px solid var(--line);border-radius:13px;transition:border-color .16s ease,transform .16s ease,box-shadow .16s ease;
 }
 .palette-choice:hover{transform:translateY(-2px);border-color:var(--purple)}
+.palette-choice:last-child{grid-column:1/-1}
 .palette-choice[aria-pressed="true"]{
   border-color:var(--purple);box-shadow:0 0 0 2px color-mix(in srgb,var(--purple) 25%,transparent),
     0 10px 24px color-mix(in srgb,var(--purple) 12%,transparent);
@@ -683,7 +684,7 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .palette-choice[data-palette="daylight"] .palette-choice-scene{background:radial-gradient(circle at 73% 20%,#b9a5ff99,transparent 45%),linear-gradient(125deg,#eef3fa,#a7c7eb)}
 .palette-choice[data-palette="daylight"] .palette-choice-scene::before{border-color:#7062a366;background:#ffffffaa;box-shadow:-27px 9px 0 -9px #7967af33}
 .palette-choice[data-palette="daylight"] .palette-choice-scene::after{background:#5643aab5;box-shadow:0 13px 0 -2px #5643aa73}
-@media(max-width:440px){.palette-choice-grid{grid-template-columns:1fr}}
+@media(max-width:440px){.palette-choice-grid{grid-template-columns:1fr}.palette-choice:last-child{grid-column:auto}}
 @media(prefers-reduced-motion:reduce){.palette-choice,:root[data-theme] body{transition:none}.palette-choice:hover{transform:none}}
 @media(max-width:1050px){
  .vault-home-hero{grid-template-columns:minmax(0,1fr) minmax(180px,.55fr)}
