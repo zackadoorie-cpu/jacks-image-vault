@@ -103,6 +103,13 @@ downloaded just by opening the Video Library**.
   or three-frame storyboard updates session-only evidence, **not the Sheet**.
   Playback reaching the end is shown separately and **does not prove full inspection**.
   A still, storyboard or playback event **never verifies audio**.
+- **Video descriptions:** Catalog cards now show the already indexed visual
+  description from the private Google Sheet, or a clearly labeled
+  device-local review note if one exists. The cards show a three-line
+  snippet and link to the complete detail view. A missing description
+  is visibly labeled **Description missing**; filenames are not treated
+  as visual evidence. Source descriptions based on sampled frames do
+  not imply full-video review or audio verification.
 - **Storyboards:** Select a video and press *Generate 3-frame storyboard*. The app
   checks browser codec support, downloads at most **12 MB** of the chosen clip
   using the existing authenticated, cancellable Google API reader, validates MP4
