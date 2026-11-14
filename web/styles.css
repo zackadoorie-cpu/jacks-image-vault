@@ -267,6 +267,13 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .video-library-card p{font-size:11px;color:var(--muted);margin:7px 0 0;line-height:1.6;overflow-wrap:anywhere}
 .video-library-card small{color:#aaa8c7;font-size:11px}
 .video-library-card .video-library-evidence{color:#d4c0ef;font-weight:600}
+.video-library-card .video-library-description{margin:11px 0 9px;padding:10px 12px;border:1px solid #394459;background:#1b2330;border-radius:9px}
+.video-library-card .video-library-description-label{display:block;color:#d5c7f0;font-size:10px;font-weight:750;letter-spacing:.2px}
+.video-library-card .video-library-description-text{color:#eceaf5;font-size:12px;line-height:1.65;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;margin:5px 0 0}
+.video-library-card .video-library-description-missing{border-style:dashed;border-color:#876c47;background:#29251e}
+.video-library-card .video-library-description-missing .video-library-description-label{color:#edd3a3}
+.video-library-card .video-library-description-missing p{color:#e0c9a2}
+
 .video-library-card .video-library-limit{min-height:31px}
 .video-library-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
 .video-library-actions .btn{font-size:11px;min-height:34px;padding:8px 10px}
