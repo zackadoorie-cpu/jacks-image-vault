@@ -47,6 +47,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Windows updater, release fallback and security tests
         shell: pwsh
         run: go test ./...
@@ -59,6 +62,9 @@ jobs:
       - name: Start EXE and verify private loopback UI
         shell: pwsh
         run: ./scripts/windows-smoke.ps1 -ExecutablePath "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe"
+      - name: Upgrade native EXE with fabricated ZIP, restart and rollback
+        shell: pwsh
+        run: ./scripts/windows-upgrade-smoke.ps1 -ExecutablePath "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe"
 
   release:
     if: github.ref == 'refs/heads/main'
