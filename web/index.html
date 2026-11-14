@@ -627,7 +627,8 @@
     </section>
     <section class="browser-install-section">
       <h3>Recommended: browser app with its own taskbar icon</h3>
-      <p class="dialog-copy">In Edge, use the app install option in the browser menu, then open <strong>edge://apps</strong> in Edge and choose <strong>Details → Pin to taskbar</strong> for Image Vault. This uses the installed app's own icon instead of the browser's generic icon. The Windows launcher still needs to run to serve localhost.</p>
+      <p class="dialog-copy">For the running window's own taskbar icon, open <strong>http://localhost:8765/</strong> in a normal Microsoft Edge tab while the Vault EXE is running. Use Edge's <strong>Apps → Install this site as an app</strong> option, then open <strong>edge://apps</strong> and choose <strong>Details → Pin to taskbar</strong>.</p>
+      <p class="field-help"><strong>Important:</strong> A pinned browser app cannot start the local Vault server by itself. When Vault is fully closed, open its Windows Desktop or Start Menu launcher first. The browser app pin is for the running window's identity.</p>
       <button id="installBrowserButton" class="btn outline" type="button">Install browser app for taskbar</button>
       <p id="installBrowserStatus" class="field-help" role="status">The browser may offer an Install icon in the address bar.</p>
     </section>
