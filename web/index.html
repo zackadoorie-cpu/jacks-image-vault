@@ -527,6 +527,20 @@
       <p class="field-help">The OAuth client must list <code id="originText"></code> under <strong>Authorized JavaScript origins</strong>. Google Sheets API and Drive API must be enabled. Use read-only scopes. Sign-in always requires your approval.</p>
       <div class="dialog-actions"><button class="btn outline" id="cancelSettings" type="button">Cancel</button><button class="btn primary" type="submit">Save connection settings</button></div>
     </form>
+    <section id="desktopAuthSection" class="windows-install-section" aria-labelledby="desktopAuthHeading" hidden>
+      <h3 id="desktopAuthHeading">Windows desktop sign-in (optional beta)</h3>
+      <p class="dialog-copy">Open Google authorization in your normal system browser using a separate <strong>Desktop application OAuth client</strong>. The existing Connect Drive method stays available. The inventory spreadsheet ID must be saved above first.</p>
+      <label class="field-label" for="desktopClientIdInput">Google OAuth Desktop client ID</label>
+      <input class="field" id="desktopClientIdInput" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="180" placeholder="Desktop client ID from Google Cloud">
+      <label class="field-label" for="desktopClientSecretInput">Desktop client secret (only if listed in your downloaded Desktop client credentials)</label>
+      <input class="field" id="desktopClientSecretInput" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Optional Desktop client secret">
+      <p class="field-help">Neither value is saved by this beta feature. Never enter your Google account password. Read-only Drive and Sheets access is requested, and refresh tokens are never retained.</p>
+      <div class="dialog-actions">
+        <button class="btn outline" id="desktopAuthCancelButton" type="button" disabled>Cancel authorization</button>
+        <button class="btn primary" id="desktopAuthConnectButton" type="button">Connect via system browser</button>
+      </div>
+      <p class="field-help" id="desktopAuthMessage" role="status" aria-live="polite">This uses a new authorization separate from your browser-based connection.</p>
+    </section>
   </dialog>
 
   <dialog id="imageDialog" class="dialog image-dialog" aria-label="Media details">
