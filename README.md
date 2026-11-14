@@ -15,6 +15,41 @@ This phase adds unit tests for duplicate Drive IDs, cross-folder leads, false-po
 
 **Release gate:** this feature is a proposed development PR until CI, the Windows build, and manual gallery/selection/cancel testing pass. It is not part of the published v2.1.1 installer.
 
+## Phase 5: Video Library and storyboards (development)
+
+The **Video Library** adds an indexed, read-only video catalog, pagination, evidence filters,
+links back to Drive, and opt-in three-frame storyboard previews. Videos are **never
+downloaded just by opening the Video Library**.
+
+- **Source evidence:** The Sheet's `Manifest` review status and analysis method are
+  normalized by the existing media contract. Unverified, poster-only, sampled-frame,
+  and documented full-video visual review remain different states. A generated poster
+  or three-frame storyboard updates session-only evidence, **not the Sheet**.
+  Playback reaching the end is shown separately and **does not prove full inspection**.
+  A still, storyboard or playback event **never verifies audio**.
+- **Storyboards:** Select a video and press *Generate 3-frame storyboard*. The app
+  checks browser codec support, downloads at most **12 MB** of the chosen clip
+  using the existing authenticated, cancellable Google API reader, validates MP4
+  (`ftyp`) or WebM (EBML) headers, decodes metadata, and seeks to 15%, 50% and 85%.
+  Frames are scaled to at most 320×180, memory-only, and released on close,
+  cancel, disconnect or media change. Durations, dimensions, decoder errors and
+  8-second per-step timeouts are bounded. Sampling is **not** full video review.
+- **Playback:** The existing player keeps its **32 MB** limit (20 MB for GIFs),
+  rejects malformed MP4/WebM headers and unsupported browser codecs, and
+  directs users to **Open in Drive** for oversized or unsupported clips.
+  No remote transcoding, analysis, uploads, external image host or Drive edit occurs.
+
+Pure logic and tests live in `src/video-library.js` and
+`tests/video-library.test.cjs`. The browser controller lives in
+`src/video-controller.js`. Run both `scripts/build-video-*.cjs` commands to
+regenerate the embedded `web/app.js` content; CI checks `--check`. No new
+runtime paths were added to the preexisting Windows patch ZIP allowlist.
+
+**Release gate:** This work is on a feature PR branch, not in the published v2.1.2
+release. Test against fabricated MP4/WebM fixtures and real Windows playback,
+cancellation and rollback before merging and creating a future version.
+Phase 4's PR #28 must also be reconciled before claiming the full roadmap shipped.
+
 ## v2.1.1 updater recovery
 
 Some Windows network environments return **HTTP 403** when the built-in updater downloads GitHub release ZIP assets. v2.1.1 first tries the verified browser release URL, then GitHub's official public release-asset API. It still requires an approved update and verifies the ZIP format, the release tag, SHA-256 digest (when provided), allowlisted files and per-file checksums before installation. Both download paths stay on trusted GitHub hosts.
