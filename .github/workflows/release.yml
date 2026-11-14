@@ -49,8 +49,8 @@ jobs:
             exit 1
           fi
           echo "### Release preflight passed" >> "$GITHUB_STEP_SUMMARY"
-          echo "Requested release: `$TAG`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Latest published release: `${LATEST:-none}`" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Requested release: %s\n' "$TAG" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Latest published release: %s\n' "${LATEST:-none}" >> "$GITHUB_STEP_SUMMARY"
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
