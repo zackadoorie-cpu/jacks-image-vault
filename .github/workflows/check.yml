@@ -21,7 +21,7 @@ jobs:
       - name: Randomized ZIP fuzz and concurrent updater race detector
         run: |
           go test -race -run TestChaos -count=2 ./...
-          go test -run '^
+          go test -run '^$' -fuzz '^FuzzParseZip$' -fuzztime=3s -parallel=2 .
       - name: Check portable source bundle and JavaScript
         run: |
           node scripts/build-media-contract.cjs --check
