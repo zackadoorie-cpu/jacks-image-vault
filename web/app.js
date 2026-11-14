@@ -118,6 +118,12 @@
     posterController: null,
     posterWorkingId: null,
     posterError: new Map(),
+    videoLibraryFilter: 'all',
+    videoLibraryPage: 1,
+    videoSessionEvidence: new Map(),
+    storyboardController: null,
+    storyboardWorkingId: null,
+    storyboardFrames: [],
   };
   const safeId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{10,}$/.test(id);
   const format = n => Number(n || 0).toLocaleString('en-US');
@@ -579,6 +585,97 @@
       memoryDedupe,memoryMatches,memoryBuildTimeline,memoryMonthLabel};
   })();
   /* GENERATED MEMORY LANE END */
+  /* GENERATED VIDEO LIBRARY START */
+  const videoLibrary=(()=>{
+    const VIDEO_LIBRARY_SCHEMA=1;
+    const VIDEO_STORYBOARD_MAX=12*1024*1024;
+    const VIDEO_PLAYBACK_MAX=32*1024*1024;
+    const VIDEO_STORYBOARD_FRAMES=3;
+    const VIDEO_MAX_DIMENSION=3840;
+    const VIDEO_MAX_PIXELS=16000000;
+    const VIDEO_CATALOG_PAGE=36;
+    const VIDEO_EVIDENCE=Object.freeze(['unverified','poster-only','sampled-frames','full-video']);
+    function videoMime(item){
+      return String(typeof item==='string'?item:item?.mime||'').split(';')[0].toLowerCase().trim();
+    }
+    function videoFormat(item){
+      const mime=videoMime(item);
+      return mime==='video/mp4'?'MP4':mime==='video/webm'?'WebM':'Unsupported';
+    }
+    function videoEligibility(item,{operation='storyboard',canPlay=true}={}){
+      const size=Number(item?.size),format=videoFormat(item);
+      const limit=operation==='playback'?VIDEO_PLAYBACK_MAX:VIDEO_STORYBOARD_MAX;
+      if(format==='Unsupported')return {allowed:false,reason:'This video format is not supported by the in-app player. Open in Drive.',limit};
+      if(!Number.isSafeInteger(size)||size<=0)return {allowed:false,reason:'Video size is unknown. Open in Drive rather than downloading without a safe limit.',limit};
+      if(size>limit)return {allowed:false,reason:'This video exceeds the '+(limit/1048576)+' MB in-app '+(operation==='playback'?'playback':'storyboard')+' limit. Open in Drive.',limit};
+      if(!canPlay)return {allowed:false,reason:'This browser does not support the reported video codec. Open in Drive.',limit};
+      return {allowed:true,reason:'',limit};
+    }
+    function videoValidateSignature(bytes,item){
+      const data=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes||[]);
+      const format=videoFormat(item);
+      if(format==='MP4'){
+        return data.length>=12 &&
+          data[4]===0x66&&data[5]===0x74&&data[6]===0x79&&data[7]===0x70;
+      }
+      if(format==='WebM'){
+        return data.length>=8 &&
+          data[0]===0x1a&&data[1]===0x45&&data[2]===0xdf&&data[3]===0xa3;
+      }
+      return false;
+    }
+    function videoStoryboardTimes(duration){
+      const n=Number(duration);
+      if(!Number.isFinite(n)||n<=0||n>12*60*60)throw new Error('Invalid or unavailable video duration');
+      // Avoid sampling frame zero, which is frequently a black thumbnail.
+      const positions=[0.15,0.5,0.85].map(p=>Math.max(0,Math.min(n-0.04,n*p)));
+      return positions.map(x=>Number(x.toFixed(3)));
+    }
+    function videoEvidence(item,session={}){
+      const manifest=String(item?.provenance?.visual?.level||'').toLowerCase();
+      const valid=VIDEO_EVIDENCE.includes(manifest)?manifest:'unverified';
+      const frameCount=Number.isSafeInteger(session.sampledFrames)?session.sampledFrames:0;
+      const local=frameCount>=VIDEO_STORYBOARD_FRAMES?'sampled-frames':
+        session.poster===true?'poster-only':'unverified';
+      const order=VIDEO_EVIDENCE;
+      const level=order.indexOf(valid)>=order.indexOf(local)?valid:local;
+      const origin=order.indexOf(valid)>=order.indexOf(local)&&valid!=='unverified'?'manifest':
+        local!=='unverified'?'session':'none';
+      const titles={
+        unverified:'Visual review not verified',
+        'poster-only':'Still poster only',
+        'sampled-frames':'Sampled video frames',
+        'full-video':'Full video visual review documented in Manifest'
+      };
+      return {level,origin,label:titles[level],
+        playback:session.playbackEnded===true?
+          'Playback reached the end during this session, not a content review':
+          'Playback completion not established',
+        audio:'Audio not reviewed. A poster, storyboard, or playback event does not verify audio.'};
+    }
+    function videoList(records,{filter='all',page=1}={}){
+      const seen=new Set(),list=[];
+      for(const item of Array.isArray(records)?records:[]){
+        if(!item||typeof item.id!=='string'||!item.id||seen.has(item.id)||!videoMime(item).startsWith('video/'))continue;
+        seen.add(item.id);
+        const evidence=videoEvidence(item).level;
+        if(filter==='unverified'&&evidence!=='unverified')continue;
+        if(filter==='reviewed'&&evidence==='unverified')continue;
+        if(filter==='oversized'&&videoEligibility(item,{operation:'storyboard'}).allowed)continue;
+        list.push(item);
+      }
+      list.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''))||a.id.localeCompare(b.id));
+      const totalPages=Math.max(1,Math.ceil(list.length/VIDEO_CATALOG_PAGE));
+      const current=Math.max(1,Math.min(totalPages,Math.floor(Number(page)||1)));
+      return {total:list.length,page:current,pageCount:Math.max(1,Math.ceil(list.length/VIDEO_CATALOG_PAGE)),
+        entries:list.slice((current-1)*VIDEO_CATALOG_PAGE,current*VIDEO_CATALOG_PAGE)};
+    }
+    return {VIDEO_LIBRARY_SCHEMA,VIDEO_STORYBOARD_MAX,VIDEO_PLAYBACK_MAX,
+      VIDEO_STORYBOARD_FRAMES,VIDEO_MAX_DIMENSION,VIDEO_MAX_PIXELS,VIDEO_CATALOG_PAGE,
+      VIDEO_EVIDENCE,videoMime,videoFormat,videoEligibility,videoValidateSignature,
+      videoStoryboardTimes,videoEvidence,videoList};
+  })();
+  /* GENERATED VIDEO LIBRARY END */
   /* GENERATED SIMILARITY LAB START */
   const similarityEngine=(()=>{
     const SIMILARITY_MAX_SCAN=20000;
@@ -2358,6 +2455,7 @@
     state.activeControllers.clear(); state.loadingThumbs.clear();
     for (const entry of state.thumbCache.values()) if (entry?.objectUrl) URL.revokeObjectURL(entry.src);
     state.thumbCache.clear(); state.thumbErrors.clear();state.posterError.clear();
+    videoClearStoryboard();
     if (state.observer) {state.observer.disconnect();state.observer=null;}
   }
   function disconnect() {
@@ -2365,7 +2463,7 @@
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
     saveBrowsingPosition();
-    stopScans();stopVideo();similarityClearLocal();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+    stopScans();stopVideo();similarityClearLocal();state.videoSessionEvidence.clear();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
@@ -2501,9 +2599,186 @@
     }
   }
   /* GENERATED SIMILARITY CONTROLLER END */
+  /* GENERATED VIDEO CONTROLLER START */
+  function videoSession(item){
+    return state.videoSessionEvidence.get(item?.id)||{};
+  }
+  function videoEvidenceMessage(item){
+    const e=videoLibrary.videoEvidence(item,videoSession(item));
+    const source=e.origin==='manifest'?'Source: Manifest':e.origin==='session'?'Source: session-only preview':'No verified visual evidence';
+    return e.label+' · '+source+' · '+e.playback+'. '+e.audio;
+  }
+  function videoUpdateEvidence(item){
+    $('videoEvidenceStatus').textContent=item&&mediaKind(item)==='video'?videoEvidenceMessage(item):'';
+    $('videoEvidenceStatus').classList.toggle('hidden',!item||mediaKind(item)!=='video');
+  }
+  function videoRenderCatalog(){
+    const all=state.connected?state.images:[];
+    const count=all.filter(x=>mediaKind(x)==='video').length;
+    const listing=videoLibrary.videoList(all,{filter:state.videoLibraryFilter,page:state.videoLibraryPage});
+    state.videoLibraryPage=Math.min(listing.page,listing.pageCount);
+    $('videoCatalogSummary').textContent=state.connected?
+      format(count)+' video files · '+format(listing.total)+' match this filter · page '+
+      listing.page+' of '+listing.pageCount:
+      'Connect Drive to inspect videos already indexed in your private Google Sheet.';
+    $('videoCatalogFilter').value=state.videoLibraryFilter;
+    $('videoCatalogPrev').disabled=listing.page<=1;
+    $('videoCatalogNext').disabled=listing.page>=listing.pageCount;
+    $('videoCatalogList').innerHTML=listing.entries.length?listing.entries.map(item=>{
+      const ev=videoLibrary.videoEvidence(item);
+      const preview=videoLibrary.videoEligibility(item,{operation:'storyboard'});
+      const reason=preview.allowed?'Storyboard available on request (12 MB max)':preview.reason;
+      return '<article class="video-library-card"><div class="video-library-glyph" aria-hidden="true">▶</div>'+
+        '<div class="video-library-card-body"><strong>'+escapeHTML(item.name)+'</strong><p>'+
+        escapeHTML(item.folder||'Unknown folder')+'</p><small>'+escapeHTML(videoLibrary.videoFormat(item))+
+        ' · '+escapeHTML(humanBytes(item.size))+'</small>'+
+        '<p class="video-library-evidence">'+escapeHTML(ev.label)+' · '+escapeHTML(ev.origin)+'</p>'+
+        '<p class="video-library-limit">'+escapeHTML(reason)+'</p>'+
+        '<div class="video-library-actions"><button type="button" class="btn outline" data-video-open="'+
+        escapeHTML(item.id)+'">Open video details</button><a class="btn quiet" target="_blank" rel="noopener noreferrer" href="'+
+        escapeHTML(linkToDrive(item))+'">Open in Drive</a></div></div></article>';
+    }).join(''):
+      '<p class="video-library-empty">No videos match this filter. No source files have been changed.</p>';
+    $('videoCatalogList').querySelectorAll('[data-video-open]').forEach(btn=>
+      btn.addEventListener('click',()=>{
+        const item=state.images.find(x=>x.id===btn.dataset.videoOpen);
+        if(!item)return;
+        state.filtered=state.images.filter(x=>mediaKind(x)==='video');
+        openImage(item.id,btn);
+      }));
+  }
+  function videoClearStoryboard(){
+    state.storyboardController?.abort();
+    state.storyboardController=null;
+    for(const frame of state.storyboardFrames)if(frame.url)URL.revokeObjectURL(frame.url);
+    state.storyboardFrames=[];
+    state.storyboardWorkingId=null;
+    $('storyboardPanel').classList.add('hidden');
+    $('storyboardFrames').innerHTML='';
+    $('storyboardStatus').textContent='';
+    $('storyboardButton').disabled=false;
+    $('storyboardCancel').classList.add('hidden');
+  }
+  function videoFrameWait(video,event,signal,timeout=8000){
+    return new Promise((resolve,reject)=>{
+      if(signal?.aborted)return reject(new Error('Video sampling cancelled'));
+      let done=false,timer;
+      const finish=(error)=>{
+        if(done)return;
+        done=true;clearTimeout(timer);
+        video.removeEventListener(event,onReady);
+        video.removeEventListener('error',onError);
+        signal?.removeEventListener('abort',onAbort);
+        error?reject(error):resolve();
+      };
+      const onReady=()=>finish(),onError=()=>finish(new Error('Unsupported or malformed video content'));
+      const onAbort=()=>finish(new Error('Video sampling cancelled'));
+      timer=setTimeout(()=>finish(new Error('Video decoder timed out')),timeout);
+      video.addEventListener(event,onReady,{once:true});
+      video.addEventListener('error',onError,{once:true});
+      signal?.addEventListener('abort',onAbort,{once:true});
+    });
+  }
+  async function videoCheckSignature(source,item){
+    const header=new Uint8Array(await source.slice(0,32).arrayBuffer());
+    if(!videoLibrary.videoValidateSignature(header,item))
+      throw new Error('The downloaded video has an invalid or unexpected MP4/WebM header. Open in Drive.');
+  }
+  async function videoMakeStoryboard(source,item,signal){
+    await videoCheckSignature(source,item);
+    if(signal.aborted)throw new Error('Video sampling cancelled');
+    const mediaUrl=URL.createObjectURL(new Blob([source],{type:item.mime}));
+    const video=document.createElement('video');
+    video.muted=true;video.playsInline=true;video.preload='metadata';
+    const frames=[];
+    try{
+      const metadata=videoFrameWait(video,'loadedmetadata',signal);
+      video.src=mediaUrl;video.load();
+      await metadata;
+      if(!video.videoWidth||!video.videoHeight||video.videoWidth>videoLibrary.VIDEO_MAX_DIMENSION||
+         video.videoHeight>videoLibrary.VIDEO_MAX_DIMENSION||
+         video.videoWidth*video.videoHeight>videoLibrary.VIDEO_MAX_PIXELS)
+        throw new Error('Video dimensions exceed the safe storyboard decode limit');
+      const times=videoLibrary.videoStoryboardTimes(video.duration);
+      const canvas=document.createElement('canvas');
+      const scale=Math.min(1,320/video.videoWidth,180/video.videoHeight);
+      canvas.width=Math.max(1,Math.round(video.videoWidth*scale));
+      canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
+      const ctx=canvas.getContext('2d');
+      if(!ctx)throw new Error('Canvas video preview is unavailable');
+      for(const time of times){
+        if(signal.aborted)throw new Error('Video sampling cancelled');
+        const seek=videoFrameWait(video,'seeked',signal);
+        video.currentTime=time;
+        await seek;
+        if(signal.aborted)throw new Error('Video sampling cancelled');
+        ctx.drawImage(video,0,0,canvas.width,canvas.height);
+        const still=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.73));
+        if(!still)throw new Error('Browser could not encode a storyboard frame');
+        frames.push({time,blob:still,width:video.videoWidth,height:video.videoHeight});
+      }
+      return frames;
+    }finally{
+      video.pause();video.removeAttribute('src');video.load();
+      URL.revokeObjectURL(mediaUrl);
+    }
+  }
+  function videoShowStoryboard(){
+    const item=state.activeImage;
+    if(!item||!state.storyboardFrames.length||state.storyboardWorkingId!==item.id)return;
+    $('storyboardPanel').classList.remove('hidden');
+    $('storyboardStatus').textContent='Three sampled frames only · not a full video or audio review.';
+    $('storyboardFrames').innerHTML=state.storyboardFrames.map((frame,i)=>
+      '<figure class="video-frame"><img src="'+escapeHTML(frame.url)+'" alt="Sample '+(i+1)+
+      ' from video at '+frame.time.toFixed(1)+' seconds"><figcaption>'+
+      escapeHTML(frame.time.toFixed(1))+' s · '+escapeHTML(frame.width+' × '+frame.height)+
+      ' px source</figcaption></figure>').join('');
+  }
+  async function videoGenerateStoryboard(){
+    const item=state.activeImage;
+    if(!item||mediaKind(item)!=='video'||item.demo||state.storyboardController)return;
+    const probe=document.createElement('video');
+    const canPlay=!!probe.canPlayType?.(item.mime||'');
+    const eligible=videoLibrary.videoEligibility(item,{operation:'storyboard',canPlay});
+    if(!eligible.allowed){$('previewDetails').textContent=eligible.reason;return;}
+    videoClearStoryboard();
+    const controller=new AbortController();
+    state.storyboardController=controller;
+    state.storyboardWorkingId=item.id;
+    $('storyboardButton').disabled=true;
+    $('storyboardCancel').classList.remove('hidden');
+    $('storyboardPanel').classList.remove('hidden');
+    $('storyboardStatus').textContent='Downloading a bounded video and sampling three frames…';
+    try{
+      const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(item.id)+
+        '?alt=media&supportsAllDrives=true';
+      const source=await googleGet(url,{blob:true,maxBytes:videoLibrary.VIDEO_STORYBOARD_MAX,signal:controller.signal});
+      if(controller.signal.aborted||state.storyboardController!==controller||state.activeImage?.id!==item.id)return;
+      const frames=await videoMakeStoryboard(source,item,controller.signal);
+      if(controller.signal.aborted||state.storyboardController!==controller||state.activeImage?.id!==item.id)return;
+      state.storyboardFrames=frames.map(x=>({...x,url:URL.createObjectURL(x.blob),blob:null}));
+      const old=videoSession(item);
+      state.videoSessionEvidence.set(item.id,{...old,sampledFrames:frames.length});
+      videoShowStoryboard();
+      videoUpdateEvidence(item);
+      renderMediaDiagnostic(item);
+    }catch(error){
+      if(!controller.signal.aborted&&state.activeImage?.id===item.id){
+        $('storyboardStatus').textContent='Could not sample this video: '+
+          (error?.message||'Unknown decoder error')+'. Open in Drive instead.';
+      }
+    }finally{
+      if(state.storyboardController===controller){
+        state.storyboardController=null;
+        $('storyboardButton').disabled=false;
+        $('storyboardCancel').classList.add('hidden');
+      }
+    }
+  }
+  /* GENERATED VIDEO CONTROLLER END */
   function displayPage(view,{reset=true,scroll=true}={}) {
     if(state.connected&&browsingView())saveBrowsingPosition();
-    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'){
+    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'){
       state.autoLoadObserver?.disconnect();
       state.autoLoadObserver=null;
       state.galleryRevision++;
@@ -2515,7 +2790,8 @@
       if($('folderSearch'))$('folderSearch').value='';
     }
     $('homeView').classList.toggle('hidden',view!=='home');
-    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity');
+    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library');
+    $('videoLibraryView').classList.toggle('hidden',view!=='video-library');
     $('similarityView').classList.toggle('hidden',view!=='similarity');
     $('memoryView').classList.toggle('hidden',view!=='memory');
     $('smartView').classList.toggle('hidden',view!=='smart');
@@ -2525,7 +2801,7 @@
     if(scroll)window.scrollTo({top:0,behavior:'smooth'});
     updateScrollControls();
   }
-  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else renderGallery();}
+  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
     $('statImages').textContent=count(state.images.length);
@@ -2886,6 +3162,8 @@
     const link=$('openDriveLink');link.href=linkToDrive(item)||'#';link.classList.toggle('hidden',!linkToDrive(item));
     $('favoriteImage').disabled=item.demo;updateFavoriteButton();
     populateReviewEditor(item);
+    videoUpdateEvidence(item);
+    $('storyboardButton').classList.toggle('hidden',item.demo||mediaKind(item)!=='video');
     const playable=mediaKind(item)==='video'||isGIF(item);
     $('playVideoButton').classList.toggle('hidden',!playable||item.demo);
     $('playVideoButton').textContent=isGIF(item)?'▶ Play GIF animation':'▶ Play video';
@@ -2897,7 +3175,8 @@
     const style=folderStyle(item.folder), error=state.thumbErrors.get(item.id), kind=mediaKind(item);
     $('retryPreview').classList.toggle('hidden',item.demo||!error||kind==='pdf');
     $('generatePosterButton').classList.toggle('hidden',item.demo||kind!=='video');
-    $('generatePosterButton').disabled=!!state.posterController||item.size>MAX_POSTER_VIDEO||!state.connected;
+    $('generatePosterButton').disabled=!!state.posterController||
+      !videoLibrary.videoEligibility(item,{operation:'storyboard',canPlay:!!document.createElement('video').canPlayType?.(item.mime||'')}).allowed||!state.connected;
     $('generatePosterButton').title=item.size>MAX_POSTER_VIDEO?'12 MB thumbnail limit':'Create a local preview frame without modifying the original';
     const diagnostic=kind==='video'||isGIF(item)||!!error;
     $('mediaDiagnostics').classList.toggle('hidden',!diagnostic);
@@ -2912,6 +3191,7 @@
   function stopVideo(){
     state.videoController?.abort();state.videoController=null;
     state.posterController?.abort();state.posterController=null;
+    videoClearStoryboard();
     $('generatePosterButton').disabled=false;
     const el=$('modalPicture').querySelector('video');if(el)el.pause();
     if(state.videoObjectUrl)URL.revokeObjectURL(state.videoObjectUrl);
@@ -2926,6 +3206,7 @@
     const entry=state.thumbCache.get(item.id);
     const label=entry?(entry.kind==='generated'?'Locally generated still':entry.kind==='signed'?'Google Drive thumbnail':'Authenticated image'):'Unavailable';
     $('mediaDiagnostics').textContent=`Format: ${item.mime||'Unknown'} · Size: ${humanBytes(item.size)} · Thumbnail: ${label}${reason?' · Note: '+reason:''}`;
+    if(mediaKind(item)==='video')videoUpdateEvidence(item);
   }
   async function videoFrameBlob(source,mime,signal){
     // Extract one frame with the browser's decoder. The original file is never modified.
@@ -2986,12 +3267,16 @@
     try{
       const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
       const source=await googleGet(url,{blob:true,maxBytes:MAX_POSTER_VIDEO,signal:controller.signal});
+      await videoCheckSignature(source,item);
       if(controller.signal.aborted||state.posterController!==controller||state.activeImage?.id!==item.id)return;
       const jpeg=await videoFrameBlob(source,item.mime,controller.signal);
       if(controller.signal.aborted||state.posterController!==controller||state.activeImage?.id!==item.id)return;
       const src=URL.createObjectURL(jpeg);
       state.thumbErrors.delete(item.id);state.posterError.delete(item.id);
       putThumb(item.id,{src,objectUrl:true,kind:'generated'});
+      const previous=videoSession(item);
+      state.videoSessionEvidence.set(item.id,{...previous,poster:true});
+      videoUpdateEvidence(item);
       $('previewDetails').textContent='Preview frame saved in memory for this session. Original video unchanged.';
     }catch(error){
       if(!controller.signal.aborted&&state.activeImage?.id===item.id){
@@ -3033,6 +3318,7 @@
     try{
       const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
       const source=await googleGet(url,{blob:true,maxBytes,signal:controller.signal});
+      if(clip)await videoCheckSignature(source,item);
       if(state.videoController!==controller||state.activeImage?.id!==item.id||controller.signal.aborted)return;
       // Drive sometimes returns application/octet-stream. The inventory's verified
       // MIME tells the browser how to decode this private, in-memory file.
@@ -3056,6 +3342,11 @@
         video.setAttribute('aria-label',item.name);
         video.onerror=()=>{
           if(state.playingMediaId===item.id)$('previewDetails').textContent='This clip uses a codec the browser cannot decode. Open in Drive instead.';
+        };
+        video.onended=()=>{
+          if(state.playingMediaId!==item.id)return;
+          state.videoSessionEvidence.set(item.id,{...videoSession(item),playbackEnded:true});
+          videoUpdateEvidence(item);
         };
         video.src=objectUrl;
         $('modalPicture').appendChild(video);
@@ -3229,6 +3520,14 @@
     $('memorySourceSelect').onchange=e=>{state.memorySource=e.target.value;renderMemoryLane();scheduleBrowseSave();};
     $('memoryTodayButton').onclick=()=>memoryOpenGroup('today');
     $('memoryUnknownButton').onclick=()=>memoryOpenGroup('unknown');
+    $('videoCatalogFilter').onchange=event=>{
+      if(!['all','unverified','reviewed','oversized'].includes(event.target.value))return;
+      state.videoLibraryFilter=event.target.value;state.videoLibraryPage=1;videoRenderCatalog();
+    };
+    $('videoCatalogPrev').onclick=()=>{state.videoLibraryPage=Math.max(1,state.videoLibraryPage-1);videoRenderCatalog();};
+    $('videoCatalogNext').onclick=()=>{state.videoLibraryPage++;videoRenderCatalog();};
+    $('storyboardButton').onclick=videoGenerateStoryboard;
+    $('storyboardCancel').onclick=videoClearStoryboard;
     $('similarityCrossFolder').onchange=event=>{state.similarityCrossFolder=!!event.target.checked;renderSimilarityLab();};
     $('similarityClear').onclick=similarityClearLocal;
     $('similarityFiles').onchange=async event=>{
