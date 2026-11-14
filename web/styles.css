@@ -785,3 +785,18 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 #desktopAuthSection .field-help{line-height:1.5;color:var(--muted);font-size:12px}
 #desktopAuthSection .dialog-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 #desktopAuthSection .btn{white-space:normal}
+
+
+/* The native WebView2 host uses external-browser PKCE. Web OAuth setup
+   remains available only in the original Edge/Chrome launcher. */
+.vault-desktop-host #settingsForm > .dialog-copy,
+.vault-desktop-host #settingsForm > .field-label,
+.vault-desktop-host #settingsForm > .field,
+.vault-desktop-host #settingsForm > .remember,
+.vault-desktop-host #settingsForm > .field-help,
+.vault-desktop-host #settingsForm > .dialog-actions{display:none!important}
+.vault-desktop-host #desktopAuthSection{margin-top:8px}
+.vault-desktop-host #desktopSaveSheetButton{margin:0 0 16px}
+.vault-desktop-host #settingsTitle::after{
+  content:" · Native Windows";color:var(--purple);font-size:.7em;font-weight:600
+}

@@ -528,8 +528,11 @@
       <div class="dialog-actions"><button class="btn outline" id="cancelSettings" type="button">Cancel</button><button class="btn primary" type="submit">Save connection settings</button></div>
     </form>
     <section id="desktopAuthSection" class="windows-install-section" aria-labelledby="desktopAuthHeading" hidden>
-      <h3 id="desktopAuthHeading">Windows desktop sign-in (optional beta)</h3>
-      <p class="dialog-copy">Open Google authorization in your normal system browser using a separate <strong>Desktop application OAuth client</strong>. The existing Connect Drive method stays available. The inventory spreadsheet ID must be saved above first.</p>
+      <h3 id="desktopAuthHeading">Secure Windows desktop sign-in</h3>
+      <p class="dialog-copy">Google authorization opens in your normal system browser, never inside this Windows app window. Enter the same Sheet inventory ID you already use, plus a separate <strong>Desktop application OAuth client ID</strong>.</p>
+      <label class="field-label" for="desktopSheetIdInput">Image inventory spreadsheet ID</label>
+      <input class="field" id="desktopSheetIdInput" type="text" autocomplete="off" spellcheck="false" placeholder="Your existing Image Library Intelligence Sheet ID">
+      <button class="btn outline" id="desktopSaveSheetButton" type="button">Save spreadsheet ID</button>
       <label class="field-label" for="desktopClientIdInput">Google OAuth Desktop client ID</label>
       <input class="field" id="desktopClientIdInput" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="180" placeholder="Desktop client ID from Google Cloud">
       <label class="field-label" for="desktopClientSecretInput">Desktop client secret (only if listed in your downloaded Desktop client credentials)</label>
