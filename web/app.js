@@ -3606,7 +3606,7 @@
       $('appVersion').textContent=`v${status.version.replace(/^v/,'')} · ${status.source}`;
       $('rollbackButton').disabled=!status.canRollback;
       $('resetButton').disabled=status.source==='built-in';
-      showUpdateMessage(status.warning||'Ready. Install a local patch or check your GitHub releases.',!!status.warning);
+      showUpdateMessage(status.warning||status.notice||'Ready. Install a local patch or check your GitHub releases.',!!status.warning);
       return status;
     }catch{
       showUpdateMessage('Update controls work only with the new Windows v2 EXE.',true);
