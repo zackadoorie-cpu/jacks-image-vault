@@ -1,8 +1,20 @@
 # Jack's Image Vault — Windows image and media library
 
-**Status (2026-11-14):** v2.1.3 is the latest published release. Phase 4 Similarity Lab and Phase 5 Video Library have been merged into main but are not in that release. Phase 6 Command Center is developed in a separate PR pending review and test validation. The next update must use an unused version tag after the relevant release gate passes.
+**Status (2026-11-14):** v2.1.5 is the latest published release and includes Similarity Lab, Video Library and Command Center. Phase 7 updater reliability and release hardening are under review in PR #33 and are NOT included in v2.1.5. The next candidate after merge and validation is v2.1.6; do not reuse published tags.
 
-## Phase 6: Command Center, accessibility and browser E2E (PR development)
+## Phase 7: updater HTTP 403 recovery and release hardening (unreleased)
+
+**Why:** Older Windows EXEs ask `api.github.com/repos/OWNER/REPO/releases/latest` for public release metadata. If that endpoint returns HTTP 403, the older native updater fails before it can invoke its existing release-ZIP download fallback. The repository can be public and have valid releases even when this API call is blocked.
+
+- **Native discovery fallback:** For API 403/401/429/5xx and unreachable API requests, the new Windows executable consults the official public `https://github.com/OWNER/REPO/releases/latest` redirect. It accepts only an exact same-repository HTTPS release-tag URL with a three-number version. An off-repository redirect or malformed version fails closed.
+- **Truthful provenance:** When the release tag comes from the public page, the app explicitly says the ZIP asset is *not independently listed*. Installation remains a separate confirmation and verifies the downloaded ZIP schema, allowlist, SHA-256 hashes and matching release version before updating any file.
+- **Manual fallback at all times:** Updates displays a vetted link to the repository's public releases page even when both native network paths fail. Download `jacks-image-vault-patch.zip` in a browser, then select **Verify & install ZIP**. No credentials, Google images or OAuth scopes are sent to GitHub.
+- **Native fix requires a new EXE:** The ZIP replaces only `web/` UI files. Installing a ZIP onto an older `v2.1.5 · patched` executable cannot update its Go updater. Install the upcoming new **Windows EXE** after publication to receive the native 403 recovery code; leave the old executable closed to avoid port 8765 conflicts.
+- **Release gates:** Publishing now requires fabricated Playwright browser tests, Go and JavaScript regressions, real Windows EXE startup smoke, a versioned ZIP with an exact built-in asset allowlist, both inner and published SHA-256 checksums, and version/release preflight. Invalid or pre-existing version tags are rejected.
+- **Recovery:** A failed ZIP install must leave the current UI in place. The native app retains a previous UI state for rollback, or can restore its bundled baseline. User browser settings and Drive media are outside these installer operations.
+
+Test with `go test ./...`, `node --test tests/*.test.cjs`, `python3 -m unittest discover -s tests -p 'test_verify_release_assets.py'`, both workflow CI environments and a hands-on Windows upgrade/restart/rollback. Phase 7 has **not** been released just because its GitHub PR passes. No private files belong in any public release.
+## Phase 6: Command Center, accessibility and browser E2E (included in v2.1.5)
 
 The Overview screen is now a **Command Center** that separates data sources, evidence
 and operational states rather than reporting guessed live totals.
@@ -39,7 +51,7 @@ Edge/Chrome check still needs to verify keyboard shortcuts, full sync status
 changes, failed Google refresh, modal focus return and small-screen behavior
 against the intended app. Never silently update an installed EXE.
 
-## Phase 4: Similarity Lab (development, not released)
+## Phase 4: Similarity Lab (included in v2.1.5)
 
 The read-only **Similarity Lab** compares images in two deliberately different ways:
 
@@ -52,7 +64,7 @@ This phase adds unit tests for duplicate Drive IDs, cross-folder leads, false-po
 
 **Release gate:** this feature is a proposed development PR until CI, the Windows build, and manual gallery/selection/cancel testing pass. It is not part of the published v2.1.1 installer.
 
-## Phase 5: Video Library and storyboards (development)
+## Phase 5: Video Library and storyboards (included in v2.1.5)
 
 The **Video Library** adds an indexed, read-only video catalog, pagination, evidence filters,
 links back to Drive, and opt-in three-frame storyboard previews. Videos are **never

@@ -404,18 +404,73 @@ func (v *vault) status() map[string]any {
 	}(), "canRollback": v.choice.Active != "" || v.choice.Previous != "", "warning": v.warning, "nonce": v.nonce}
 }
 
+type releaseAssetInfo struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	BrowserURL string `json:"browser_download_url"`
+	Size       int64  `json:"size"`
+	Digest     string `json:"digest"`
+}
+
 type release struct {
-	Tag         string `json:"tag_name"`
-	HTMLURL     string `json:"html_url"`
-	PublishedAt string `json:"published_at"`
-	Body        string `json:"body"`
-	Assets      []struct {
-		ID         int64  `json:"id"`
-		Name       string `json:"name"`
-		BrowserURL string `json:"browser_download_url"`
-		Size       int64  `json:"size"`
-		Digest     string `json:"digest"`
-	} `json:"assets"`
+	Tag            string             `json:"tag_name"`
+	HTMLURL        string             `json:"html_url"`
+	PublishedAt    string             `json:"published_at"`
+	Body           string             `json:"body"`
+	Assets         []releaseAssetInfo `json:"assets"`
+	Discovery      string             `json:"-"`
+	AssetListKnown bool               `json:"-"`
+}
+
+// latestFromPublicPage is a bounded fallback for public GitHub releases when
+// the unauthenticated REST API is rate-limited or blocked. GitHub's official
+// /releases/latest route redirects to /releases/tag/vX.Y.Z. We use only the
+// canonical final URL: never scrape arbitrary HTML, follow an off-repository
+// redirect, or infer an asset digest from a public page.
+func (v *vault) latestFromPublicPage(repo string) (release, error) {
+	var result release
+	u := "https://github.com/" + repo + "/releases/latest"
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return result, err
+	}
+	req.Header.Set("User-Agent", "JacksImageVault/2.1")
+	req.Header.Set("Accept", "text/html")
+	resp, err := v.client.Do(req)
+	if err != nil {
+		return result, fmt.Errorf("public GitHub releases request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return result, fmt.Errorf("public GitHub releases returned HTTP %d", resp.StatusCode)
+	}
+	// GitHub handles owner and repository casing. Everything else, including
+	// the release tag, must match an exact, same-repository canonical path.
+	if resp.Request == nil || resp.Request.URL == nil {
+		return result, errors.New("public GitHub releases response has no verifiable final URL")
+	}
+	final := resp.Request.URL
+	prefix := "/" + repo + "/releases/tag/"
+	if final.Scheme != "https" || final.Hostname() != "github.com" ||
+		final.User != nil || final.RawQuery != "" || final.Fragment != "" ||
+		!strings.HasPrefix(strings.ToLower(final.Path), strings.ToLower(prefix)) {
+		return result, errors.New("public GitHub releases did not resolve to a trusted release tag")
+	}
+	tag := final.Path[len(prefix):]
+	if !versionRE.MatchString(tag) || strings.Contains(tag, "/") {
+		return result, errors.New("public GitHub release tag has an invalid version")
+	}
+	result.Tag = tag
+	result.HTMLURL = "https://github.com/" + repo + "/releases/tag/" + tag
+	result.Discovery = "public-release-page"
+	// The public latest URL proves only the tag, not the ZIP asset. The user
+	// must opt in to download; installGithub still enforces a matching signed-in
+	// HTTPS URL, ZIP allowlist, per-file SHA-256, and exact tag/version match.
+	result.Assets = []releaseAssetInfo{{
+		Name: archiveName,
+		BrowserURL: "https://github.com/" + repo + "/releases/download/" + tag + "/" + archiveName,
+	}}
+	return result, nil
 }
 
 func (v *vault) latest(repo string) (release, error) {
@@ -423,28 +478,45 @@ func (v *vault) latest(repo string) (release, error) {
 	if !repoRE.MatchString(repo) || strings.Contains(repo, "..") {
 		return result, errors.New("enter a GitHub repo as owner/repository")
 	}
-	req, err := http.NewRequest("GET", "https://api.github.com/repos/"+repo+"/releases/latest", nil)
+	req, err := http.NewRequest(http.MethodGet, "https://api.github.com/repos/"+repo+"/releases/latest", nil)
 	if err != nil {
 		return result, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "JacksImageVault/2.0")
+	req.Header.Set("User-Agent", "JacksImageVault/2.1")
 	resp, err := v.client.Do(req)
 	if err != nil {
-		return result, err
+		// The browser may still be able to reach the public release page even
+		// when api.github.com is blocked by a network rule.
+		if candidate, fallbackErr := v.latestFromPublicPage(repo); fallbackErr == nil {
+			return candidate, nil
+		}
+		return result, fmt.Errorf("GitHub API is unreachable. Open https://github.com/%s/releases/latest and install the ZIP manually", repo)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return result, fmt.Errorf("GitHub returned HTTP %d (check that the repository has a published release)", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		status := resp.StatusCode
+		if status == http.StatusForbidden || status == http.StatusTooManyRequests ||
+			status == http.StatusUnauthorized || status >= http.StatusInternalServerError {
+			if candidate, fallbackErr := v.latestFromPublicPage(repo); fallbackErr == nil {
+				return candidate, nil
+			} else {
+				return result, fmt.Errorf("GitHub API returned HTTP %d; %v. Open https://github.com/%s/releases/latest to download the ZIP manually", status, fallbackErr, repo)
+			}
+		}
+		return result, fmt.Errorf("GitHub API returned HTTP %d. Open https://github.com/%s/releases/latest if a release is expected", status, repo)
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil {
-		return result, err
+		return release{}, fmt.Errorf("invalid GitHub release metadata: %w", err)
 	}
 	if !versionRE.MatchString(result.Tag) {
-		return result, errors.New("release tag must be vMAJOR.MINOR.PATCH")
+		return release{}, errors.New("release tag must be vMAJOR.MINOR.PATCH")
 	}
+	result.Discovery = "api"
+	result.AssetListKnown = true
 	return result, nil
 }
+
 func releaseAsset(r release, repo string) (string, string, error) {
 	for _, a := range r.Assets {
 		if a.Name != archiveName {
@@ -605,7 +677,7 @@ func (v *vault) handleCheck(w http.ResponseWriter, r *http.Request) {
 	v.mu.RLock()
 	current := v.currentVersion
 	v.mu.RUnlock()
-	response(w, 200, map[string]any{"currentVersion": current, "releaseVersion": rls.Tag, "available": compareVersions(rls.Tag, current) > 0 && aerr == nil, "hasPatch": aerr == nil, "assetName": archiveName, "releaseURL": rls.HTMLURL, "publishedAt": rls.PublishedAt, "notes": rls.Body, "downloadURL": func() string {
+	response(w, 200, map[string]any{"currentVersion": current, "releaseVersion": rls.Tag, "available": compareVersions(rls.Tag, current) > 0 && aerr == nil, "hasPatch": aerr == nil, "patchListed": rls.AssetListKnown && aerr == nil, "lookupSource": rls.Discovery, "assetName": archiveName, "releaseURL": rls.HTMLURL, "publishedAt": rls.PublishedAt, "notes": rls.Body, "downloadURL": func() string {
 		if aerr == nil {
 			return asset
 		}

@@ -394,7 +394,8 @@
       <p class="field-help">The app checks this repository about once a day, but never installs an update without asking you. Release assets must be named <code>jacks-image-vault-patch.zip</code>.</p>
       <div class="update-buttons"><button class="btn quiet" id="saveRepoButton" type="button">Save repository</button><button class="btn outline" id="updateCheckButton" type="button">Check GitHub</button><button class="btn primary" id="githubInstallButton" type="button" disabled>Install update</button></div>
       <p class="update-note" id="releaseStatus">No GitHub release checked yet.</p>
-      <p class="update-note"><a id="manualReleaseLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Open GitHub release to download the ZIP manually</a></p>
+      <p class="update-note"><a id="manualReleaseLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Open public GitHub releases to download the ZIP manually</a></p>
+      <p class="field-help">A local ZIP updates the gallery interface, not the Windows launcher. If GitHub API HTTP 403 persists, install a newer Windows EXE when published to receive the native updater fix.</p>
     </div>
     <div class="update-section">
       <h3>Install a local patch</h3>
