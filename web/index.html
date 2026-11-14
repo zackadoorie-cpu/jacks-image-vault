@@ -30,6 +30,7 @@
         <button class="nav-item" data-view="favorites"><span class="nav-icon">♡</span>Favorites</button>
         <button class="nav-item" data-view="smart"><span class="nav-icon">✦</span>Smart Collections</button>
         <button class="nav-item" data-view="memory"><span class="nav-icon">◷</span>Memory Lane</button>
+        <button class="nav-item" data-view="video-library"><span class="nav-icon">▶</span>Video Library</button>
         <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
         <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
       </nav>
@@ -175,6 +176,24 @@
           </div>
           <p class="privacy-note">EXIF and filename timestamps retain their calendar date. Drive creation timestamps are converted to this device's local date and labeled as uploads, not capture dates. On This Day ignores upload dates. Your originals and Sheet remain untouched by browsing.</p>
         </section>
+        <section id="videoLibraryView" class="view hidden" aria-labelledby="videoLibraryTitle">
+          <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY VIDEO EXPLORER</p><h1 id="videoLibraryTitle">Video Library</h1>
+          <p>Find clips and inspect what was actually reviewed. Three-frame storyboards are opt-in and made locally in your browser.</p></div></div>
+          <div class="video-library-bar">
+            <label for="videoCatalogFilter">Review evidence</label>
+            <select id="videoCatalogFilter" class="select">
+              <option value="all">All videos</option><option value="unverified">Visual review unverified</option>
+              <option value="reviewed">Some source visual evidence</option><option value="oversized">Cannot generate storyboard</option>
+            </select>
+          </div>
+          <p id="videoCatalogSummary" class="video-library-summary" role="status">Connect Drive to see your video files.</p>
+          <div id="videoCatalogList" class="video-library-grid"></div>
+          <div class="video-library-pagination">
+            <button id="videoCatalogPrev" class="btn outline" type="button" disabled>← Previous</button>
+            <button id="videoCatalogNext" class="btn outline" type="button" disabled>Next →</button>
+          </div>
+          <p class="privacy-note">Video Library reads the existing Google Sheet and Drive index. Videos are only downloaded after you select Play, Generate thumbnail, or Generate storyboard in the media details. Download limits are enforced, and source Drive files and Sheets remain untouched.</p>
+        </section>
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
           <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original spreadsheet snapshot with current Drive files. New subfolders under the verified Memes and Jacks Photos roots are discovered automatically.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Discover &amp; verify folders</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
           <div class="index-metrics" id="indexMetrics" aria-label="Index coverage"><div class="index-metric"><span>Spreadsheet snapshot</span><strong id="metricSnapshot">—</strong><small>Original inventory, unchanged</small></div><div class="index-metric"><span>Live Drive files</span><strong id="metricLive">—</strong><small id="metricLiveNote">Not yet verified</small></div><div class="index-metric"><span>New files</span><strong id="metricAdded">—</strong><small>Not in spreadsheet snapshot</small></div><div class="index-metric"><span>Missing files</span><strong id="metricMissing">—</strong><small>No longer in watched roots</small></div></div>
@@ -230,6 +249,11 @@
   <dialog id="imageDialog" class="dialog image-dialog" aria-label="Media details">
     <div class="modal-header"><span id="modalLocation">IMAGE DETAILS</span><div class="modal-buttons"><button class="icon-button" id="prevImage" type="button" aria-label="Previous image">←</button><button class="icon-button" id="nextImage" type="button" aria-label="Next image">→</button><button class="icon-button" id="closeImage" type="button" aria-label="Close image details">×</button></div></div>
     <div class="modal-body"><div class="modal-picture" id="modalPicture"></div><div class="modal-details"><span class="eyebrow" id="modalCollection">COLLECTION</span><h2 id="modalTitle"></h2><p id="modalDescription"></p><dl id="modalMeta"></dl><p class="preview-details" id="previewDetails"></p><div class="media-diagnostics hidden" id="mediaDiagnostics" role="status" aria-live="polite"></div>
+            <p id="videoEvidenceStatus" class="video-evidence-status hidden" role="status"></p>
+            <div id="storyboardPanel" class="video-storyboard hidden" aria-live="polite">
+              <p id="storyboardStatus" class="video-storyboard-note" role="status"></p>
+              <div id="storyboardFrames" class="video-storyboard-frames"></div>
+            </div>
           <form id="reviewForm" class="review-editor hidden">
             <h3>Personal review</h3><p class="review-editor-note" id="reviewEditorNote">Your changes will stay on this device.</p>
             <label class="field-label" for="reviewDescription">Description</label>
@@ -243,7 +267,7 @@
               <button type="button" class="btn quiet" id="reviewReset">Reset local changes</button>
             </div>
             <p class="review-editor-status" id="reviewEditorStatus" role="status"></p>
-          </form><div class="modal-footer-actions"><button class="btn outline hidden" id="retryPreview" type="button">↻ Retry preview</button><button class="btn outline hidden" id="generatePosterButton" type="button">▧ Generate video thumbnail</button><button class="btn outline hidden" id="playVideoButton" type="button">▶ Play video</button><button class="btn outline" id="favoriteImage" type="button">♡ Favorite</button><a class="btn primary" id="openDriveLink" target="_blank" rel="noopener noreferrer">Open in Drive ↗</a></div></div></div>
+          </form><div class="modal-footer-actions"><button class="btn outline hidden" id="retryPreview" type="button">↻ Retry preview</button><button class="btn outline hidden" id="generatePosterButton" type="button">▧ Generate video thumbnail</button><button class="btn outline hidden" id="storyboardButton" type="button">▤ Generate 3-frame storyboard</button><button class="btn quiet hidden" id="storyboardCancel" type="button">Cancel sampling</button><button class="btn outline hidden" id="playVideoButton" type="button">▶ Play video</button><button class="btn outline" id="favoriteImage" type="button">♡ Favorite</button><a class="btn primary" id="openDriveLink" target="_blank" rel="noopener noreferrer">Open in Drive ↗</a></div></div></div>
   </dialog>
 
   <dialog id="updatesDialog" class="dialog updates-dialog" aria-labelledby="updatesTitle">
