@@ -1,5 +1,28 @@
 # Jack's Image Vault — Windows image and media library
 
+## Multicolor folder branding and Daylight contrast (next UI release)
+
+**New app mark.** The sidebar, browser tab and PWA reference one clean folder/photo
+symbol with Google's familiar green, yellow, blue and red around a dark frame.
+The scalable `web/icons/icon.svg` is the source of truth. The release build
+renders 180/192/512px PNG icons, a safe-zone PWA icon, and a multiresolution
+Windows ICO; the ICO is compiled into the **newly built Windows executable**.
+Existing desktop EXEs do not change their Windows Explorer icon from a UI-only
+patch; install the newer EXE if you want that resource updated. The app's
+browser-chrome favicon and sidebar logo are updated by an ordinary UI patch.
+
+To regenerate icon outputs locally, install CairoSVG 2.8.2 and Pillow 11+,
+then run `python3 scripts/render-brand-icons.py --ico build/Jacks_Image_Vault.ico`.
+The generated PWA PNG assets are included automatically in verified release ZIPs.
+The Windows EXE build also uses `x86_64-w64-mingw32-windres` to embed the ICO.
+
+**Palette consistency.** Collection search, progress pills, navigation indicators,
+review panels and related controls now follow the active palette instead of
+retaining black or charcoal legacy styles. Daylight Pearl includes a readable
+transparent search input inside its light collection-search wrapper. Browser
+tests cover the known regression without accessing private images or accounts.
+No Google Drive or Google Sheet permissions or files are changed.
+
 ## Vault Home 3.0, palettes and Google reconnect (released in v2.1.11)
 
 **Home makeover.** The landing screen now has a visual gallery-inspired hero,
