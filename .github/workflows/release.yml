@@ -16,7 +16,53 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  browser-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium for synthetic browser tests
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Validate no-auth Google Drive and Sheets browser experience
+        run: node tests/browser-e2e.cjs
+
+  windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Windows updater, release fallback and security tests
+        shell: pwsh
+        run: go test ./...
+      - name: Windows storyboard and Drive regression tests
+        shell: pwsh
+        run: node --test tests/video-library.test.cjs tests/similarity-lab.test.cjs tests/stress.test.cjs tests/updater-recovery.test.cjs
+      - name: Build native Windows Image Vault
+        shell: pwsh
+        run: go build -o "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe" .
+      - name: Start EXE and verify private loopback UI
+        shell: pwsh
+        run: ./scripts/windows-smoke.ps1 -ExecutablePath "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe"
+
   release:
+    if: github.ref == 'refs/heads/main'
+    needs: [browser-e2e, windows-smoke]
     runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: ${{ inputs.version }}
@@ -84,6 +130,9 @@ jobs:
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-H windowsgui -s -w -X main.builtinVersion=${RELEASE_VERSION}" -o "dist/Jacks_Image_Vault_${RELEASE_VERSION}.exe" .
           python3 make_patch.py --version "$RELEASE_VERSION" --web web --output dist/jacks-image-vault-patch.zip --notes "UI update from GitHub release v${RELEASE_VERSION}"
           (cd dist && sha256sum * > SHA256SUMS.txt)
+      - name: Verify EXE, ZIP manifest allowlist, and public checksums
+        shell: bash
+        run: python3 scripts/verify-release-assets.py --version "$RELEASE_VERSION" --dist dist
       - name: Publish GitHub release with updater asset
         env:
           GH_TOKEN: ${{ github.token }}
