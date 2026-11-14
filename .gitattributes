@@ -1,0 +1,7 @@
+# Generated portable JavaScript bundles require byte-identical LF source files.
+# Avoid Git's Windows autocrlf rewriting browser strings and test harness markers.
+*.js text eol=lf
+*.cjs text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.json text eol=lf
