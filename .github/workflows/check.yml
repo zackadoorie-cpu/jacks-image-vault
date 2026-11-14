@@ -85,6 +85,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -100,6 +103,9 @@ jobs:
       - name: Validate installed Edge PWA shortcut safely
         shell: pwsh
         run: ./scripts/windows-edge-pwa-smoke.ps1
+      - name: Build and exercise self-contained Windows WebView2 preview
+        shell: pwsh
+        run: ./scripts/windows-desktop-host-smoke.ps1
       - name: Build native Image Vault for Windows
         shell: pwsh
         run: go build -o "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe" .
