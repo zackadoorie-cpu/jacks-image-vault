@@ -1,5 +1,26 @@
 # Jack's Image Vault — Windows image and media library
 
+## Optional native WebView2 Windows window (desktop preview)
+
+The release now offers a separate **Desktop Bundle ZIP** containing a
+self-contained WebView2 Windows host and the matching Go server. Extract both
+EXEs together and open `Jacks_Image_Vault_Desktop.exe` for a real standalone
+window with a Vault icon and Windows taskbar identity. The established
+`Jacks_Image_Vault_VERSION.exe` launcher still opens Edge/Chrome as before.
+
+The native window uses the existing *system-browser* Desktop OAuth PKCE
+bridge, not Google's prohibited embedded authorization flow. On first use,
+enter your Sheet ID in the new Windows desktop setup area; no Web OAuth client
+ID is needed inside the embedded profile. WebView2 Evergreen Runtime is
+required, but the packaged host includes its own .NET runtime.
+
+**Do not use the Desktop Bundle ZIP as an in-app UI patch.** Download the
+separate small `jacks-image-vault-patch.zip` asset for that purpose.
+
+See [native WebView2 installation and security notes](docs/webview2-desktop-preview.md).
+The desktop host is opt-in; release builds and existing settings remain
+compatible.
+
 ## Optional native Google OAuth bridge (Windows beta)
 
 In **Google Drive setup**, Windows EXE users can opt into a separate
