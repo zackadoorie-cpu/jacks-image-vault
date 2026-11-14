@@ -1,0 +1,2 @@
+// Windows resource: use the same folder mark as the web/PWA manifest.
+1 ICON "build/Jacks_Image_Vault.ico"
