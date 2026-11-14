@@ -26,6 +26,8 @@ jobs:
           node scripts/build-smart-controller.cjs --check
           node scripts/build-memory-lane.cjs --check
           node scripts/build-memory-controller.cjs --check
+          node scripts/build-command-center.cjs --check
+          node scripts/build-command-controller.cjs --check
           node scripts/build-video-library.cjs --check
           node scripts/build-video-controller.cjs --check
           node scripts/build-similarity-lab.cjs --check
@@ -57,3 +59,18 @@ jobs:
       - name: Launch real Windows EXE and verify both views
         shell: pwsh
         run: ./scripts/windows-smoke.ps1 -ExecutablePath "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe"
+
+  browser-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned Chromium test runner
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Run fabricated Google Sheets and Drive browser smoke
+        run: node tests/browser-e2e.cjs
