@@ -67,6 +67,34 @@ async function main(){
     assert.equal(await p.locator('#homeActionVideos').isVisible(),true);
     assert.equal(await p.locator('#homeActionRename').isVisible(),true);
     assert.equal((await p.locator('#homeCoveragePercent').innerText()).trim(),'—');
+    // Browser-only preview must never offer machine-changing native shortcuts.
+    await p.locator('#installButton').click();
+    assert.equal(await p.locator('#installDialog').evaluate(d=>d.open),true);
+    assert.equal(await p.locator('#winInstallSection').isVisible(),false);
+    assert.equal(await p.locator('#installBrowserButton').isVisible(),true);
+    await p.locator('#installOkay').click();
+    // A synthetic Windows capability can expose the option without any write
+    // until the user explicitly presses the install button.
+    let shortcutCalls=0;
+    await p.route('**/__vault_windows/status',route=>route.fulfill(reply({
+      available:true,installedHere:false,shortcutName:"Jack's Image Vault"
+    })));
+    await p.route('**/__vault_update/status',route=>route.fulfill(reply({
+      version:'2.1.14',source:'built-in',canRollback:false,nonce:'fixture-only-nonce'
+    })));
+    await p.route('**/__vault_windows/install',route=>{
+      shortcutCalls++;return route.fulfill(reply({installed:true,message:'Fixture Windows shortcuts ready.'}));
+    });
+    await p.locator('#installButton').click();
+    await p.locator('#winInstallButton').waitFor({state:'visible'});
+    assert.equal(shortcutCalls,0,'Simply opening Install app must never install anything');
+    await p.locator('#winInstallButton').click();
+    await p.waitForFunction(()=>document.querySelector('#winInstallStatus')?.textContent.includes('Fixture Windows shortcuts ready.'));
+    assert.equal(shortcutCalls,1);
+    await p.locator('#installOkay').click();
+    await p.unroute('**/__vault_windows/status');
+    await p.unroute('**/__vault_update/status');
+    await p.unroute('**/__vault_windows/install');
     await p.locator('#shortcutHelpButton').focus();await p.keyboard.press('?');
     assert.equal(await p.locator('#shortcutsDialog').evaluate(e=>e.open),true);
     assert.equal(await p.evaluate(()=>document.activeElement.id),'shortcutsClose');
