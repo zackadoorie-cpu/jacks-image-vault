@@ -28,6 +28,7 @@
         <button class="nav-item" data-view="memes"><span class="nav-icon">☺</span>Memes</button>
         <button class="nav-item" data-view="photos"><span class="nav-icon">▧</span>Photos</button>
         <button class="nav-item" data-view="favorites"><span class="nav-icon">♡</span>Favorites</button>
+        <button class="nav-item" data-view="smart"><span class="nav-icon">✦</span>Smart Collections</button>
         <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
         <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
       </nav>
@@ -89,7 +90,7 @@
         </section>
 
         <section id="galleryView" class="view hidden">
-          <div class="gallery-heading"><div><p class="eyebrow" id="galleryEyebrow">YOUR PRIVATE GALLERY</p><h1 id="galleryTitle">All media</h1><p id="galleryDescription">Browse every collection in one place.</p></div><div class="gallery-counters"><span class="result-count" id="resultCount">—</span><span class="preview-stat" id="previewStatus">Previews start when visible</span><span class="browse-progress" id="browseProgress" role="status">0 shown</span><button class="btn outline hidden" type="button" id="retryFailedButton">↻ Retry failed</button></div></div>
+          <div class="gallery-heading"><div><p class="eyebrow" id="galleryEyebrow">YOUR PRIVATE GALLERY</p><h1 id="galleryTitle">All media</h1><button class="btn quiet hidden" id="backSmartCollections" type="button">← All Smart Collections</button><p id="galleryDescription">Browse every collection in one place.</p></div><div class="gallery-counters"><span class="result-count" id="resultCount">—</span><span class="preview-stat" id="previewStatus">Previews start when visible</span><span class="browse-progress" id="browseProgress" role="status">0 shown</span><button class="btn outline hidden" type="button" id="retryFailedButton">↻ Retry failed</button></div></div>
           <div class="filters">
             <label class="searchbox"><span>⌕</span><input type="search" id="searchInput" placeholder="Search images, videos, moments, tags…" autocomplete="off" aria-label="Search media"><kbd>/</kbd></label>
             <select class="select" id="mediaTypeSelect" aria-label="File type"><option value="all">All media</option><option value="image">Images</option><option value="video">Videos</option><option value="pdf">PDFs</option></select>
@@ -127,6 +128,18 @@
           <div id="loadMoreArea" class="load-more" role="status" aria-live="polite"></div>
         </section>
 
+        <section id="smartView" class="view hidden" aria-labelledby="smartTitle">
+          <div class="gallery-heading"><div><p class="eyebrow">LOCAL-ONLY VIRTUAL ALBUMS</p><h1 id="smartTitle">Smart Collections</h1><p>Dynamic collections based on descriptions, tags, folders, dates, and favorites. Original Drive files stay where they are.</p></div></div>
+          <div class="smart-actions">
+            <button class="btn primary" type="button" id="smartAddButton">+ New collection</button>
+            <button class="btn outline" type="button" id="smartExportButton">Export custom rules</button>
+            <button class="btn quiet" type="button" id="smartImportButton">Import rules JSON</button>
+            <input class="hidden" id="smartImportFile" type="file" accept=".json,application/json" aria-label="Import Smart Collections JSON">
+          </div>
+          <p class="smart-status" id="smartCollectionStatus" role="status"></p>
+          <div class="smart-grid" id="smartCollectionCards"></div>
+          <p class="privacy-note">Suggested collections use general tags and words, not an external AI model. Custom collections live only in this browser for the connected account and Sheet; backing them up is your responsibility.</p>
+        </section>
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
           <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original spreadsheet snapshot with current Drive files. New subfolders under the verified Memes and Jacks Photos roots are discovered automatically.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Discover &amp; verify folders</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
           <div class="index-metrics" id="indexMetrics" aria-label="Index coverage"><div class="index-metric"><span>Spreadsheet snapshot</span><strong id="metricSnapshot">—</strong><small>Original inventory, unchanged</small></div><div class="index-metric"><span>Live Drive files</span><strong id="metricLive">—</strong><small id="metricLiveNote">Not yet verified</small></div><div class="index-metric"><span>New files</span><strong id="metricAdded">—</strong><small>Not in spreadsheet snapshot</small></div><div class="index-metric"><span>Missing files</span><strong id="metricMissing">—</strong><small>No longer in watched roots</small></div></div>
@@ -224,6 +237,21 @@
     </div>
   </dialog>
 
+  <dialog class="dialog smart-editor" id="smartEditorDialog" aria-labelledby="smartDialogTitle">
+    <form id="smartEditorForm">
+      <div class="dialog-header"><h2 id="smartDialogTitle">New Smart Collection</h2></div>
+      <div class="smart-editor-body">
+        <label class="field-label" for="smartName">Collection name</label>
+        <input id="smartName" class="field" type="text" maxlength="80" required autocomplete="off" placeholder="e.g. Favorite aircraft">
+        <label class="field-label" for="smartMode">Match these rules</label>
+        <select id="smartMode" class="field"><option value="any">Any rule (OR)</option><option value="all">Every rule (AND)</option></select>
+        <div id="smartRuleRows" class="smart-rule-rows"></div>
+        <button id="smartAddRuleButton" class="btn outline" type="button">+ Add rule</button>
+        <p class="field-help">Text matching checks only existing local descriptions, tags, filenames and categories. Dates require known capture or filename evidence. No files are moved.</p>
+        <div class="dialog-actions"><button class="btn quiet" type="button" id="smartEditorCancel">Cancel</button><button class="btn primary" type="submit">Save collection</button></div>
+      </div>
+    </form>
+  </dialog>
   <dialog id="saveSearchDialog" class="dialog search-save-dialog" aria-labelledby="saveSearchTitle">
     <form id="saveSearchForm">
       <div class="dialog-header"><h2 id="saveSearchTitle">Save this search</h2></div>
