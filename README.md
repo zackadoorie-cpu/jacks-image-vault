@@ -2,6 +2,19 @@
 
 **Status:** v2.1.0 is published with Search 2.0, Smart Collections and Memory Lane. The v2.1.1 updater recovery patch is in development. GitHub CI can validate builds, but a live Windows upgrade and Google thumbnail smoke test still require Windows testing.
 
+## Phase 4: Similarity Lab (development, not released)
+
+The read-only **Similarity Lab** compares images in two deliberately different ways:
+
+1. **Drive metadata leads:** compares up to 20,000 existing indexed image records by case-normalized exact filename and byte size; lists up to 120 candidate groups, with an option to show cross-folder matches. These are **possible duplicates only**, not proof of identical bytes or visual similarity. Files are linked to the normal Drive view. The scan does **not** download images or request extra permissions.
+2. **Voluntary local comparison:** after you explicitly select JPEG, PNG or WebP files from the computer, the browser hashes their bytes with SHA-256 and, where the codec can be decoded safely, computes a 64-bit dHash from a 9×8 pixel comparison. Exact SHA-256 matches are labeled **identical local bytes**. dHash distance 0–5 denotes **similar-looking previews only**, not exact matches. This can have false positives for flat or low-detail images, and false negatives for cropped/rotated pictures.
+
+Local comparison is capped at **24 files**, **15 MB per file**, **96 MB total** and **40 megapixels per decoded preview**. Processing is sequential, cancellable between operations and never reads original Drive files automatically. Hashes and temporary image previews remain only in the browser session and are cleared with **Clear / cancel** or on disconnect. No personal photos, filenames, hashes, tokens or Sheet content are uploaded to GitHub.
+
+This phase adds unit tests for duplicate Drive IDs, cross-folder leads, false-positive prevention, SHA-256 evidence, dHash similarity, bounded input and the app view. The portable engines are `src/similarity-lab.js` and `src/similarity-controller.js`; regenerate their embedded modules in `web/app.js` using the matching `scripts/build-similarity-*.cjs` commands. The Windows patch ZIP allowlist remains unchanged.
+
+**Release gate:** this feature is a proposed development PR until CI, the Windows build, and manual gallery/selection/cancel testing pass. It is not part of the published v2.1.1 installer.
+
 ## v2.1.1 updater recovery
 
 Some Windows network environments return **HTTP 403** when the built-in updater downloads GitHub release ZIP assets. v2.1.1 first tries the verified browser release URL, then GitHub's official public release-asset API. It still requires an approved update and verifies the ZIP format, the release tag, SHA-256 digest (when provided), allowlisted files and per-file checksums before installation. Both download paths stay on trusted GitHub hosts.
