@@ -56,6 +56,9 @@ jobs:
       - name: Windows storyboard and Drive regression tests
         shell: pwsh
         run: node --test tests/video-library.test.cjs tests/similarity-lab.test.cjs tests/stress.test.cjs tests/updater-recovery.test.cjs
+      - name: Test shortcut transaction rollback and crash recovery in sandbox
+        shell: pwsh
+        run: ./scripts/windows-shortcut-transaction-smoke.ps1
       - name: Build native Windows Image Vault
         shell: pwsh
         run: go build -o "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe" .
