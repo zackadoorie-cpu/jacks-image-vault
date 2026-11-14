@@ -197,6 +197,25 @@ async function main(){
     await p.locator('#prefTheme').selectOption('daylight');
     // Theme colors animate briefly; wait for the new computed background to settle.
     await p.waitForFunction(()=>getComputedStyle(document.body).backgroundColor==='rgb(238, 242, 248)');
+    // The collection search was still charcoal in Daylight Pearl (regression screenshot).
+    // Verify the wrapper, native input, progress badge and sidebar accents are themed.
+    const lightControls=await p.evaluate(()=>{
+      const color=id=>getComputedStyle(document.querySelector(id));
+      return {
+        picker:color('.collection-search').backgroundColor,
+        pickerBorder:color('.collection-search').borderTopColor,
+        input:color('#folderSearch').backgroundColor,
+        inputText:color('#folderSearch').color,
+        progress:color('#browseProgress').backgroundColor,
+        progressText:color('#browseProgress').color,
+        navActive:color('.sidebar .nav-group:has(.nav-item.active)>.nav-group-toggle').color
+      };
+    });
+    assert.equal(lightControls.picker,'rgb(240, 237, 250)');
+    assert.equal(lightControls.input,'rgba(0, 0, 0, 0)');
+    assert.equal(lightControls.inputText,'rgb(29, 41, 66)');
+    assert.notEqual(lightControls.progress,'rgb(42, 37, 64)');
+    assert.notEqual(lightControls.navActive,'rgb(217, 205, 255)');
     await p.locator('#prefAutoReconnect').check();
     await p.locator('#preferencesForm button[type="submit"]').click();
     const binding=await p.evaluate(()=>JSON.parse(localStorage.getItem('jack-vault-autoconnect-binding-v1')));
