@@ -80,7 +80,7 @@ def verify(dist, version):
             if len(names) != 3 or set(names) != expected_members:
                 raise ValueError("Desktop bundle contains unknown or missing entries")
             if any(m.is_dir() or m.filename.startswith("/") or
-                   "\\\\" in m.filename or ".." in m.filename.split("/") for m in members):
+                   "\\" in m.filename or ".." in m.filename.split("/") for m in members):
                 raise ValueError("Unsafe desktop bundle entry")
             if digest(desktop.read(exe_name)) != digest(exe.read_bytes()):
                 raise ValueError("Desktop bundle backend differs from standalone EXE")
