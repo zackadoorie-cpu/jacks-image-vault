@@ -52,6 +52,12 @@
     memoryYear: 'all',
     memorySource: 'all',
     memorySelection: {key:'all',source:'all'},
+    similarityCrossFolder: false,
+    similarityEpoch: 0,
+    similarityLocalItems: [],
+    similarityProcessing: false,
+    similarityProgress: '',
+    similarityError: '',
     layout: 'grid',
     density: readDensity(),
     folderQuery: '',
@@ -573,6 +579,115 @@
       memoryDedupe,memoryMatches,memoryBuildTimeline,memoryMonthLabel};
   })();
   /* GENERATED MEMORY LANE END */
+  /* GENERATED SIMILARITY LAB START */
+  const similarityEngine=(()=>{
+    const SIMILARITY_MAX_SCAN=20000;
+    const SIMILARITY_MAX_GROUPS=120;
+    const SIMILARITY_MAX_LOCAL_FILES=24;
+    const SIMILARITY_MAX_FILE_BYTES=15*1024*1024;
+    const SIMILARITY_MAX_TOTAL_BYTES=96*1024*1024;
+    const SIMILARITY_MAX_PIXELS=40*1000*1000;
+    const SIMILARITY_NEAR_DISTANCE=5;
+    function similarityName(value){
+      return String(value||'').normalize('NFKC').trim().toLowerCase();
+    }
+    function similarityCandidates(records,{maxScan=SIMILARITY_MAX_SCAN,maxGroups=SIMILARITY_MAX_GROUPS}={}){
+      const limit=Math.max(0,Math.min(SIMILARITY_MAX_SCAN,Math.floor(Number(maxScan)||0)));
+      const cap=Math.max(0,Math.min(SIMILARITY_MAX_GROUPS,Math.floor(Number(maxGroups)||0)));
+      const input=Array.isArray(records)?records:[];
+      const seen=new Set(),groups=new Map();
+      let scanned=0,eligible=0;
+      for(const item of input){
+        if(scanned>=limit)break;
+        scanned++;
+        if(!item||typeof item.id!=='string'||!item.id||seen.has(item.id))continue;
+        seen.add(item.id);
+        if(!String(item.mime||'').startsWith('image/')||item.demo)continue;
+        const size=Number(item.size),name=similarityName(item.name);
+        if(!Number.isSafeInteger(size)||size<=0||!name)continue;
+        eligible++;
+        // A metadata lead is never an exact content duplicate.
+        const key=size+'|'+name;
+        if(!groups.has(key))groups.set(key,[]);
+        groups.get(key).push(item);
+      }
+      const leads=[...groups.values()].filter(g=>g.length>=2).map(members=>({
+        kind:'metadata-lead',name:members[0].name,size:Number(members[0].size),
+        members:members.slice().sort((a,b)=>String(a.folder||'').localeCompare(String(b.folder||''))||a.id.localeCompare(b.id)),
+        crossFolder:new Set(members.map(x=>String(x.folder||''))).size>1,
+        evidence:'Matching filename and byte size. Image contents have not been compared.'
+      })).sort((a,b)=>Number(b.crossFolder)-Number(a.crossFolder)||b.members.length-a.members.length||
+        a.name.localeCompare(b.name));
+      return {groups:leads.slice(0,cap),totalGroups:leads.length,scanned,eligible,
+        limited:input.length>scanned||leads.length>cap};
+    }
+    function similarityHamming(a,b){
+      if(!/^[0-9a-f]{16}$/i.test(String(a||''))||!/^[0-9a-f]{16}$/i.test(String(b||'')))return null;
+      let count=0;
+      for(let i=0;i<16;i++){
+        let x=parseInt(a[i],16)^parseInt(b[i],16);
+        while(x){count++;x&=x-1;}
+      }
+      return count;
+    }
+    function similarityDHash(pixels){
+      if(!pixels||pixels.width!==9||pixels.height!==8||!pixels.data||pixels.data.length!==9*8*4)
+        throw new Error('A 9×8 RGBA image is required for perceptual hashing');
+      let bits='';
+      const grayscale=(x,y)=>{
+        const idx=(y*9+x)*4;
+        const alpha=pixels.data[idx+3]/255;
+        // Transparent image edges are composited on a neutral white background.
+        return (pixels.data[idx]*0.299+pixels.data[idx+1]*0.587+
+          pixels.data[idx+2]*0.114)*alpha+255*(1-alpha);
+      };
+      for(let y=0;y<8;y++)for(let x=0;x<8;x++)bits+=grayscale(x,y)>grayscale(x+1,y)?'1':'0';
+      let hex='';
+      for(let i=0;i<64;i+=4)hex+=parseInt(bits.slice(i,i+4),2).toString(16);
+      return hex;
+    }
+    function similarityLocalPairs(records,{nearDistance=SIMILARITY_NEAR_DISTANCE}={}){
+      const items=Array.isArray(records)?records.slice(0,SIMILARITY_MAX_LOCAL_FILES):[];
+      const threshold=Math.max(0,Math.min(10,Number(nearDistance)||0));
+      const pairs=[];
+      for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++){
+        const a=items[i],b=items[j];
+        if(!a||!b)continue;
+        const exact=/^[0-9a-f]{64}$/i.test(String(a.sha256||''))&&
+          String(a.sha256).toLowerCase()===String(b.sha256||'').toLowerCase();
+        const distance=similarityHamming(a.dhash,b.dhash);
+        if(exact){
+          pairs.push({a,b,kind:'exact-sha256',distance,description:'Identical SHA-256 of locally chosen files'});
+        }else if(distance!==null&&distance<=threshold){
+          pairs.push({a,b,kind:'perceptual-near',distance,
+            description:'Similar 64-bit dHash preview. This is NOT evidence of identical files.'});
+        }
+      }
+      pairs.sort((x,y)=>Number(y.kind==='exact-sha256')-Number(x.kind==='exact-sha256')||
+        (x.distance??65)-(y.distance??65)||x.a.name.localeCompare(y.a.name));
+      return pairs;
+    }
+    function similarityValidateFiles(files){
+      const entries=Array.from(files||[]);
+      if(entries.length>SIMILARITY_MAX_LOCAL_FILES)
+        throw new Error('Choose at most '+SIMILARITY_MAX_LOCAL_FILES+' files');
+      let total=0;
+      for(const file of entries){
+        if(!file||!['image/jpeg','image/png','image/webp'].includes(file.type))
+          throw new Error('Only JPEG, PNG or WebP images are supported for local comparison');
+        if(!Number.isSafeInteger(file.size)||file.size<=0||file.size>SIMILARITY_MAX_FILE_BYTES)
+          throw new Error('Every file must be 1 byte to 15 MB');
+        total+=file.size;
+        if(total>SIMILARITY_MAX_TOTAL_BYTES)throw new Error('Choose at most 96 MB total');
+      }
+      return entries;
+    }
+    return {SIMILARITY_MAX_SCAN,SIMILARITY_MAX_GROUPS,SIMILARITY_MAX_LOCAL_FILES,
+      SIMILARITY_MAX_FILE_BYTES,SIMILARITY_MAX_TOTAL_BYTES,SIMILARITY_MAX_PIXELS,
+      SIMILARITY_NEAR_DISTANCE,similarityCandidates,similarityHamming,similarityDHash,
+      similarityLocalPairs,similarityValidateFiles};
+  })();
+  /* GENERATED SIMILARITY LAB END */
   const humanBytes = n => n ? `${(n / 1024 / 1024).toFixed(1)} MB` : 'Unknown size';
   const SCAN_INTERVAL = 15 * 60 * 1000;
   const FULL_SCAN_INTERVAL = 24 * 60 * 60 * 1000;
@@ -2250,7 +2365,7 @@
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
     saveBrowsingPosition();
-    stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+    stopScans();stopVideo();similarityClearLocal();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
@@ -2271,9 +2386,124 @@
     }
     state.folders = [...map.values()].sort((a,b)=>b.count-a.count || a.name.localeCompare(b.name));
   }
+  /* GENERATED SIMILARITY CONTROLLER START */
+  function similarityClearLocal(){
+    state.similarityEpoch++;
+    for(const item of state.similarityLocalItems)if(item.objectUrl)URL.revokeObjectURL(item.objectUrl);
+    state.similarityLocalItems=[];
+    state.similarityProcessing=false;
+    state.similarityProgress='';
+    state.similarityError='';
+    if($('similarityFiles'))$('similarityFiles').value='';
+    if(state.view==='similarity')renderSimilarityLab();
+  }
+  function similarityCardFile(file){
+    const preview=file.objectUrl?'<img src="'+escapeHTML(file.objectUrl)+'" alt="" loading="lazy">':
+      '<span class="similarity-no-preview">Preview unavailable</span>';
+    return '<div class="similarity-file">'+preview+'<div><strong>'+escapeHTML(file.name)+'</strong>'+
+      '<small>'+escapeHTML(humanBytes(file.size))+' · '+
+      escapeHTML(file.width&&file.height?file.width+' × '+file.height+' px':'Dimensions unknown')+
+      '</small></div></div>';
+  }
+  function renderSimilarityLab(){
+    $('similarityStatus').textContent=state.connected?
+      'Read-only candidate scan of your current '+format(state.images.length)+' indexed files.':
+      'Connect Drive to scan your private library metadata.';
+    const results=similarityEngine.similarityCandidates(state.connected?state.images:[]);
+    const shown=state.similarityCrossFolder?results.groups.filter(x=>x.crossFolder):results.groups;
+    $('similarityCandidateCount').textContent=state.connected?
+      format(results.totalGroups)+' metadata candidate groups · '+format(results.scanned)+
+        ' records scanned'+(results.limited?' · capped for performance':''):
+      'No Drive library connected.';
+    $('similarityCandidateList').innerHTML=shown.length?shown.slice(0,60).map(group=>
+      '<article class="similarity-card"><div class="similarity-card-head"><strong>'+
+      escapeHTML(group.name)+'</strong><span>'+format(group.members.length)+' files · '+
+      escapeHTML(humanBytes(group.size))+'</span></div>'+
+      '<p>Possible duplicate only: matching filename and byte size. NOT a SHA-256 match.'+
+      (group.crossFolder?' Across different folders.':'')+'</p>'+
+      '<ul>'+group.members.slice(0,8).map(item=>'<li><span>'+escapeHTML(item.folder||'Unknown folder')+
+        '</span> <a href="'+escapeHTML(linkToDrive(item))+'" target="_blank" rel="noopener noreferrer">'+
+        escapeHTML(item.name)+'</a></li>').join('')+
+      (group.members.length>8?'<li>+'+(group.members.length-8)+' more candidate files</li>':'')+
+      '</ul></article>').join(''):
+      '<p class="similarity-empty">No metadata candidates match this filter. That does not prove there are no visual duplicates.</p>';
+    $('similarityLocalStatus').textContent=state.similarityError||
+      (state.similarityProcessing?state.similarityProgress:
+      state.similarityLocalItems.length?format(state.similarityLocalItems.length)+
+        ' local image files processed. All fingerprints remain in this session.':
+        'Select local JPEG, PNG or WebP files to compare their actual bytes and thumbnails. No automatic Drive downloads.');
+    const pairs=similarityEngine.similarityLocalPairs(state.similarityLocalItems);
+    const exact=pairs.filter(x=>x.kind==='exact-sha256').length;
+    const near=pairs.length-exact;
+    $('similarityLocalCounts').textContent=state.similarityLocalItems.length?
+      format(exact)+' SHA-256-identical pairs · '+format(near)+' visually similar pairs':'';
+    $('similarityLocalResults').innerHTML=pairs.length?pairs.map(pair=>
+      '<article class="similarity-card"><div class="similarity-card-head"><strong>'+
+      (pair.kind==='exact-sha256'?'Exact local file match (SHA-256)':'Visually similar preview, NOT exact')+
+      '</strong><span>'+escapeHTML(pair.kind==='exact-sha256'?'Same bytes':
+        'dHash distance '+pair.distance+'/64')+'</span></div>'+
+      '<div class="similarity-pair">'+similarityCardFile(pair.a)+similarityCardFile(pair.b)+'</div>'+
+      '<p>'+escapeHTML(pair.description)+'</p></article>').join(''):
+      (state.similarityLocalItems.length&&!state.similarityProcessing?
+        '<p class="similarity-empty">No local matching pairs found within the conservative perceptual threshold.</p>':'');
+    $('similarityClear').disabled=!state.similarityLocalItems.length&&!state.similarityProcessing;
+    $('similarityFiles').disabled=state.similarityProcessing;
+  }
+  async function similarityScanLocal(files){
+    if(state.similarityProcessing){
+      state.similarityError='A comparison is already in progress. Cancel it before selecting more files.';
+      renderSimilarityLab();return;
+    }
+    const chosen=similarityEngine.similarityValidateFiles(files);
+    similarityClearLocal();
+    if(!chosen.length)return;
+    if(!globalThis.crypto?.subtle||typeof createImageBitmap!=='function')
+      throw Error('Local comparison needs a recent Edge or Chrome with Web Crypto and image decoding.');
+    state.similarityProcessing=true;
+    const epoch=state.similarityEpoch;
+    try{
+      for(let i=0;i<chosen.length;i++){
+        if(epoch!==state.similarityEpoch)return;
+        const file=chosen[i];
+        state.similarityProgress='Comparing '+(i+1)+' of '+chosen.length+' local images…';
+        renderSimilarityLab();
+        const data=await file.arrayBuffer();
+        if(epoch!==state.similarityEpoch)return;
+        const digest=await crypto.subtle.digest('SHA-256',data);
+        if(epoch!==state.similarityEpoch)return;
+        const sha256=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');
+        let width=0,height=0,dhash='',objectUrl='';
+        let bitmap=null;
+        try{
+          bitmap=await createImageBitmap(file);
+          if(epoch!==state.similarityEpoch)return;
+          width=bitmap.width;height=bitmap.height;
+          if(width>0&&height>0&&width*height<=similarityEngine.SIMILARITY_MAX_PIXELS){
+            const canvas=document.createElement('canvas');
+            canvas.width=9;canvas.height=8;
+            const ctx=canvas.getContext('2d',{willReadFrequently:true});
+            if(ctx){ctx.drawImage(bitmap,0,0,9,8);
+              dhash=similarityEngine.similarityDHash(ctx.getImageData(0,0,9,8));}
+            objectUrl=URL.createObjectURL(file);
+          }
+        }catch{
+          // Even when an image codec cannot be decoded, SHA-256 evidence remains valid.
+        }finally{if(bitmap)bitmap.close();}
+        if(epoch!==state.similarityEpoch){
+          if(objectUrl)URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        state.similarityLocalItems.push({name:file.name.slice(0,200),size:file.size,
+          sha256,dhash,width,height,objectUrl});
+      }
+    }finally{
+      if(epoch===state.similarityEpoch){state.similarityProcessing=false;state.similarityProgress='';renderSimilarityLab();}
+    }
+  }
+  /* GENERATED SIMILARITY CONTROLLER END */
   function displayPage(view,{reset=true,scroll=true}={}) {
     if(state.connected&&browsingView())saveBrowsingPosition();
-    if(view==='home'||view==='health'||view==='smart'||view==='memory'){
+    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'){
       state.autoLoadObserver?.disconnect();
       state.autoLoadObserver=null;
       state.galleryRevision++;
@@ -2285,7 +2515,8 @@
       if($('folderSearch'))$('folderSearch').value='';
     }
     $('homeView').classList.toggle('hidden',view!=='home');
-    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory');
+    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity');
+    $('similarityView').classList.toggle('hidden',view!=='similarity');
     $('memoryView').classList.toggle('hidden',view!=='memory');
     $('smartView').classList.toggle('hidden',view!=='smart');
     $('healthView').classList.toggle('hidden',view!=='health');
@@ -2294,7 +2525,7 @@
     if(scroll)window.scrollTo({top:0,behavior:'smooth'});
     updateScrollControls();
   }
-  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else renderGallery();}
+  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
     $('statImages').textContent=count(state.images.length);
@@ -2998,6 +3229,12 @@
     $('memorySourceSelect').onchange=e=>{state.memorySource=e.target.value;renderMemoryLane();scheduleBrowseSave();};
     $('memoryTodayButton').onclick=()=>memoryOpenGroup('today');
     $('memoryUnknownButton').onclick=()=>memoryOpenGroup('unknown');
+    $('similarityCrossFolder').onchange=event=>{state.similarityCrossFolder=!!event.target.checked;renderSimilarityLab();};
+    $('similarityClear').onclick=similarityClearLocal;
+    $('similarityFiles').onchange=async event=>{
+      try{await similarityScanLocal(event.target.files);}
+      catch(error){state.similarityError=error.message||'Local comparison failed';state.similarityProcessing=false;renderSimilarityLab();}
+    };
     $('smartAddButton').onclick=()=>openSmartEditor();
     $('smartAddRuleButton').onclick=()=>{
       if(!state.smartDraft||state.smartDraft.rules.length>=smartEngine.SMART_RULE_LIMIT)return;
