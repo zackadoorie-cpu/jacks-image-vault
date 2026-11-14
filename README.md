@@ -2,6 +2,46 @@
 
 **Status:** Working Windows EXE built, Go updater tests passed, local ZIP patch installed and rolled back in an HTTP smoke test. **Live Windows/Google thumbnail verification has not been performed** in the build environment.
 
+## Memory Lane (v2.1 development)
+
+**Memory Lane** adds a read-only chronological view of the existing gallery,
+with year and date-source filters, month cards, an undated section and **On This
+Day** for older media with verified capture or filename dates.
+
+Date labels are deliberately conservative:
+- **EXIF camera date:** a valid capture date from `Manifest!P` (via Search
+  Index column H). Camera-local calendar dates are preserved, not shifted across
+  timezones.
+- **Filename-derived:** a complete valid date in `Manifest!J`, used only when
+  no valid EXIF capture date exists. Year-only names such as `2026_48.jpg` do
+  not establish a day.
+- **Drive added (local date):** the ISO Drive-created timestamp from
+  `Manifest!H`, converted to the viewing device's local calendar date.
+  This indicates upload/Drive creation, **not when the photo was captured**.
+- **Date unknown:** none of those sources provides a valid full date.
+
+Every record is grouped once by stable Drive ID. On This Day includes only
+**older** EXIF/filename-dated media matching today's month/day, never Drive
+creation timestamps. February 29 only matches on another February 29.
+Unknown dates are not invented and remain accessible in their own section.
+The date-source label is also visible on each timeline result and in the
+media detail modal.
+
+The pure implementation is `src/memory-lane.js` and the UI controller is
+`src/memory-controller.js`. Regenerate their matching embedded sections
+using `node scripts/build-memory-lane.cjs` and
+`node scripts/build-memory-controller.cjs`; both accept `--check`.
+No extra files ship inside the installed Windows app, preserving the existing
+ZIP updater allowlist. The current published v2.0.11 app does not contain this
+feature until a separately tested release.
+
+The live Sheet's **Photo Date Audit** already contains verified EXIF timestamps.
+An audit during this phase identified 471 verified entries missing from the
+Manifest EXIF column. Those blank `Manifest!P` cells were populated by
+matching exact Drive IDs without changing any Drive originals, date-exception
+decisions, or existing EXIF values. The app still treats upload timestamps
+as a separate evidence class.
+
 ## Smart Collections (v2.1 development)
 
 The **Smart Collections** navigation creates virtual albums dynamically from
