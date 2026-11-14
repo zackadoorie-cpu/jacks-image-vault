@@ -13,3 +13,8 @@ private/
 # Regenerated branding and cross-compiled Windows resources.
 build/
 *.syso
+
+# WebView2 desktop host build outputs and generated icon.
+windows-host/app.ico
+windows-host/bin/
+windows-host/obj/
