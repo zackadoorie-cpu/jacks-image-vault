@@ -97,6 +97,9 @@ async function main(){
     await p.keyboard.press('Alt+1');
     await p.locator('#commandVideos').click();
     assert.match(await p.locator('#videoCatalogSummary').innerText(),/1 video files/);
+    assert.match(await p.locator('#videoCatalogSummary').innerText(),/1 with descriptions/);
+    assert.match(await p.locator('#videoCatalogList .video-library-description-text').innerText(),/Fabricated two video frames/);
+    assert.match(await p.locator('#videoCatalogList .video-library-description-label').innerText(),/Google Sheet/);
     await p.keyboard.press('Alt+1');connected.failSheet();
     await p.locator('#commandSync').click();
     await p.waitForFunction(()=>document.querySelector('#commandError')?.textContent.includes('Spreadsheet refresh failed'),null,{timeout:15000});
