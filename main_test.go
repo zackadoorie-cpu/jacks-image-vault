@@ -152,7 +152,13 @@ func TestHTTPGuardsAndAppFiles(t *testing.T) {
 type testRoundTripper func(*http.Request) (*http.Response, error)
 
 func (f testRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
+    resp, err := f(req)
+    if resp != nil && resp.Request == nil {
+        // net/http's real transport populates Response.Request. Our fake
+        // transport must preserve it so redirect provenance can be verified.
+        resp.Request = req
+    }
+    return resp, err
 }
 func testHTTPBody(code int, body []byte) *http.Response {
 	return &http.Response{StatusCode: code, Body: io.NopCloser(bytes.NewReader(body)),
