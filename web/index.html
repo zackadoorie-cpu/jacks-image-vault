@@ -15,6 +15,7 @@
   <title>Jack's Image Vault</title>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to main content</a>
   <div class="app" id="app">
     <aside class="sidebar" aria-label="Primary sidebar">
       <div class="brand">
@@ -23,7 +24,7 @@
       </div>
       <div class="nav-label">EXPLORE</div>
       <nav class="nav" id="navigation" aria-label="Library views">
-        <button class="nav-item active" data-view="home"><span class="nav-icon">▤</span>Overview</button>
+        <button class="nav-item active" data-view="home"><span class="nav-icon">▤</span>Command Center</button>
         <button class="nav-item" data-view="all"><span class="nav-icon">▦</span>All media <span class="nav-count" id="allCount">—</span></button>
         <button class="nav-item" data-view="memes"><span class="nav-icon">☺</span>Memes</button>
         <button class="nav-item" data-view="photos"><span class="nav-icon">▧</span>Photos</button>
@@ -57,7 +58,7 @@
         </div>
       </header>
 
-      <main id="main" class="main">
+      <main id="main" class="main" tabindex="-1">
         <div class="alert hidden" id="alert" role="status"></div>
         <section id="homeView" class="view">
           <div class="hero">
@@ -78,11 +79,83 @@
             </div>
           </div>
           <div class="stats" id="stats">
-            <div class="stat"><span>◈</span><strong id="statImages">—</strong><small>Indexed media files</small></div>
-            <div class="stat"><span>☺</span><strong id="statMemes">—</strong><small>Meme media</small></div>
-            <div class="stat"><span>▧</span><strong id="statPhotos">—</strong><small>Photo collection media</small></div>
+            <div class="stat"><span>◈</span><strong id="statImages">—</strong><small>Files in Sheet snapshot</small></div>
+            <div class="stat"><span>☺</span><strong id="statMemes">—</strong><small>Meme files in gallery</small></div>
+            <div class="stat"><span>▧</span><strong id="statPhotos">—</strong><small>Photo files in gallery</small></div>
             <div class="stat"><span>✓</span><strong id="statDescribed">—</strong><small>Descriptions available</small></div>
           </div>
+                    <section id="commandCenter" class="command-center" aria-labelledby="commandCenterTitle">
+            <div class="command-heading">
+              <div><p class="eyebrow">TRUSTWORTHY LIBRARY OPERATIONS</p>
+                <h2 id="commandCenterTitle">Command Center</h2>
+                <p>Sheet snapshot and verified Drive changes stay separate. Review evidence is never assumed.</p>
+              </div>
+              <button id="shortcutHelpButton" class="btn outline" type="button" aria-haspopup="dialog" aria-controls="shortcutsDialog">? Keyboard shortcuts</button>
+            </div>
+            <p class="command-connection" id="commandConnection" role="status" aria-live="polite" data-status="disconnected">Connect Drive to load the private Sheet index.</p>
+            <div class="command-metrics">
+              <article class="command-metric">
+                <span class="command-metric-label">Sheet snapshot</span>
+                <strong id="commandSnapshot" aria-label="Sheet snapshot media file count">—</strong>
+                <p id="commandSnapshotNote">Connect Google Drive to load the Sheet</p>
+              </article>
+              <article class="command-metric">
+                <span class="command-metric-label">Fully verified Drive count</span>
+                <strong id="commandLive" aria-label="Verified live Drive media count">—</strong>
+                <p id="commandLiveNote">Not verified yet</p>
+              </article>
+              <article class="command-metric command-differences">
+                <span class="command-metric-label">Drive differences vs Sheet</span>
+                <div class="command-dual">
+                  <span><strong id="commandAdded">—</strong><small>New in Drive</small></span>
+                  <span><strong id="commandMissing">—</strong><small>Not in Drive</small></span>
+                </div>
+                <p id="commandDifferencesNote">A full Drive scan is required before showing differences</p>
+              </article>
+              <article class="command-metric">
+                <span class="command-metric-label">Needs visual review</span>
+                <strong id="commandReviews">—</strong>
+                <p id="commandReviewsNote">Connect to inspect the review queue</p>
+              </article>
+              <article class="command-metric">
+                <span class="command-metric-label">Video items and evidence</span>
+                <strong id="commandVideo">—</strong>
+                <p id="commandVideoNote">Video evidence only available after connecting</p>
+              </article>
+              <article class="command-metric">
+                <span class="command-metric-label">Failed browser previews</span>
+                <strong id="commandPreview">—</strong>
+                <p id="commandPreviewNote">Browser preview diagnostics not available</p>
+              </article>
+            </div>
+            <div class="command-lower-grid">
+              <section class="command-panel" aria-labelledby="commandSyncHeading">
+                <h3 id="commandSyncHeading">Synchronization evidence</h3>
+                <dl class="command-timestamps">
+                  <div><dt>Last successful Drive sync (this session)</dt><dd id="commandLastSuccess">Not yet</dd></div>
+                  <div><dt>Last sync attempt</dt><dd id="commandLastAttempt">Not yet</dd></div>
+                  <div><dt>Last checked Drive changes</dt><dd id="commandLastChange">Not yet</dd></div>
+                  <div><dt>Last full folder verification</dt><dd id="commandLastFull">Not yet</dd></div>
+                </dl>
+                <p id="commandError" class="command-error hidden" role="alert"></p>
+                <div class="command-actions">
+                  <button id="commandSync" class="btn primary" type="button" disabled>Sync Sheet + Drive</button>
+                  <button id="commandFullScan" class="btn outline" type="button" disabled>Verify Drive folders</button>
+                </div>
+              </section>
+              <section class="command-panel" aria-labelledby="commandQuickHeading">
+                <h3 id="commandQuickHeading">Your library tools</h3>
+                <p>Jump to the work that needs attention. No action here moves or edits Drive originals.</p>
+                <div class="command-quick">
+                  <button id="commandReview" class="btn outline" type="button" disabled>Needs review</button>
+                  <button id="commandVideos" class="btn outline" type="button" disabled>Video Library</button>
+                  <button id="commandSimilarity" class="btn outline" type="button" disabled>Similarity Lab</button>
+                  <button id="commandDiagnostics" class="btn outline" type="button" disabled>Library Health</button>
+                </div>
+                <p class="command-disclaimer">Poster-only, sampled-frame, and documented full-video evidence are distinct. Audio remains unverified.</p>
+              </section>
+            </div>
+          </section>
           <div class="section-heading"><div><p class="eyebrow">BROWSE BY COLLECTION</p><h2>Featured collections</h2></div><button class="btn quiet" id="seeAllButton" type="button">View all <span>→</span></button></div>
           <div class="collection-grid" id="featuredCollections"></div>
           <div class="bottom-grid">
@@ -232,6 +305,23 @@
       <footer class="footer"><span>JACK'S IMAGE VAULT <b>•</b> READ-ONLY PWA</span><span id="footerStatus">Local preview · No private data stored</span></footer>
     </div>
   </div>
+
+  <dialog id="shortcutsDialog" class="dialog shortcut-dialog" aria-labelledby="shortcutsTitle">
+    <div class="dialog-header"><div><p class="eyebrow">NAVIGATE WITHOUT A MOUSE</p><h2 id="shortcutsTitle">Keyboard shortcuts</h2></div>
+      <button id="shortcutsClose" class="icon-button" type="button" aria-label="Close keyboard shortcuts">×</button></div>
+    <p class="dialog-copy">Shortcuts work outside of text inputs and dialogs. Native dialog focus remains trapped until the dialog closes.</p>
+    <dl class="shortcut-list">
+      <div><dt><kbd>Alt</kbd> + <kbd>1</kbd></dt><dd>Command Center</dd></div>
+      <div><dt><kbd>Alt</kbd> + <kbd>2</kbd></dt><dd>Needs review</dd></div>
+      <div><dt><kbd>Alt</kbd> + <kbd>3</kbd></dt><dd>Video Library</dd></div>
+      <div><dt><kbd>Alt</kbd> + <kbd>4</kbd></dt><dd>Library Health</dd></div>
+      <div><dt><kbd>/</kbd></dt><dd>Focus gallery search</dd></div>
+      <div><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
+      <div><dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd>Previous / next image in the media viewer</dd></div>
+      <div><dt><kbd>Esc</kbd></dt><dd>Close the active dialog</dd></div>
+    </dl>
+    <p class="dialog-copy">No shortcut deletes, renames, downloads, or uploads media.</p>
+  </dialog>
 
   <dialog id="preferencesDialog" class="dialog settings-dialog" aria-labelledby="preferencesTitle">
     <form id="preferencesForm">
