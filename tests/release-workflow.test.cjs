@@ -10,7 +10,7 @@ test('release workflow requires an intentional new version instead of suggesting
   assert.match(source,/workflow_dispatch:/);
   assert.match(source,/version:\s*\n\s*description:\s*"NEW unused version/);
   assert.doesNotMatch(source,/default:\s*"2\.0\.1"/);
-  assert.match(source,/\(no v prefix or trailing dot\)/);
+  assert.match(source,/description:.*\(no v or trailing dot\)/);
 });
 
 test('release preflight prevents duplicate tags and old versions before any build',()=>{
