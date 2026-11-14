@@ -12,13 +12,28 @@ function videoUpdateEvidence(item){
   $('videoEvidenceStatus').textContent=item&&mediaKind(item)==='video'?videoEvidenceMessage(item):'';
   $('videoEvidenceStatus').classList.toggle('hidden',!item||mediaKind(item)!=='video');
 }
+function videoCardDescription(item){
+  const description=String(effectiveDescription(item)||'').trim();
+  if(!description){
+    return '<div class="video-library-description video-library-description-missing">'+
+      '<span class="video-library-description-label">Description missing</span>'+
+      '<p>No visual description recorded yet. Open video details to review.</p></div>';
+  }
+  const origin=state.reviewEdits.has(item.id)?'Local review note':'Google Sheet';
+  const limit=600;
+  const visible=description.length>limit?description.slice(0,limit)+'…':description;
+  return '<div class="video-library-description">'+
+    '<span class="video-library-description-label">Description · '+escapeHTML(origin)+'</span>'+
+    '<p class="video-library-description-text">'+escapeHTML(visible)+'</p></div>';
+}
 function videoRenderCatalog(){
   const all=state.connected?state.images:[];
   const count=all.filter(x=>mediaKind(x)==='video').length;
+  const described=all.filter(x=>mediaKind(x)==='video'&&String(effectiveDescription(x)||'').trim()).length;
   const listing=videoLibrary.videoList(all,{filter:state.videoLibraryFilter,page:state.videoLibraryPage});
   state.videoLibraryPage=Math.min(listing.page,listing.pageCount);
   $('videoCatalogSummary').textContent=state.connected?
-    format(count)+' video files · '+format(listing.total)+' match this filter · page '+
+    format(count)+' video files · '+format(described)+' with descriptions · '+format(listing.total)+' match this filter · page '+
     listing.page+' of '+listing.pageCount:
     'Connect Drive to inspect videos already indexed in your private Google Sheet.';
   $('videoCatalogFilter').value=state.videoLibraryFilter;
@@ -31,7 +46,7 @@ function videoRenderCatalog(){
     return '<article class="video-library-card"><div class="video-library-glyph" aria-hidden="true">▶</div>'+
       '<div class="video-library-card-body"><strong>'+escapeHTML(item.name)+'</strong><p>'+
       escapeHTML(item.folder||'Unknown folder')+'</p><small>'+escapeHTML(videoLibrary.videoFormat(item))+
-      ' · '+escapeHTML(humanBytes(item.size))+'</small>'+
+      ' · '+escapeHTML(humanBytes(item.size))+'</small>'+videoCardDescription(item)+
       '<p class="video-library-evidence">'+escapeHTML(ev.label)+' · '+escapeHTML(ev.origin)+'</p>'+
       '<p class="video-library-limit">'+escapeHTML(reason)+'</p>'+
       '<div class="video-library-actions"><button type="button" class="btn outline" data-video-open="'+
