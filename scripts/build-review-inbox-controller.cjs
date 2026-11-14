@@ -10,7 +10,7 @@ function segment(text,a,b){
   return {start:i,end:j+b.length,inside:text.slice(i+a.length,j).trim()};
 }
 const sourceRegion=segment(source,'/* review-inbox-controller:portable:start */','/* review-inbox-controller:portable:end */');
-const start='  GENERATED REVIEW INBOX CONTROLLER START',end='  GENERATED REVIEW INBOX CONTROLLER END';
+const start='  /* GENERATED REVIEW INBOX CONTROLLER START */',end='  /* GENERATED REVIEW INBOX CONTROLLER END */';
 const embedded=segment(app,start,end);
 const content=[start,...sourceRegion.inside.split('\n').map(x=>'  '+x),end].join('\n');
 const replacement=app.slice(0,embedded.start)+content+app.slice(embedded.end);
