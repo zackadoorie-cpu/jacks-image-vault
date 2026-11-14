@@ -70,6 +70,7 @@ type vault struct {
 	currentVersion string
 	activePath     string
 	warning        string
+	notice         string
 	client         *http.Client
 }
 
@@ -126,6 +127,7 @@ func (v *vault) activate() {
 	v.currentVersion = builtinVersion
 	v.activePath = ""
 	v.warning = ""
+	v.notice = ""
 	if v.choice.Active == "" {
 		return
 	}
@@ -137,6 +139,12 @@ func (v *vault) activate() {
 	m, err := verifyDir(d)
 	if err != nil {
 		v.warning = "Saved patch is invalid, using built-in version: " + err.Error()
+		return
+	}
+	if compareVersions(m.Version, builtinVersion) < 0 {
+		// A newly installed native EXE may be newer than a saved browser UI patch.
+		// Do not silently serve outdated UI. Preserve patch bytes for recovery.
+		v.notice = "Newer Windows executable includes the current interface; older saved patch was left untouched."
 		return
 	}
 	v.currentVersion = m.Version
@@ -364,7 +372,13 @@ func (v *vault) install(data []byte) (string, error) {
 	if _, err = verifyDir(dir); err != nil {
 		return "", err
 	}
-	c := selectedPatch{Active: key, Previous: v.choice.Active}
+	previous := v.choice.Active
+	if v.activePath == "" {
+		// The currently running UI is bundled into this EXE, even if an
+		// obsolete patch key remains on disk. Roll back to bundled, not stale.
+		previous = ""
+	}
+	c := selectedPatch{Active: key, Previous: previous}
 	if err = v.saveSelection(c); err != nil {
 		return "", err
 	}
@@ -375,16 +389,28 @@ func mustJSON(v any) string { b, _ := json.MarshalIndent(v, "", "  "); return st
 func (v *vault) rollback() error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	// Empty previous represents the safely bundled baseline.
+	// Empty previous is the safe bundled baseline.
 	previous := v.choice.Previous
-	if previous != "" {
-		dir, err := v.releaseDir(previous)
-		if err != nil {
-			return err
+	if previous == "" {
+		if v.activePath == "" {
+			return errors.New("no previous UI patch is available")
 		}
-		if _, err = verifyDir(dir); err != nil {
-			return err
+		return v.saveSelection(selectedPatch{Active: "", Previous: v.choice.Active})
+	}
+	dir, err := v.releaseDir(previous)
+	if err != nil {
+		return err
+	}
+	m, err := verifyDir(dir)
+	if err != nil {
+		return err
+	}
+	if compareVersions(m.Version, builtinVersion) < 0 {
+		if v.activePath != "" {
+			// A saved older patch should never displace a newer native EXE UI.
+			return v.saveSelection(selectedPatch{Active: "", Previous: v.choice.Active})
 		}
+		return errors.New("previous UI patch is older than this Windows executable")
 	}
 	return v.saveSelection(selectedPatch{Active: previous, Previous: v.choice.Active})
 }
@@ -396,12 +422,21 @@ func (v *vault) reset() error {
 func (v *vault) status() map[string]any {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	return map[string]any{"version": v.currentVersion, "builtinVersion": builtinVersion, "source": func() string {
-		if v.activePath == "" {
-			return "built-in"
+	canRollback := v.activePath != ""
+	if !canRollback && v.choice.Previous != "" {
+		if dir, err := v.releaseDir(v.choice.Previous); err == nil {
+			if m, err := verifyDir(dir); err == nil {
+				canRollback = compareVersions(m.Version, builtinVersion) >= 0
+			}
 		}
-		return "patched"
-	}(), "canRollback": v.choice.Active != "" || v.choice.Previous != "", "warning": v.warning, "nonce": v.nonce}
+	}
+	source := "built-in"
+	if v.activePath != "" {
+		source = "patched"
+	}
+	return map[string]any{"version": v.currentVersion, "builtinVersion": builtinVersion,
+		"source": source, "canRollback": canRollback, "warning": v.warning,
+		"notice": v.notice, "nonce": v.nonce}
 }
 
 type releaseAssetInfo struct {
