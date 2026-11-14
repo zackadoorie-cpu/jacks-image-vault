@@ -19,7 +19,8 @@ function commandCenter(input={}){
   const syncedFolders=commandSafeCount(input.syncedFolderCount);
   const failedFolders=commandSafeCount(input.failedFolders);
   const fullVerified=connected&&!!commandTime(input.fullVerifiedAt)&&folderCount>0&&
-    syncedFolders===folderCount&&failedFolders===0&&!input.discoveryError;
+    syncedFolders===folderCount&&failedFolders===0&&!input.discoveryError&&
+    !input.scanning&&!input.lastError;
   const idSet=new Set(inventory.map(x=>x?.id).filter(Boolean));
   const liveIDs=new Set(live.map(x=>x.id).filter(Boolean));
   const added=fullVerified?[...liveIDs].filter(id=>!idSet.has(id)).length:null;
