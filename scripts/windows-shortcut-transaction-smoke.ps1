@@ -64,3 +64,5 @@ try {
         Remove-Item -LiteralPath $root -Force -Recurse -ErrorAction SilentlyContinue
     }
 }
+# Failure injections are expected test cases, not a failed GitHub Actions step.
+exit 0
