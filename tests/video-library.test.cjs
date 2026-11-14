@@ -89,7 +89,7 @@ test('video components retain existing patch allowlist and read-only flow',()=>{
    assert.equal(result.status,0,result.stderr+result.stdout);
  }
 });
-function decoder(){
+function decoder({holdMetadata=false}={}){
  const code=fs.readFileSync(path.join(root,'src/video-controller.js'),'utf8');
  const start=code.indexOf('/* video-controller:portable:start */');
  const end=code.indexOf('/* video-controller:portable:end */');
@@ -105,7 +105,7 @@ function decoder(){
    const v={muted:false,playsInline:false,preload:'',videoWidth:640,videoHeight:360,
     duration:30,src:'',currentTime:0,addEventListener(name,fn){events.set(name,fn);},
     removeEventListener(name,fn){if(events.get(name)===fn)events.delete(name);},
-    load(){if(v.src)queueMicrotask(()=>events.get('loadedmetadata')?.());},
+    load(){if(v.src&&!holdMetadata)queueMicrotask(()=>events.get('loadedmetadata')?.());},
     pause(){},removeAttribute(){v.src='';}};
    Object.defineProperty(v,'currentTime',{get(){return this.time||0;},
     set(n){this.time=n;queueMicrotask(()=>events.get('seeked')?.());}});
@@ -119,7 +119,7 @@ function decoder(){
    $:()=>({classList:{toggle(){},add(){},remove(){}},replaceChildren(){},
      innerHTML:'',textContent:'',value:'',disabled:false}),
    mediaKind:()=> 'video',humanBytes:()=> '1 MB',format:n=>String(n),escapeHTML:s=>String(s),
-   linkToDrive:()=>'',openImage(){},videoLibrary:null};
+   linkToDrive:()=>'',openImage(){},};
  vm.runInNewContext(routines+'\nglobalThis.__test={videoMakeStoryboard,videoFrameWait,videoCheckSignature};',ctx);
  return {...ctx.__test,revoked,urls,created,pictures};
 }
@@ -142,9 +142,12 @@ test('already cancelled sampling rejects without allocating decoder resources',a
  await assert.rejects(d.videoMakeStoryboard(new Blob([mp4]),{mime:'video/mp4'},a.signal),/cancelled/);
  assert.equal(d.urls.length,0);
 });
-test('abort during decoded metadata wait releases media object URL',async()=>{
- const d=decoder(),a=new AbortController();
+test('abort while waiting for metadata revokes already allocated media URL',async()=>{
+ const d=decoder({holdMetadata:true}),a=new AbortController();
+ const pending=d.videoMakeStoryboard(new Blob([mp4]),{mime:'video/mp4'},a.signal);
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(d.urls.length,1);
  a.abort();
- await assert.rejects(d.videoMakeStoryboard(new Blob([mp4]),{mime:'video/mp4'},a.signal),/cancelled/);
- assert.equal(d.urls.length,0);
+ await assert.rejects(pending,/cancelled/);
+ assert.deepEqual(d.revoked,['blob:fixture-0']);
 });
