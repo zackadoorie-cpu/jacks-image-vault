@@ -94,6 +94,7 @@ async function main(){
     await p.keyboard.press('Escape');
     assert.equal(await p.locator('#reviewInboxPreviewDialog').evaluate(d=>d.open),false);
     assert.equal(connected.requests.every(x=>x==='GET'),true);
+    await p.keyboard.press('Alt+1');
     await p.locator('#commandVideos').click();
     assert.match(await p.locator('#videoCatalogSummary').innerText(),/1 video files/);
     await p.keyboard.press('Alt+1');connected.failSheet();
