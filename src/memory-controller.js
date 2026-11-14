@@ -1,11 +1,12 @@
 /* Memory Lane browser controller, generated into the existing app bundle. */
 /* memory-controller:portable:start */
 function memoryCurrentSnapshot(){
-  return memoryEngine.memoryBuildTimeline(state.images,{
+  return memoryEngine.memoryBuildTimeline(state.connected?state.images:[],{
     year:state.memoryYear,source:state.memorySource,now:new Date()
   });
 }
 function memoryOpenGroup(key){
+  if(!state.connected)return;
   state.memorySelection={key,source:state.memorySource};
   state.search='';state.folder='all';state.mediaType='all';state.page=1;
   state.sort='date-desc';
