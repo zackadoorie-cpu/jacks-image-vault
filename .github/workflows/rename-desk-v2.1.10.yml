@@ -1,0 +1,134 @@
+name: Publish Rename Desk and UI v2.1.10 (one-time, gated)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rename-desk-v2.1.10.yml'
+permissions:
+  contents: read
+concurrency:
+  group: rename-desk-release-v2.1.10
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Go and JavaScript regression tests and source bundle checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./...
+          node --test tests/*.test.cjs
+          for script in build-media-contract build-search-engine build-smart-collections build-smart-controller build-memory-lane build-memory-controller build-command-center build-command-controller build-review-inbox build-review-inbox-controller build-rename-desk build-rename-desk-controller build-video-library build-video-controller build-similarity-lab build-similarity-controller; do
+            node "scripts/$script.cjs" --check
+          done
+          node --check web/app.js
+          python3 -m py_compile make_patch.py scripts/verify-release-assets.py
+          python3 -m unittest discover -s tests -p 'test_verify_release_assets.py'
+
+  chromium:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned Playwright and Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Browser E2E with synthetic Google Drive and Sheets data only
+        run: node tests/browser-e2e.cjs
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Windows unit and update security tests
+        shell: pwsh
+        run: |
+          go test ./...
+          node --test tests/video-library.test.cjs tests/similarity-lab.test.cjs tests/stress.test.cjs tests/updater-recovery.test.cjs tests/review-inbox.test.cjs tests/video-description.test.cjs tests/rename-desk.test.cjs
+      - name: Build Windows smoke executable
+        shell: pwsh
+        run: go build -o Jacks_Image_Vault_smoke.exe .
+      - name: Verify loopback service and private gallery
+        shell: pwsh
+        run: ./scripts/windows-smoke.ps1 -ExecutablePath ./Jacks_Image_Vault_smoke.exe
+      - name: Verify local ZIP patch install, restart, rollback and data preservation
+        shell: pwsh
+        run: ./scripts/windows-upgrade-smoke.ps1 -ExecutablePath ./Jacks_Image_Vault_smoke.exe
+
+  publish:
+    needs: [linux, chromium, windows]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: '2.1.10'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify v2.1.10 is unused and latest is v2.1.9
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Version v$VERSION already published; refusing duplicate release."
+            exit 1
+          fi
+          if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q .; then
+            echo "::error::Git tag v$VERSION already exists."
+            exit 1
+          fi
+          LATEST="$(gh release view --json tagName --jq '.tagName' 2>/dev/null || true)"
+          if [[ "$LATEST" != 'v2.1.9' ]]; then
+            echo "::error::Latest published release changed. Refusing to publish."
+            exit 1
+          fi
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build Windows EXE, patch ZIP and SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-H windowsgui -s -w -X main.builtinVersion=$VERSION" -o "dist/Jacks_Image_Vault_$VERSION.exe" .
+          python3 make_patch.py --version "$VERSION" --web web --output dist/jacks-image-vault-patch.zip --notes "Video Rename Desk proposals and private export; locally searchable videos"
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+      - name: Verify ZIP allowlist, manifest, EXE and published checksums
+        run: python3 scripts/verify-release-assets.py --version "$VERSION" --dist dist
+      - name: Publish release after all gates succeed
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" dist/* --target "$GITHUB_SHA" --title "Jack's Image Vault v$VERSION — Rename Desk and video search" --notes "Video Rename Desk enables per-file edit, staging and local export of a reversible filename proposal plan, plus local video search and Alt+5 navigation. Every proposal remains UNAPPLIED. No Drive renames, Sheet updates, permission changes or additional OAuth scopes."
