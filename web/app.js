@@ -124,6 +124,11 @@
     storyboardController: null,
     storyboardWorkingId: null,
     storyboardFrames: [],
+    snapshotLoadedAt: null,
+    lastSyncAttemptAt: null,
+    lastSyncSuccessAt: null,
+    lastSyncError: '',
+    shortcutReturnFocus: null,
   };
   const safeId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{10,}$/.test(id);
   const format = n => Number(n || 0).toLocaleString('en-US');
@@ -676,6 +681,77 @@
       videoStoryboardTimes,videoEvidence,videoList};
   })();
   /* GENERATED VIDEO LIBRARY END */
+  /* GENERATED COMMAND CENTER START */
+  const commandEngine=(()=>{
+    const COMMAND_CENTER_SCHEMA=1;
+    const COMMAND_VIDEO_LEVELS=Object.freeze(['unverified','poster-only','sampled-frames','full-video']);
+    function commandTime(value){
+      if(typeof value!=='string'||!value)return null;
+      const date=new Date(value);
+      return Number.isFinite(date.getTime())?date.toISOString():null;
+    }
+    function commandSafeCount(value){
+      return Number.isSafeInteger(value)&&value>=0?value:0;
+    }
+    function commandCenter(input={}){
+      const connected=input.connected===true;
+      const inventory=connected&&Array.isArray(input.inventory)?input.inventory:[];
+      const live=connected&&Array.isArray(input.images)?input.images.filter(x=>x&&!x.demo):[];
+      const folderCount=commandSafeCount(input.folderCount);
+      const syncedFolders=commandSafeCount(input.syncedFolderCount);
+      const failedFolders=commandSafeCount(input.failedFolders);
+      const fullVerified=connected&&!!commandTime(input.fullVerifiedAt)&&folderCount>0&&
+        syncedFolders===folderCount&&failedFolders===0&&!input.discoveryError;
+      const idSet=new Set(inventory.map(x=>x?.id).filter(Boolean));
+      const liveIDs=new Set(live.map(x=>x.id).filter(Boolean));
+      const added=fullVerified?[...liveIDs].filter(id=>!idSet.has(id)).length:null;
+      const missing=fullVerified?[...idSet].filter(id=>!liveIDs.has(id)).length:null;
+      const levels={unverified:0,'poster-only':0,'sampled-frames':0,'full-video':0};
+      let videos=0;
+      for(const item of live){
+        if(!String(item.mime||'').startsWith('video/'))continue;
+        videos++;
+        const level=String(item.videoLevel||'unverified');
+        levels[COMMAND_VIDEO_LEVELS.includes(level)?level:'unverified']++;
+      }
+      const expired=connected&&Number.isFinite(input.expiresAt)&&input.expiresAt<=Number(input.now||Date.now());
+      const lastError=typeof input.lastError==='string'&&input.lastError.trim()?input.lastError.trim().slice(0,250):'';
+      const syncing=connected&&input.scanning===true;
+      const health=!connected?'disconnected':expired?'expired':syncing?'checking':
+        lastError||failedFolders?'warning':fullVerified?'verified':'snapshot-only';
+      const labels={
+        disconnected:'Connect Drive to load the private Sheet index.',
+        expired:'Google session expired. Reconnect to sync.',
+        checking:'Checking Drive. Counts are provisional until verification finishes.',
+        warning:'Last sync encountered a problem. Previous verified data is retained.',
+        verified:'Full Drive folder verification available for this session.',
+        'snapshot-only':'Sheet snapshot loaded. Full Drive comparison not yet verified.'
+      };
+      return {
+        connected,health,label:labels[health],
+        snapshot:connected?inventory.length:null,
+        gallery:connected?liveIDs.size:null,
+        liveVerified:fullVerified,
+        added,missing,
+        lastSuccessfulSync:commandTime(input.lastSuccessfulSync),
+        lastAttempt:commandTime(input.lastAttempt),
+        lastChangeCheck:commandTime(input.lastScanAt),
+        lastFullVerification:commandTime(input.fullVerifiedAt),
+        snapshotLoadedAt:commandTime(input.snapshotLoadedAt),
+        failure:lastError,
+        reviewPending:connected?commandSafeCount(input.reviewPending):null,
+        reviewDeferred:connected?commandSafeCount(input.reviewDeferred):null,
+        videos:connected?videos:null,
+        video:connected?levels:null,
+        previewFailed:connected?commandSafeCount(input.previewFailed):null,
+        previewQueue:connected?commandSafeCount(input.previewQueue):null,
+        previewActive:connected?commandSafeCount(input.previewActive):null,
+        folders:connected?folderCount:null
+      };
+    }
+    return {COMMAND_CENTER_SCHEMA,COMMAND_VIDEO_LEVELS,commandTime,commandSafeCount,commandCenter};
+  })();
+  /* GENERATED COMMAND CENTER END */
   /* GENERATED SIMILARITY LAB START */
   const similarityEngine=(()=>{
     const SIMILARITY_MAX_SCAN=20000;
@@ -1544,6 +1620,7 @@
     updateReviewCounts();
     $('footerStatus').textContent = state.connected ? 'Private media metadata · Read-only Drive access' : 'Preview · Connect to browse private files';
     $('syncButton').classList.toggle('hidden', !state.connected);
+    commandRender();
   }
   function showSettings() {
     $('clientIdInput').value = state.config.clientId;
@@ -1690,6 +1767,8 @@
         if(safeId(about?.user?.permissionId))state.driveIdentity=about.user.permissionId;
       }catch{}
       const {images,baseFolderSources}=await readSpreadsheetSnapshot();
+      state.snapshotLoadedAt=new Date().toISOString();
+      state.lastSyncError='';
       state.inventory=images;
       state.baseFolderSources=baseFolderSources;
       state.folderSources=baseFolderSources.slice();
@@ -2086,6 +2165,7 @@
   function updateScanSummary(message,error=false){
     $('syncStatus').textContent=message;
     $('syncStatus').classList.toggle('error',error);
+    commandRender();
   }
   async function listDriveChanges(token,signal){
     const changes=[],seen=new Set();
@@ -2115,12 +2195,18 @@
     return error;
   }
   function syncSucceeded(message,quiet){
+    state.lastSyncSuccessAt=new Date().toISOString();
+    state.lastSyncError='';
     updateScanSummary(message,false);
     // Clear prior sync error banners after successfully reconciling Drive.
     if(state.syncErrorVisible){clearAlert();state.syncErrorVisible=false;}
     if(!quiet)alertUser(message,'success');
   }
   function syncFailed(message,quiet){
+    // Ephemeral status only. Never keep OAuth tokens or media in local storage.
+    state.lastSyncError=String(message||'Drive sync failed')
+      .replace(/Bearer\s+\S+/gi,'Bearer [redacted]')
+      .replace(/ya29\.[a-zA-Z0-9_-]+/g,'[redacted]').slice(0,250);
     updateScanSummary(message,true);
     if(!quiet){alertUser(message,'error');state.syncErrorVisible=true;}
   }
@@ -2156,6 +2242,7 @@
     if(state.scanning||!state.connected||!state.changeToken)return;
     const generation=++state.scanGeneration,controller=new AbortController();
     const active=()=>state.connected&&state.scanGeneration===generation&&!controller.signal.aborted;
+    state.lastSyncAttemptAt=new Date().toISOString();
     state.scanController=controller;state.scanning=true;
     $('syncButton').disabled=true;$('healthScanButton').disabled=true;
     let mustVerify=false;
@@ -2236,6 +2323,7 @@
         state.scanning=false;state.scanController=null;
         $('syncButton').disabled=false;$('healthScanButton').disabled=false;
         if(state.view==='health')renderHealth();
+        if(state.view==='home')commandRender();
       }
     }
     if(mustVerify&&active()){
@@ -2253,6 +2341,7 @@
     const generation=++state.scanGeneration;
     const controller=new AbortController();
     const active=()=>state.connected&&state.scanGeneration===generation&&!controller.signal.aborted;
+    state.lastSyncAttemptAt=new Date().toISOString();
     state.scanController=controller;
     state.scanning=true;
     $('syncButton').disabled=true;$('healthScanButton').disabled=true;
@@ -2339,6 +2428,7 @@
           state.scanning=false;state.scanController=null;
           $('syncButton').disabled=false;$('healthScanButton').disabled=false;
           if(state.view==='health')renderHealth();
+        if(state.view==='home')commandRender();
         }
       }
       return;
@@ -2388,6 +2478,7 @@
         state.scanning=false;state.scanController=null;
         $('syncButton').disabled=false;$('healthScanButton').disabled=false;
         if(state.view==='health')renderHealth();
+        if(state.view==='home')commandRender();
       }
     }
   }
@@ -2463,7 +2554,9 @@
     const token = state.accessToken;
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
     saveBrowsingPosition();
-    stopScans();stopVideo();similarityClearLocal();state.videoSessionEvidence.clear();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+    stopScans();stopVideo();similarityClearLocal();state.videoSessionEvidence.clear();
+    state.snapshotLoadedAt=null;state.lastSyncAttemptAt=null;state.lastSyncSuccessAt=null;state.lastSyncError='';
+    clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     clearThumbnailCache(); state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
@@ -2776,6 +2869,99 @@
     }
   }
   /* GENERATED VIDEO CONTROLLER END */
+  /* GENERATED COMMAND CONTROLLER START */
+  function commandMetrics(){
+    const counts=state.connected?reviewCounts():{pending:0,deferred:0};
+    const items=state.connected?state.images.map(item=>
+      mediaKind(item)==='video'?{...item,videoLevel:videoLibrary.videoEvidence(item,videoSession(item)).level}:item):[];
+    return commandEngine.commandCenter({
+      connected:state.connected,inventory:state.inventory,images:items,
+      folderCount:state.folderSources.length,syncedFolderCount:state.syncedFolders.size,
+      failedFolders:state.scanFailures.size,discoveryError:state.discoveryError,
+      fullVerifiedAt:state.lastFullScanAt,lastScanAt:state.lastScanAt,
+      lastSuccessfulSync:state.lastSyncSuccessAt,lastAttempt:state.lastSyncAttemptAt,
+      snapshotLoadedAt:state.snapshotLoadedAt,lastError:state.lastSyncError,
+      expiresAt:state.expiry,now:Date.now(),scanning:state.scanning,
+      reviewPending:counts.pending,reviewDeferred:counts.deferred,
+      previewFailed:state.thumbErrors.size,previewQueue:state.thumbJobs.length,
+      previewActive:state.runningThumbJobs
+    });
+  }
+  function commandTimeLabel(iso){
+    return iso?new Date(iso).toLocaleString():'Not yet';
+  }
+  function commandRender(){
+    const m=commandMetrics();
+    const fmt=v=>v===null?'—':format(v);
+    $('commandConnection').textContent=m.label;
+    $('commandConnection').dataset.status=m.health;
+    $('commandSnapshot').textContent=fmt(m.snapshot);
+    $('commandSnapshotNote').textContent=m.connected?
+      'From your latest loaded Google Sheet · '+commandTimeLabel(m.snapshotLoadedAt):
+      'Connect Google Drive to load the Sheet';
+    $('commandLive').textContent=m.liveVerified?fmt(m.gallery):'—';
+    $('commandLiveNote').textContent=m.liveVerified?'Full folder comparison verified · '+commandTimeLabel(m.lastFullVerification):
+      'Not verified · current gallery counts may include cached metadata';
+    $('commandAdded').textContent=fmt(m.added);
+    $('commandMissing').textContent=fmt(m.missing);
+    $('commandDifferencesNote').textContent=m.liveVerified?
+      'New or absent versus Sheet snapshot; no source files changed':
+      'A full Drive scan is required before showing differences';
+    $('commandReviews').textContent=fmt(m.reviewPending);
+    $('commandReviewsNote').textContent=m.connected?
+      fmt(m.reviewDeferred)+' deferred · local approvals and Sheet evidence kept separate':
+      'Connect to inspect the review queue';
+    $('commandVideo').textContent=fmt(m.videos);
+    $('commandVideoNote').textContent=m.video?
+      fmt(m.video['full-video'])+' full-video claims · '+fmt(m.video['sampled-frames'])+
+      ' sampled-frame claims · '+fmt(m.video['poster-only'])+
+      ' posters · '+fmt(m.video.unverified)+' unverified. Audio not assessed.':
+      'Video evidence only available after connecting';
+    $('commandPreview').textContent=fmt(m.previewFailed);
+    $('commandPreviewNote').textContent=m.connected?
+      fmt(m.previewActive)+' loading · '+fmt(m.previewQueue)+' queued · in this browser session':
+      'Browser preview diagnostics not available';
+    $('commandLastSuccess').textContent=commandTimeLabel(m.lastSuccessfulSync);
+    $('commandLastAttempt').textContent=commandTimeLabel(m.lastAttempt);
+    $('commandLastChange').textContent=commandTimeLabel(m.lastChangeCheck);
+    $('commandLastFull').textContent=commandTimeLabel(m.lastFullVerification);
+    $('commandError').textContent=m.failure?'Last sync issue: '+m.failure:'';
+    $('commandError').classList.toggle('hidden',!m.failure);
+    $('commandSync').disabled=!m.connected||state.scanning;
+    $('commandFullScan').disabled=!m.connected||state.scanning;
+    $('commandReview').disabled=!m.connected;
+    $('commandVideos').disabled=!m.connected;
+    $('commandSimilarity').disabled=!m.connected;
+    $('commandDiagnostics').disabled=!m.connected;
+  }
+  function commandOpenHelp(origin){
+    state.shortcutReturnFocus=origin||document.activeElement;
+    const dialog=$('shortcutsDialog');
+    if(!dialog.open)dialog.showModal();
+    $('shortcutsClose').focus();
+  }
+  function commandCloseHelp(){
+    if($('shortcutsDialog').open)$('shortcutsDialog').close();
+  }
+  function commandShortcut(event){
+    if(event.defaultPrevented)return false;
+    const tag=event.target?.tagName||'';
+    const editable=/^(INPUT|TEXTAREA|SELECT)$/.test(tag)||event.target?.isContentEditable;
+    if(editable||document.querySelector('dialog[open]'))return false;
+    if(event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey){
+      const view=({'1':'home','2':'review','3':'video-library','4':'health'})[event.key];
+      if(view){
+        event.preventDefault();displayPage(view);
+        return true;
+      }
+    }
+    if(event.key==='?'&&!event.ctrlKey&&!event.metaKey&&!event.altKey){
+      event.preventDefault();commandOpenHelp();
+      return true;
+    }
+    return false;
+  }
+  /* GENERATED COMMAND CONTROLLER END */
   function displayPage(view,{reset=true,scroll=true}={}) {
     if(state.connected&&browsingView())saveBrowsingPosition();
     if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'){
@@ -2798,7 +2984,7 @@
     $('healthView').classList.toggle('hidden',view!=='health');
     document.querySelectorAll('[data-view]').forEach(btn=>{const active=btn.dataset.view===(view==='smart-results'?'smart':view==='memory-results'?'memory':view); btn.classList.toggle('active',active);if(active)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');});
     render();
-    if(scroll)window.scrollTo({top:0,behavior:'smooth'});
+    if(scroll)window.scrollTo({top:0,behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth'});
     updateScrollControls();
   }
   function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else renderGallery();}
@@ -2808,6 +2994,7 @@
     $('statMemes').textContent=count(state.images.filter(x=>folderKind(x.folder)==='memes').length);
     $('statPhotos').textContent=count(state.images.filter(x=>folderKind(x.folder)==='photos').length);
     $('statDescribed').textContent=count(state.images.filter(x=>!!effectiveDescription(x).trim()).length);
+    commandRender();
     // Featured collections are selected from the private inventory at runtime.
     // Never bake personal folder names into a public GitHub application bundle.
     const featured = state.connected ? [
@@ -3514,6 +3701,18 @@
     $('connectButton').onclick=connect;$('heroConnectButton').onclick=connect;$('disconnectButton').onclick=disconnect;
     $('installButton').onclick=installApp;$('installClose').onclick=()=>$('installDialog').close();$('installOkay').onclick=()=>$('installDialog').close();
     $('exploreButton').onclick=()=>displayPage('all');$('seeAllButton').onclick=()=>displayPage('all');
+    $('commandSync').onclick=()=>refreshSheetAndDrive();
+    $('commandFullScan').onclick=()=>syncWithDrive({full:true});
+    $('commandReview').onclick=()=>displayPage('review');
+    $('commandVideos').onclick=()=>displayPage('video-library');
+    $('commandSimilarity').onclick=()=>displayPage('similarity');
+    $('commandDiagnostics').onclick=()=>displayPage('health');
+    $('shortcutHelpButton').onclick=()=>commandOpenHelp($('shortcutHelpButton'));
+    $('shortcutsClose').onclick=commandCloseHelp;
+    $('shortcutsDialog').addEventListener('close',()=>{
+      if(state.shortcutReturnFocus?.isConnected)state.shortcutReturnFocus.focus();
+      state.shortcutReturnFocus=null;
+    });
     $('backSmartCollections').onclick=()=>displayPage('smart');
     $('backMemoryLane').onclick=()=>displayPage('memory',{reset:false});
     $('memoryYearSelect').onchange=e=>{state.memoryYear=e.target.value;renderMemoryLane();scheduleBrowseSave();};
@@ -3629,6 +3828,8 @@
         if(event.key==='ArrowRight'){event.preventDefault();stepImage(1);}
         return;
       }
+      if(commandShortcut(event))return;
+      if(document.querySelector('dialog[open]'))return;
       if(event.key==='/'&&!event.ctrlKey&&!event.metaKey&&!/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)){
         event.preventDefault();if(state.view==='home')displayPage('all');$('searchInput').focus();
       }
