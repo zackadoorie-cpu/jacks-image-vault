@@ -1978,28 +1978,104 @@
     $('settingsDialog').close();
     alertUser('Connection settings saved on this device' + ($('rememberConfig').checked ? '.' : ' for this tab only.') + ' Select Connect Drive to authorize read-only access.', 'success');
   }
-  async function connect() {
-    clearAlert();
-    if (!state.config.clientId || !state.config.sheetId) {showSettings(); return;}
-    if (!window.google?.accounts?.oauth2) {alertUser('Google sign-in is still loading, or it is blocked by your browser. Check your connection, then select Connect Drive again.', 'error');return;}
-    try {
-      if (!state.tokenClient) {
-        state.tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: state.config.clientId,
-          scope: SCOPES,
-          callback: async response => {
-            if (!response?.access_token) {alertUser('Google authorization did not return an access token. Try connecting again.', 'error');return;}
-            state.accessToken = response.access_token;
-            state.expiry = Date.now() + Math.max(60, Number(response.expires_in || 3600) - 60) * 1000;
-            await loadLiveIndex();
-          },
-          error_callback: response => alertUser(`Google sign-in could not open: ${response?.type || 'unknown error'}.`, 'error')
-        });
-      }
-      state.tokenClient.requestAccessToken({prompt: 'consent'});
-    } catch (error) {alertUser(`Connection could not start: ${error.message || error}`, 'error');}
+  async function connect({automatic=false}={}) {
+    if(!automatic)clearAlert();
+    if(state.connected&&Date.now()<state.expiry)return;
+    if(!state.config.clientId||!state.config.sheetId){
+      if(!automatic)showSettings();
+      return;
+    }
+    if(!window.google?.accounts?.oauth2){
+      if(!automatic)alertUser('Google sign-in is still loading. Check your connection, then select Connect Drive again.', 'error');
+      return;
+    }
+    const binding=automatic?readAutoBinding():null;
+    if(automatic&&(!state.autoReconnect||!binding))return;
+    const epoch=++state.authEpoch;
+    const clientId=state.config.clientId,sheetId=state.config.sheetId;
+    state.authMode=automatic?'automatic':'manual';
+    if(automatic){
+      state.autoReconnectStatus='Checking your existing Google session…';
+      updateStatus();
+    }
+    try{
+      const client=google.accounts.oauth2.initTokenClient({
+        client_id:clientId,
+        scope:SCOPES,
+        callback:async response=>{
+          if(epoch!==state.authEpoch||state.config.clientId!==clientId||state.config.sheetId!==sheetId)return;
+          state.authMode='idle';
+          if(!response?.access_token){
+            if(automatic){
+              state.autoReconnectStatus='Google needs a manual connection. Choose Connect Drive.';
+              updateStatus();
+            }else alertUser('Google did not authorize access. Try Connect Drive again.','error');
+            return;
+          }
+          state.accessToken=response.access_token;
+          state.expiry=Date.now()+Math.max(60,Number(response.expires_in||3600)-60)*1000;
+          if(automatic){
+            let actual=null;
+            try{
+              const about=await googleGet('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)');
+              actual=about?.user?.permissionId;
+            }catch{}
+            if(epoch!==state.authEpoch)return;
+            if(!safeId(actual)||actual!==binding.accountId){
+              state.accessToken=null;state.expiry=0;
+              state.autoReconnectStatus='Google account changed or could not be verified. Choose Connect Drive manually.';
+              updateStatus();
+              return;
+            }
+          }
+          await loadLiveIndex();
+          if(epoch!==state.authEpoch)return;
+          if(state.connected){
+            state.autoReconnectStatus='';
+            saveAutoBinding();
+          }else if(automatic){
+            state.autoReconnectStatus='Automatic connection could not load your Sheet. Choose Connect Drive.';
+            updateStatus();
+          }
+        },
+        error_callback:response=>{
+          if(epoch!==state.authEpoch)return;
+          state.authMode='idle';
+          if(automatic){
+            state.autoReconnectStatus='Google needs your confirmation. Choose Connect Drive to continue.';
+            updateStatus();
+          }else alertUser('Google sign-in could not open: '+(response?.type||'unknown error'),'error');
+        }
+      });
+      state.tokenClient=client;
+      // Never persist a bearer token. Previously granted sessions may be
+      // recovered silently, subject to Google and browser policy.
+      client.requestAccessToken({prompt:automatic?'none':''});
+    }catch(error){
+      if(epoch!==state.authEpoch)return;
+      state.authMode='idle';
+      if(automatic){
+        state.autoReconnectStatus='Automatic reconnect unavailable. Choose Connect Drive.';
+        updateStatus();
+      }else alertUser('Connection could not start: '+(error.message||error),'error');
+    }
   }
-  async function googleGet(url, {blob = false, maxBytes = null, signal = undefined} = {}) {
+  function tryAutoReconnect(){
+    if(!state.autoReconnect||!readAutoBinding()||!state.config.clientId||!state.config.sheetId)return;
+    if(location.protocol==='file:')return;
+    let attempts=0;
+    const check=()=>{
+      if(state.connected||state.authMode!=='idle'||!state.autoReconnect)return;
+      if(window.google?.accounts?.oauth2)connect({automatic:true});
+      else if(++attempts<35)setTimeout(check,200);
+      else{
+        state.autoReconnectStatus='Google sign-in library did not load. Choose Connect Drive.';
+        updateStatus();
+      }
+    };
+    check();
+  }
+    async function googleGet(url, {blob = false, maxBytes = null, signal = undefined} = {}) {
     if (!state.accessToken || Date.now() > state.expiry) { updateStatus(); throw new Error('Your Google session expired. Choose Connect Drive to authorize again.'); }
     // Never send a Google access token to a thumbnail URL or any non-API host.
     const host = new URL(url).hostname;
@@ -2111,6 +2187,7 @@
       displayPage(resumed?state.view:'home',{reset:false,scroll:false});
       if(resumed)finishBrowsingRestore();
       clearAlert();
+      saveAutoBinding();
       if(reviewLoadWarning)alertUser('Drive connected, but '+reviewLoadWarning,'error');
       else alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
       scheduleScans();
@@ -2882,6 +2959,12 @@
   function disconnect() {
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
     const token = state.accessToken;
+    state.authEpoch++;
+    state.authMode='idle';
+    state.autoReconnect=false;
+    state.autoReconnectStatus='';
+    clearAutoBinding();
+    try{localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({...readPreferences(),autoReconnect:false}));}catch{}
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;
     saveBrowsingPosition();
     stopScans();stopVideo();similarityClearLocal();state.videoSessionEvidence.clear();renameDeskClear();
