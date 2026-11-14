@@ -610,7 +610,29 @@
       </div>
     </form>
   </dialog>
-  <dialog id="installDialog" class="dialog install-dialog" aria-labelledby="installTitle"><div class="dialog-header"><h2 id="installTitle">Install Image Vault</h2><button class="icon-button" id="installClose" type="button" aria-label="Close installation help">×</button></div><p class="dialog-copy">In Microsoft Edge or Google Chrome, open the menu and choose <strong>Apps → Install this site as an app</strong> or <strong>Cast, save and share → Install page as app</strong>. Some versions also show an Install icon in the address bar.</p><p class="dialog-copy">A web app needs an <strong>HTTPS address</strong> or <strong>localhost</strong>. Opening this HTML from a ZIP or file folder will not make it installable. For daily use, publish the app shell to a trusted HTTPS host; keep all personal images in Google Drive.</p><button class="btn primary" id="installOkay" type="button">Got it</button></dialog>
+  <dialog id="installDialog" class="dialog install-dialog" aria-labelledby="installTitle">
+    <div class="dialog-header">
+      <div><p class="eyebrow">WINDOWS AND BROWSER</p><h2 id="installTitle">Install Image Vault</h2></div>
+      <button class="icon-button" id="installClose" type="button" aria-label="Close installation help">×</button>
+    </div>
+    <p class="dialog-copy">Choose how you want to launch your private library. Google sign-in, saved preferences and Drive data remain in your existing browser profile.</p>
+    <section class="windows-install-section" id="winInstallSection" hidden aria-labelledby="winInstallHeading">
+      <div class="windows-install-heading"><span aria-hidden="true">▣</span><div>
+        <h3 id="winInstallHeading">Add to Windows</h3>
+        <p>Set up your launcher in your user Apps folder and create matching Desktop and Start Menu shortcuts. No administrator access or automatic startup.</p>
+      </div></div>
+      <button id="winInstallButton" class="btn primary" type="button" disabled>Set up Windows shortcuts</button>
+      <p class="field-help" role="status" aria-live="polite" id="winInstallStatus">Windows will ask you to confirm before anything is installed.</p>
+      <p class="field-help">For taskbar access, right-click the new shortcut and choose <strong>Pin to taskbar</strong>, if Windows offers it. Edge/Chrome can still own the app-window taskbar group.</p>
+    </section>
+    <section class="browser-install-section">
+      <h3>Install as a browser app</h3>
+      <p class="dialog-copy">In Microsoft Edge choose <strong>Apps → Install this site as an app</strong>. In Google Chrome use <strong>Cast, save and share → Install page as app</strong>, or your browser’s install prompt. The local launcher must run to serve localhost.</p>
+      <button id="installBrowserButton" class="btn outline" type="button">Try browser installation</button>
+      <p id="installBrowserStatus" class="field-help" role="status">The browser may offer an Install icon in the address bar.</p>
+    </section>
+    <div class="dialog-actions"><button class="btn quiet" id="installOkay" type="button">Close</button></div>
+  </dialog>
 
   <button class="back-to-top hidden" id="backToTop" type="button" aria-label="Back to top" title="Back to top">↑ <span>Top</span></button>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
