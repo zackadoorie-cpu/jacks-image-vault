@@ -4772,7 +4772,61 @@
     });
     window.addEventListener('appinstalled',()=>{state.installPrompt=null;alertUser('Image Vault installed. You can launch it from your Windows Start menu or taskbar.', 'success');});
   }
+  // A browser process can outlive an --app window. A heartbeat tracks the
+  // actual open document, allowing the native Windows launcher to release
+  // localhost only after the LAST document closes. Never store its nonce.
+  function startNativeWindowLifecycle(){
+    if(!['localhost','127.0.0.1'].includes(location.hostname)||
+       !globalThis.crypto?.randomUUID)return;
+    const id=crypto.randomUUID();
+    let nonce='',joined=false,closed=false,busy=false,interval=null;
+    const send=async(route,keepalive=false)=>{
+      if(!nonce)return false;
+      const response=await fetch('/__vault_window/'+route,{
+        method:'POST',cache:'no-store',keepalive,
+        headers:{'Content-Type':'application/json','X-Vault-Nonce':nonce},
+        body:JSON.stringify({id})
+      });
+      return response.ok;
+    };
+    const heartbeat=async()=>{
+      if(closed||busy)return;
+      busy=true;
+      try{
+        if(!nonce){
+          const statusResponse=await fetch('/__vault_update/status',{cache:'no-store'});
+          if(!statusResponse.ok)return;
+          const status=await statusResponse.json();
+          if(typeof status.nonce!=='string'||!status.nonce)return;
+          nonce=status.nonce;
+        }
+        joined=await send('heartbeat');
+        if(!joined)nonce='';
+      }catch{joined=false;}
+      finally{busy=false;}
+    };
+    const start=()=>{
+      closed=false;
+      if(interval!==null)clearInterval(interval);
+      interval=setInterval(heartbeat,18000);
+      void heartbeat();
+    };
+    window.addEventListener('pagehide',()=>{
+      closed=true;
+      if(interval!==null){clearInterval(interval);interval=null;}
+      if(joined&&nonce){
+        // keepalive is permitted to finish during a normal window close.
+        void send('leave',true).catch(()=>{});
+      }
+    });
+    window.addEventListener('pageshow',event=>{if(event.persisted)start();});
+    document.addEventListener('visibilitychange',()=>{
+      if(document.visibilityState==='visible'&&!closed)void heartbeat();
+    });
+    start();
+  }
   function init() {
+    startNativeWindowLifecycle();
     applyVaultTheme(state.theme);
     buildFolderIndex();initEvents();enableBackdropDismissal();updateStatus();render();$('originText').textContent=location.origin;
     if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){

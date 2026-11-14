@@ -1,6 +1,6 @@
 # Jack's Image Vault — Windows image and media library
 
-## Windows integration: native Start Menu and Desktop shortcuts (proposed)
+## Windows integration: recoverable shortcuts and browser-window lifecycle (v2.1.16)
 
 The install panel now distinguishes **Windows launcher setup** from an optional
 Edge/Chrome browser-app installation. In a newly built Windows EXE, open
@@ -25,12 +25,30 @@ download a newly built EXE first. To refresh the shortcuts after a newer native
 release, run that EXE and choose **Set up Windows shortcuts** again; older
 versioned EXEs remain for manual recovery.
 
-Windows can pin the new Desktop/Start Menu shortcut to the taskbar. The live
-gallery window is still hosted by Edge or Chrome in `--app` mode, so its
-taskbar grouping and title-bar icon can depend on the browser's PWA/cache
-behavior. This does **not** promise full native WebView2 window ownership.
-The launcher may remain running after the browser window closes; close the
-old launcher before switching native versions.
+**Taskbar:** The EXE shortcut starts the localhost server, not the browser
+window. For the running Vault window to have its own app icon and taskbar group,
+open `http://localhost:8765/` in a normal Edge browser tab while the
+native EXE is running, install the browser app, then use `edge://apps` →
+**Details → Pin to taskbar**. The browser app is still browser-hosted, not a
+WebView2 replacement. **A pinned PWA cannot start the localhost server by
+itself.** Start the native EXE from its Windows shortcut after a full shutdown,
+then use the PWA pin for its distinct running-window identity.
+
+**Window shutdown:** App documents now send nonce-authenticated heartbeats.
+When the last registered app window closes, the native server releases
+localhost after a 15-second reload grace. Crashed/browser-killed documents
+eventually expire by a four-minute heartbeat TTL. The server does not
+auto-shutdown when an older patched UI or synthetic test never registered,
+preventing accidental data loss on unsupported clients. Closing only the
+browser window in older native releases may still leave the EXE running.
+
+**Recoverable setup:** The Desktop and Start Menu shortcuts are staged and
+preflight-checked together. Existing valid shortcuts are backed up and a
+private journal tracks incomplete commits. Ordinary setup failures restore
+both prior shortcuts, while the next run repairs a crash interrupted between
+updates. If shortcut setup fails, a newly copied EXE is cleaned up only when
+the bytes match the source. User-owned unrelated shortcuts remain untouched.
+The tests explicitly simulate both a mid-commit failure and a process crash.
 
 Windows setup can also be invoked manually as `Jacks_Image_Vault_VERSION.exe --windows-setup`.
 The setup is entirely optional and makes no change merely by opening the panel.

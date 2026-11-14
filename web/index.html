@@ -623,12 +623,13 @@
       </div></div>
       <button id="winInstallButton" class="btn primary" type="button" disabled>Set up Windows shortcuts</button>
       <p class="field-help" role="status" aria-live="polite" id="winInstallStatus">Windows will ask you to confirm before anything is installed.</p>
-      <p class="field-help">For taskbar access, right-click the new shortcut and choose <strong>Pin to taskbar</strong>, if Windows offers it. Edge/Chrome can still own the app-window taskbar group.</p>
+      <p class="field-help">The Windows shortcut launches the local server. For the <strong>running window's own taskbar icon</strong>, install the browser app below and pin that installed app, not the EXE launcher.</p>
     </section>
     <section class="browser-install-section">
-      <h3>Install as a browser app</h3>
-      <p class="dialog-copy">In Microsoft Edge choose <strong>Apps → Install this site as an app</strong>. In Google Chrome use <strong>Cast, save and share → Install page as app</strong>, or your browser’s install prompt. The local launcher must run to serve localhost.</p>
-      <button id="installBrowserButton" class="btn outline" type="button">Try browser installation</button>
+      <h3>Recommended: browser app with its own taskbar icon</h3>
+      <p class="dialog-copy">For the running window's own taskbar icon, open <strong>http://localhost:8765/</strong> in a normal Microsoft Edge tab while the Vault EXE is running. Use Edge's <strong>Apps → Install this site as an app</strong> option, then open <strong>edge://apps</strong> and choose <strong>Details → Pin to taskbar</strong>.</p>
+      <p class="field-help"><strong>Important:</strong> A pinned browser app cannot start the local Vault server by itself. When Vault is fully closed, open its Windows Desktop or Start Menu launcher first. The browser app pin is for the running window's identity.</p>
+      <button id="installBrowserButton" class="btn outline" type="button">Install browser app for taskbar</button>
       <p id="installBrowserStatus" class="field-help" role="status">The browser may offer an Install icon in the address bar.</p>
     </section>
     <div class="dialog-actions"><button class="btn quiet" id="installOkay" type="button">Close</button></div>

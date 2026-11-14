@@ -92,6 +92,9 @@ jobs:
       - name: Windows launcher identity and shortcut hardening tests
         shell: pwsh
         run: go test -run 'Test(WindowsInstall|WindowsSetup|ChaosNative|ChaosDecimal|WindowsIntegrationEndpoints)' ./...
+      - name: Test shortcut transaction rollback and crash recovery in sandbox
+        shell: pwsh
+        run: ./scripts/windows-shortcut-transaction-smoke.ps1
       - name: Build native Image Vault for Windows
         shell: pwsh
         run: go build -o "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe" .
