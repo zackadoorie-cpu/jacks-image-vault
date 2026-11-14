@@ -24,7 +24,7 @@ function commandRender(){
   const m=commandMetrics();
   const fmt=v=>v===null?'—':format(v);
   $('commandConnection').textContent=m.label;
-  $('commandConnection').dataset.status=m.health;
+  $('commandConnection').setAttribute('data-status',m.health);
   $('commandSnapshot').textContent=fmt(m.snapshot);
   $('commandSnapshotNote').textContent=m.connected?
     'From your latest loaded Google Sheet · '+commandTimeLabel(m.snapshotLoadedAt):
