@@ -31,13 +31,16 @@ func newWindowSessions() *windowSessions {
     return &windowSessions{clients: make(map[string]time.Time)}
 }
 func (s *windowSessions) expire(now time.Time) {
+    var lastExpiry time.Time
     for id, last := range s.clients {
         if now.Sub(last) > windowHeartbeatTTL {
             delete(s.clients, id)
+            expiry := last.Add(windowHeartbeatTTL)
+            if expiry.After(lastExpiry) { lastExpiry = expiry }
         }
     }
     if s.observed && len(s.clients) == 0 && s.emptySince.IsZero() {
-        s.emptySince = now
+        if !lastExpiry.IsZero() { s.emptySince = lastExpiry } else { s.emptySince = now }
     }
 }
 func (s *windowSessions) heartbeat(id string, now time.Time) error {
