@@ -410,6 +410,7 @@ type release struct {
 	PublishedAt string `json:"published_at"`
 	Body        string `json:"body"`
 	Assets      []struct {
+		ID         int64  `json:"id"`
 		Name       string `json:"name"`
 		BrowserURL string `json:"browser_download_url"`
 		Size       int64  `json:"size"`
@@ -460,6 +461,68 @@ func releaseAsset(r release, repo string) (string, string, error) {
 	}
 	return "", "", fmt.Errorf("release has no asset named %s", archiveName)
 }
+// releaseAssetID returns an ID only for the already validated ZIP asset in the
+// release metadata. The fallback URL is constructed locally on api.github.com.
+func releaseAssetID(r release) int64 {
+	for _, a := range r.Assets {
+		if a.Name == archiveName {
+			return a.ID
+		}
+	}
+	return 0
+}
+
+// downloadReleaseAsset tries the public browser download first, then GitHub's
+// official release-asset API. Some Windows environments receive HTTP 403 from
+// release-download redirects. Both routes are limited to trusted GitHub hosts
+// by the client's redirect policy; the caller still verifies SHA-256 and ZIP.
+func (v *vault) downloadReleaseAsset(repo, url string, assetID int64) ([]byte, error) {
+	type candidate struct{ url, accept, name string }
+	candidates := []candidate{{url, "application/octet-stream", "release URL"}}
+	if assetID > 0 {
+		candidates = append(candidates, candidate{
+			"https://api.github.com/repos/" + repo + "/releases/assets/" + strconv.FormatInt(assetID, 10),
+			"application/octet-stream", "GitHub asset API",
+		})
+	}
+	var failures []string
+	for _, c := range candidates {
+		req, err := http.NewRequest("GET", c.url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", c.accept)
+		req.Header.Set("User-Agent", "JacksImageVault/2.1.1")
+		resp, err := v.client.Do(req)
+		if err != nil {
+			failures = append(failures, c.name+": "+err.Error())
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			failures = append(failures, fmt.Sprintf("%s: HTTP %d", c.name, resp.StatusCode))
+			resp.Body.Close()
+			continue
+		}
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxArchive+1))
+		closeErr := resp.Body.Close()
+		if readErr != nil || closeErr != nil {
+			failures = append(failures, c.name+": incomplete download")
+			continue
+		}
+		if len(data) > maxArchive {
+			return nil, errors.New("GitHub release archive exceeds size limit")
+		}
+		if !bytes.HasPrefix(data, []byte{'P', 'K', 3, 4}) {
+			// Unauthenticated GitHub API asset requests may return JSON
+			// metadata instead of a ZIP; never pass it to the installer.
+			failures = append(failures, c.name+": did not return a ZIP")
+			continue
+		}
+		return data, nil
+	}
+	return nil, fmt.Errorf("GitHub patch download failed (%s). Open https://github.com/%s/releases/latest, download %s in your browser, and use Install a local patch", strings.Join(failures, "; "), repo, archiveName)
+}
+
 func (v *vault) installGithub(repo string) (string, error) {
 	r, err := v.latest(repo)
 	if err != nil {
@@ -475,22 +538,9 @@ func (v *vault) installGithub(repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("User-Agent", "JacksImageVault/2.0")
-	resp, err := v.client.Do(req)
+	data, err := v.downloadReleaseAsset(repo, url, releaseAssetID(r))
 	if err != nil {
 		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("release download returned HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxArchive+1))
-	if err != nil {
-		return "", err
-	}
-	if len(data) > maxArchive {
-		return "", errors.New("GitHub release archive exceeds size limit")
 	}
 	if digest != "" && "sha256:"+sha(data) != strings.ToLower(digest) {
 		return "", errors.New("GitHub release SHA-256 digest mismatch")
