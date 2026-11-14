@@ -46,6 +46,7 @@ test('update screen retains a safe manual route on GitHub API HTTP 403',()=>{
   assert.match(app,/Manual ZIP installation is still available/);
   assert.match(html,/ZIP updates the gallery interface, not the Windows launcher/);
   assert.match(app,/Verify & install ZIP/);
+  assert.match(app,/status\.warning\|\|status\.notice\|\|/);
 });
 test('local ZIP remains an explicit, authenticated, bounded install action',()=>{
   assert.match(app,/const file=\$\('localPatchFile'\)\.files/);
