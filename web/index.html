@@ -46,6 +46,7 @@
           <summary class="nav-group-toggle"><span>REVIEW &amp; HEALTH</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
           <div class="nav-group-items">
             <button class="nav-item" data-view="review-inbox"><span class="nav-icon">▤</span>Review Inbox</button>
+            <button class="nav-item" data-view="rename-desk"><span class="nav-icon">✎</span>Rename Desk</button>
             <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
             <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
           </div>
@@ -295,12 +296,16 @@
               <option value="all">All videos</option><option value="unverified">Visual review unverified</option>
               <option value="reviewed">Some source visual evidence</option><option value="oversized">Cannot generate storyboard</option>
             </select>
+            <label for="videoSearch">Find videos</label>
+            <input id="videoSearch" class="field video-search" type="search" autocomplete="off" maxlength="120" placeholder="Search titles, tags, folders…">
             <label for="videoTitleMode">Card names</label>
             <select id="videoTitleMode" class="select" aria-label="Video card title style">
               <option value="title">Readable titles</option>
               <option value="filename">Original Drive filenames</option>
             </select>
           </div>
+          <div class="video-library-tools"><button id="videoOpenRenameDesk" type="button" class="btn outline">Review Drive filename changes</button>
+            <span>Suggested titles are not real file renames.</span></div>
           <p id="videoCatalogSummary" class="video-library-summary" role="status">Connect Drive to see your video files.</p>
           <div id="videoCatalogList" class="video-library-grid"></div>
           <div class="video-library-pagination">
@@ -308,6 +313,43 @@
             <button id="videoCatalogNext" class="btn outline" type="button" disabled>Next →</button>
           </div>
           <p class="privacy-note">Video Library reads the existing Google Sheet and Drive index. Videos are only downloaded after you select Play, Generate thumbnail, or Generate storyboard in the media details. Download limits are enforced, and source Drive files and Sheets remain untouched.</p>
+        </section>
+        <section id="renameDeskView" class="view hidden" aria-labelledby="renameDeskTitle">
+          <div class="gallery-heading"><div>
+            <p class="eyebrow">PHASE 8 · RENAME SAFETY CENTER</p>
+            <h1 id="renameDeskTitle">Video Rename Desk</h1>
+            <p>Review suggested filenames, correct them, and stage exact before/after changes. The original Google Drive names remain unchanged.</p>
+          </div></div>
+          <p class="rename-desk-alert" role="note"><strong>Export-only, not a rename tool.</strong> Staging and exporting a plan do not change any Drive file or Sheet cell. Before applying a plan, each Drive ID, current name, folder, extension, permissions and Sheet row must be checked again. Undo will need the same checks.</p>
+          <div class="rename-desk-metrics" aria-label="Rename preparation progress">
+            <div><span>Video records</span><strong id="renameDeskTotal">—</strong></div>
+            <div><span>Draft filenames</span><strong id="renameDeskSuggested">—</strong></div>
+            <div><span>Staged locally</span><strong id="renameDeskStagedCount">—</strong></div>
+          </div>
+          <div class="rename-desk-toolbar">
+            <label class="rename-desk-search-label" for="renameDeskSearch">Search rename proposals
+              <input id="renameDeskSearch" class="field" type="search" placeholder="Search filename, title, folder…" maxlength="120" disabled>
+            </label>
+            <label for="renameDeskFilter">Show
+              <select id="renameDeskFilter" class="select" disabled>
+                <option value="all">All videos</option>
+                <option value="suggested">With draft filename</option>
+                <option value="staged">Staged locally</option>
+                <option value="blocked">Needs more review</option>
+              </select>
+            </label>
+            <button id="renameDeskExport" class="btn primary" type="button" disabled>Export staged rename plan</button>
+            <button id="renameDeskClear" class="btn outline" type="button">Clear staging</button>
+          </div>
+          <p id="renameDeskSummary" class="rename-desk-summary" role="status" aria-live="polite">Connect Drive to start.</p>
+          <p id="renameDeskMessage" class="rename-desk-message" role="status" aria-live="polite">No changes have been applied.</p>
+          <div id="renameDeskList" class="rename-desk-list" aria-label="Video filename proposals"></div>
+          <div class="rename-desk-pagination">
+            <button id="renameDeskPrev" class="btn outline" type="button" disabled>Previous</button>
+            <span id="renameDeskPage" aria-live="polite">1 / 1</span>
+            <button id="renameDeskNext" class="btn outline" type="button" disabled>Next</button>
+          </div>
+          <p class="privacy-note">Only existing Sheet review tags and descriptions generate suggestions. A description based on sampled frames is not a full-video inspection. Plan downloads are private to this device and include Drive IDs; store them carefully. No changes to Drive, Sheets or OAuth permissions are made.</p>
         </section>
         <section id="reviewInboxView" class="view hidden" aria-labelledby="reviewInboxTitle">
           <div class="gallery-heading">
@@ -382,6 +424,7 @@
       <div><dt><kbd>Alt</kbd> + <kbd>2</kbd></dt><dd>Needs review</dd></div>
       <div><dt><kbd>Alt</kbd> + <kbd>3</kbd></dt><dd>Video Library</dd></div>
       <div><dt><kbd>Alt</kbd> + <kbd>4</kbd></dt><dd>Library Health</dd></div>
+      <div><dt><kbd>Alt</kbd> + <kbd>5</kbd></dt><dd>Video Rename Desk</dd></div>
       <div><dt><kbd>/</kbd></dt><dd>Focus gallery search</dd></div>
       <div><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
       <div><dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd>Previous / next image in the media viewer</dd></div>

@@ -1,5 +1,23 @@
 # Jack's Image Vault — Windows image and media library
 
+## Video Rename Desk and UI refinements (unreleased implementation PR)
+
+**What's new:** Video Library has an on-device title/tag/folder search box and
+a direct path to **Rename Desk** under the grouped Review & Health sidebar.
+Use `Alt+5` to open it. The Rename Desk displays a searchable, paginated
+list of videos, source-review labels, a current-versus-proposed filename editor,
+same-folder collision warnings, and explicit individual staging. Export at most
+25 staged video changes as a locally downloaded JSON approval plan with the
+exact original filename, Drive ID, Manifest row and intended undo name.
+
+**Safety boundary:** This is a **planning and UI** PR, NOT permission to
+rename the Drive files. Exports and staging are non-mutating, stored only
+in session memory, and automatically cleared when disconnected. No
+`spreadsheets` or `drive` write scope is introduced. Actual renaming
+and undo require separate verified, user-approved Drive and Sheet
+operations. The detailed protocol is at
+[Video Rename Desk safeguards](docs/video-rename-desk.md).
+
 ## Compact sidebar and readable video titles (released in v2.1.9)
 
 - The sidebar uses native, keyboard-operable Library, Explore Tools and Review
