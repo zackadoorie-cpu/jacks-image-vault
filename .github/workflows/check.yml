@@ -61,7 +61,7 @@ jobs:
         run: ./scripts/windows-smoke.ps1 -ExecutablePath "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe"
 
   browser-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
