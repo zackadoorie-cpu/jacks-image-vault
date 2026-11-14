@@ -241,12 +241,12 @@ Patches replace only the **web interface files** (HTML, CSS, JS, icons, and serv
 The repository is set up at [zackadoorie-cpu/jacks-image-vault](https://github.com/zackadoorie-cpu/jacks-image-vault).
 
 1. Open [GitHub Actions → Build and publish Image Vault update](https://github.com/zackadoorie-cpu/jacks-image-vault/actions/workflows/release.yml).
-2. Choose **Run workflow**, keep branch **main**, enter a version newer than the installed app, e.g. **2.0.1**, and confirm **Run workflow**.
+2. Choose **Run workflow**, keep branch **main**, and enter a **new, unused version greater than the latest published release**, such as **2.1.1** after the published v2.1.0. Enter only three numbers and two dots: **no leading `v`, spaces, or trailing period**. Click **Run workflow**.
 3. The workflow tests the app, builds a Windows EXE, produces a validated `jacks-image-vault-patch.zip`, and publishes a GitHub Release with checksums.
 4. Wait for the workflow to show a green check, then inspect the download links under [Releases](https://github.com/zackadoorie-cpu/jacks-image-vault/releases). If the workflow fails, inspect its job logs; do not assume a release exists.
 5. In the installed v2 app, open **Updates**, enter `zackadoorie-cpu/jacks-image-vault`, choose **Save repository**, and then **Check GitHub**. Select **Install update** and approve if a newer release is available.
 
-Use a new version number for each publication. The existing `v2.0.0` app cannot offer an update to itself; start with `2.0.1`. Later source updates should be reviewed and tested before publishing `2.0.2`, and so on.
+**Versions are unique and cannot be reused.** Check the [published tags and releases](https://github.com/zackadoorie-cpu/jacks-image-vault/releases) first. In particular, **v2.0.2 already exists**, and entering `2.1.0.` with a trailing period is invalid. The workflow now checks version format, existing releases and tags, and monotonic version order **before building**, so a mistaken input fails quickly with a clear error. **v2.1.0 was published on November 14, 2026** with Search 2.0, Smart Collections, and Memory Lane. The remaining v2.1 roadmap features were not included. For a later release use a new version such as **2.1.1** and validate the install before updating your main Windows app.
 
 The repository is **public**, but Drive images and inventory are not included. **Never upload private photo files, spreadsheet exports, OAuth access tokens, Google client secrets, or personal settings.**
 
@@ -257,10 +257,10 @@ The app accesses public GitHub releases over HTTPS; a GitHub access token is not
 Keep the source ZIP. To make a new patch, update its `web/` files and use the bundled Python standard-library tool (Python is for creating patch ZIPs, **not** required on your Windows computer to run the app):
 
 ```bash
-python3 make_patch.py --version 2.0.2 --web web --output jacks-image-vault-patch.zip --notes "Thumbnail fixes"
+python3 make_patch.py --version 2.1.1 --web web --output jacks-image-vault-patch.zip --notes "Thumbnail fixes"
 ```
 
-Use **Updates → Install a local patch** for the result, or attach it to a GitHub release with tag `v2.0.2` and filename `jacks-image-vault-patch.zip`.
+Use **Updates → Install a local patch** for the result, or attach it to a **new, matching** GitHub release with a unique tag such as `v2.0.12` and filename `jacks-image-vault-patch.zip`. Change the example version when publishing subsequent updates.
 
 ## Troubleshooting
 
