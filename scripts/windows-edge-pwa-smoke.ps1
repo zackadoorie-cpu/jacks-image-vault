@@ -16,14 +16,14 @@ try {
     $env:JACKS_VAULT_PWA_VERIFY_ONLY = '1'
     $env:JACKS_VAULT_EDGE_PWA_SHORTCUT = $linkPath
     $validate = (Get-Content 'scripts/launch-edge-pwa.ps1' -Raw)
-    function Test-Link([string]$target, [string]$args, [bool]$accept) {
+    function Test-Link([string]$target, [string]$arguments, [bool]$accept) {
         $shortcut = $shell.CreateShortcut($linkPath)
         $shortcut.TargetPath = $target
-        $shortcut.Arguments = $args
+        $shortcut.Arguments = $arguments
         $shortcut.Save()
         & powershell.exe -NoLogo -NoProfile -NonInteractive -Command $validate 2>&1 | Out-Null
         $accepted = $LASTEXITCODE -eq 0
-        if ($accepted -ne $accept) { throw "Edge PWA validator wrong: accepted=$accepted expected=$accept arguments=$args" }
+        if ($accepted -ne $accept) { throw "Edge PWA validator wrong: accepted=$accepted expected=$accept arguments=$arguments" }
     }
     $good = '--profile-directory=Default --app-id=abcdefghijklmnopabcdefghijklmnop --app-url=http://localhost:8765/'
     Test-Link $edge $good $true
