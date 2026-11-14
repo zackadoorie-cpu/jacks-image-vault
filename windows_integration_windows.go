@@ -121,6 +121,9 @@ $locations = @(
     [Environment]::GetFolderPath('DesktopDirectory')
 )
 $shell = New-Object -ComObject WScript.Shell
+# Reuse only shortcuts owned by this per-user installation.
+$ownedFolder = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Programs\JacksImageVault'))
+$ownedPrefix = $ownedFolder.TrimEnd([char]'\') + '\'
 $shortcuts = @()
 foreach ($location in $locations) {
     if ([string]::IsNullOrWhiteSpace($location) -or -not (Test-Path -LiteralPath $location -PathType Container)) {
@@ -129,9 +132,11 @@ foreach ($location in $locations) {
     $path = Join-Path $location "Jack's Image Vault.lnk"
     if (Test-Path -LiteralPath $path) {
         $existing = $shell.CreateShortcut($path)
-        $name = [System.IO.Path]::GetFileName($existing.TargetPath)
-        if ($name -notmatch '^Jacks_Image_Vault(?:_[0-9.]+)?\.exe$') {
-            throw "A different app already uses the Jack's Image Vault shortcut name"
+        $existingTarget = [System.IO.Path]::GetFullPath($existing.TargetPath)
+        $name = [System.IO.Path]::GetFileName($existingTarget)
+        if ($name -notmatch '^Jacks_Image_Vault_[0-9]+\.[0-9]+\.[0-9]+\.exe$' -or
+            -not $existingTarget.StartsWith($ownedPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Shortcut belongs to an unknown app or location; leaving it unchanged"
         }
     }
     $shortcuts += $path

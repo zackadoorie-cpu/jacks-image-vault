@@ -302,29 +302,25 @@ func verifyDir(dir string) (patchManifest, error) {
 	}
 	return m, nil
 }
-func versionNumbers(s string) [3]int {
-	parts := versionRE.FindStringSubmatch(s)
-	if len(parts) != 4 {
-		return [3]int{}
-	}
-	var n [3]int
-	for i := 0; i < 3; i++ {
-		n[i], _ = strconv.Atoi(parts[i+1])
-	}
-	return n
-}
+// compareVersions compares decimal components without machine-integer overflow.
+// User-provided release tags can contain arbitrarily many digits; treating an
+// overflow as zero would make a newer release appear older (or equal).
 func compareVersions(a, b string) int {
-	aa, bb := versionNumbers(a), versionNumbers(b)
-	for i := 0; i < 3; i++ {
-		if aa[i] > bb[i] {
-			return 1
-		}
-		if aa[i] < bb[i] {
-			return -1
-		}
-	}
-	return 0
+    aa, bb := versionRE.FindStringSubmatch(a), versionRE.FindStringSubmatch(b)
+    if len(aa) != 4 || len(bb) != 4 { return 0 }
+    for i := 1; i <= 3; i++ {
+        x := strings.TrimLeft(aa[i], "0")
+        y := strings.TrimLeft(bb[i], "0")
+        if x == "" { x = "0" }
+        if y == "" { y = "0" }
+        if len(x) < len(y) { return -1 }
+        if len(x) > len(y) { return 1 }
+        if x < y { return -1 }
+        if x > y { return 1 }
+    }
+    return 0
 }
+
 func (v *vault) install(data []byte) (string, error) {
 	if len(data) > maxArchive {
 		return "", errors.New("patch archive too large")
@@ -862,6 +858,13 @@ func (v *vault) handler() http.Handler {
 			return
 		}
 		w.Header().Set("X-Vault-App", marker)
+        // Advertise native version separately from replaceable UI version.
+        // A newer executable must not silently reopen an outdated server.
+        w.Header().Set("X-Vault-Native-Version", builtinVersion)
+        v.mu.RLock()
+        currentUI := v.currentVersion
+        v.mu.RUnlock()
+        w.Header().Set("X-Vault-UI-Version", currentUI)
 		w.Header().Set("Cache-Control", "no-store")
 		w.Write([]byte(marker))
 	})
@@ -876,15 +879,39 @@ func (v *vault) handler() http.Handler {
 	mux.HandleFunc("/", v.handleFile)
 	return mux
 }
-func instanceStatus() string {
-	client := &http.Client{Timeout: 700 * time.Millisecond}
-	resp, err := client.Get("http://127.0.0.1:8765/__vault_health")
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-	return resp.Header.Get("X-Vault-App")
+// instanceInfo contains only public launcher identity, never the app nonce.
+type instanceInfo struct {
+    marker string
+    nativeVersion string
+    uiVersion string
 }
+func readInstanceInfo(client *http.Client, endpoint string) instanceInfo {
+    resp, err := client.Get(endpoint)
+    if err != nil { return instanceInfo{} }
+    defer resp.Body.Close()
+    if resp.StatusCode != http.StatusOK { return instanceInfo{} }
+    return instanceInfo{
+        marker: resp.Header.Get("X-Vault-App"),
+        nativeVersion: resp.Header.Get("X-Vault-Native-Version"),
+        uiVersion: resp.Header.Get("X-Vault-UI-Version"),
+    }
+}
+func instanceStatus() instanceInfo {
+    client := &http.Client{Timeout: 700*time.Millisecond}
+    return readInstanceInfo(client, "http://127.0.0.1:8765/__vault_health")
+}
+func classifyRunningInstance(running instanceInfo, launchingVersion string) string {
+    if running.marker == marker {
+        if !versionRE.MatchString(running.nativeVersion) ||
+            compareVersions(running.nativeVersion, launchingVersion) < 0 {
+            return "older"
+        }
+        return "reuse"
+    }
+    if strings.HasPrefix(running.marker, "JACKS_IMAGE_VAULT_EXE") { return "older" }
+    return "foreign"
+}
+
 func main() {
 	dir, err := dataDirectory()
 	if err != nil {
@@ -926,17 +953,21 @@ func main() {
 	}
 	listener, err := net.Listen("tcp4", addr)
 	if err != nil {
-		old := instanceStatus()
-		if old == marker {
-			if e := launchApp(); e != nil {
-				nativeMessage("Image Vault", e.Error())
-			}
-			return
-		}
-		if strings.HasPrefix(old, "JACKS_IMAGE_VAULT_EXE") {
-			nativeMessage("Close old Image Vault", "An older version of Jack's Image Vault is still running on localhost:8765. In Windows Task Manager > Details, end the old Jacks_Image_Vault.exe process, then launch the new EXE.")
-			return
-		}
+        running := instanceStatus()
+        switch classifyRunningInstance(running, builtinVersion) {
+        case "reuse":
+            // Same/newer native EXE owns the port; open its existing app window.
+            if e := launchApp(); e != nil { nativeMessage("Image Vault", e.Error()) }
+            return
+        case "older":
+            shown := running.nativeVersion
+            if shown == "" { shown = "unknown (legacy launcher)" }
+            nativeMessage("Close the old Image Vault",
+                "The app server still running on localhost:8765 uses Windows launcher "+shown+
+                ". You are starting "+builtinVersion+". Close the earlier launcher in Task Manager > Details, "+
+                "then run the new EXE. Your Drive content and local settings will not be deleted.")
+            return
+        }
 		nativeMessage("Port in use", "Port 8765 is occupied by another program. Close it and try again.\n\n"+err.Error())
 		return
 	}
