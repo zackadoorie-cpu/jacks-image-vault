@@ -3274,7 +3274,7 @@
     const editable=/^(INPUT|TEXTAREA|SELECT)$/.test(tag)||event.target?.isContentEditable;
     if(editable||document.querySelector('dialog[open]'))return false;
     if(event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey){
-      const view=({'1':'home','2':'review','3':'video-library','4':'health'})[event.key];
+      const view=({'1':'home','2':'review','3':'video-library','4':'health','5':'rename-desk'})[event.key];
       if(view){
         event.preventDefault();displayPage(view);
         return true;
