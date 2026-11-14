@@ -11,6 +11,7 @@
   const BROWSE_STORAGE = 'jack-vault-resume-position-v1';
   const REVIEW_STORAGE = 'jack-vault-local-reviews-v1';
   const SAVED_SEARCHES_STORAGE = 'jack-vault-searches-v2.1';
+  const SMART_COLLECTIONS_STORAGE = 'jack-vault-smart-collections-v1';
   const MAX_SAVED_SEARCHES = 30;
   const MAX_REVIEW_BYTES = 2600000;
   const MAX_REVIEW_ITEMS = 15000;
@@ -44,6 +45,10 @@
     sort: 'name',
     savedSearches: [],
     activeSavedSearch: '',
+    smartCollections: [],
+    smartCollectionId: '',
+    smartDraft: null,
+    smartStorageHealthy: true,
     layout: 'grid',
     density: readDensity(),
     folderQuery: '',
@@ -315,6 +320,147 @@
       searchValidDay,parseSearchQuery,searchKind,searchDate,searchRank,searchMedia};
   })();
   /* GENERATED SEARCH ENGINE END */
+  /* GENERATED SMART COLLECTIONS START */
+  const smartEngine=(()=>{
+    const SMART_COLLECTIONS_SCHEMA='image-vault-smart-collections-v1';
+    const SMART_COLLECTION_LIMIT=40;
+    const SMART_RULE_LIMIT=8;
+    const SMART_BACKUP_LIMIT=100000;
+    const SMART_FIELDS=Object.freeze(['text','name','description','tags','folder','category','dateAfter','dateBefore','type','favorite']);
+    const SMART_TYPES=Object.freeze(['image','gif','video','pdf']);
+    const SMART_BUILTINS=Object.freeze([
+      {id:'builtin-cats',name:'Cats & Animals',mode:'any',rules:[
+        {field:'text',value:'cat'},{field:'text',value:'kitten'},{field:'text',value:'animal'}]},
+      {id:'builtin-aircraft',name:'Aircraft & Aviation',mode:'any',rules:[
+        {field:'text',value:'aircraft'},{field:'text',value:'airplane'},{field:'text',value:'aviation'}]},
+      {id:'builtin-travel',name:'Travel & Places',mode:'any',rules:[
+        {field:'text',value:'travel'},{field:'text',value:'vacation'},{field:'text',value:'landmark'}]},
+      {id:'builtin-reactions',name:'Reaction Memes',mode:'any',rules:[
+        {field:'text',value:'reaction'},{field:'text',value:'wojak'},{field:'text',value:'pepe'}]},
+      {id:'builtin-gifs',name:'Animated GIFs',mode:'all',rules:[
+        {field:'type',value:'gif'}]}
+    ]);
+    function smartText(value){
+      return String(value??'').normalize('NFKD').replace(/\p{M}/gu,'')
+        .toLocaleLowerCase().replace(/\s+/gu,' ').trim();
+    }
+    function smartDate(value){
+      const day=String(value??'').slice(0,10);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return '';
+      const d=new Date(day+'T00:00:00Z');
+      return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===day?day:'';
+    }
+    function smartMimeType(mime){
+      const type=String(mime??'').toLowerCase();
+      if(type==='image/gif')return 'gif';
+      if(type.startsWith('image/'))return 'image';
+      if(type.startsWith('video/'))return 'video';
+      if(type==='application/pdf')return 'pdf';
+      return 'other';
+    }
+    function smartRuleValid(rule){
+      if(!rule||typeof rule!=='object'||Array.isArray(rule)||!SMART_FIELDS.includes(rule.field)||
+        typeof rule.value!=='string'||!rule.value.trim()||rule.value.length>150)return false;
+      const value=smartText(rule.value);
+      if(['dateAfter','dateBefore'].includes(rule.field))return smartDate(value)===value;
+      if(rule.field==='type')return SMART_TYPES.includes(value);
+      if(rule.field==='favorite')return ['true','false'].includes(value);
+      return !!value;
+    }
+    function smartValidateCollection(value,{builtin=false}={}){
+      if(!value||typeof value!=='object'||Array.isArray(value)||
+        typeof value.id!=='string'||!(builtin?/^builtin-[a-z]+$/.test(value.id):/^c\d{13}_[0-9]{1,4}$/.test(value.id))||
+        typeof value.name!=='string'||!value.name.trim()||value.name.length>80||
+        !['all','any'].includes(value.mode)||!Array.isArray(value.rules)||
+        !value.rules.length||value.rules.length>SMART_RULE_LIMIT||
+        !value.rules.every(smartRuleValid))return null;
+      if(!builtin && (!Number.isSafeInteger(value.createdAt)||!Number.isSafeInteger(value.updatedAt)||
+        value.createdAt<0||value.updatedAt<value.createdAt||
+        value.updatedAt>Date.now()+60000))return null;
+      return {id:value.id,name:value.name.trim(),mode:value.mode,
+        rules:value.rules.map(r=>({field:r.field,value:r.value.trim()})),
+        ...(builtin?{builtin:true}:{createdAt:value.createdAt,updatedAt:value.updatedAt})};
+    }
+    function smartEvaluateRule(record,rule,context={}){
+      const value=smartText(rule.value);
+      const fields={
+        name:smartText(record.name),
+        description:smartText(context.description??record.description),
+        tags:smartText(context.tags??record.tags),
+        folder:smartText(record.folder),
+        category:smartText(record.category)
+      };
+      const text=[fields.name,fields.description,fields.tags,fields.category].join(' ');
+      let match=false;
+      if(rule.field==='text')match=text.includes(value);
+      else if(['name','description','tags','folder','category'].includes(rule.field))
+        match=fields[rule.field].includes(value);
+      else if(rule.field==='favorite')match=Boolean(context.favorite)===(value==='true');
+      else if(rule.field==='type'){
+        const type=smartMimeType(record.mime);
+        match=type===value||(value==='image'&&type==='gif');
+      }else if(['dateAfter','dateBefore'].includes(rule.field)){
+        const date=smartDate(record.provenance?.date?.value||record.captureDate||record.filenameDate);
+        match=!!date&&(rule.field==='dateAfter'?date>=value:date<=value);
+      }
+      const label=rule.field==='text'?'Text':rule.field==='dateAfter'?'Date on/after':
+        rule.field==='dateBefore'?'Date on/before':
+        rule.field==='favorite'?'Favorite':rule.field==='type'?'Media type':
+        rule.field.charAt(0).toUpperCase()+rule.field.slice(1);
+      return {matched:match,reason:label+': '+rule.value};
+    }
+    function smartMatch(record,collection,context={}){
+      if(!collection||!Array.isArray(collection.rules)||!collection.rules.length)
+        return {matched:false,reasons:[]};
+      const checks=collection.rules.map(rule=>smartEvaluateRule(record,rule,context));
+      const matched=collection.mode==='all'?checks.every(x=>x.matched):checks.some(x=>x.matched);
+      return {matched,reasons:matched?checks.filter(x=>x.matched).map(x=>x.reason):[]};
+    }
+    function smartMembers(records,collection,contextFor=()=>({})){
+      const seen=new Set(),members=[];
+      for(const record of records){
+        if(!record||typeof record.id!=='string'||seen.has(record.id))continue;
+        seen.add(record.id);
+        const result=smartMatch(record,collection,contextFor(record));
+        if(result.matched)members.push({id:record.id,item:record,reasons:result.reasons});
+      }
+      return members;
+    }
+    function smartExplain(collection){
+      if(!collection||!Array.isArray(collection.rules))return '';
+      return collection.rules.map(r=>smartEvaluateRule({},r).reason)
+        .join(collection.mode==='all'?' AND ':' OR ');
+    }
+    function smartParseBackup(raw){
+      if(typeof raw!=='string'||raw.length>SMART_BACKUP_LIMIT)
+        throw new Error('Collection backup exceeds 100 KB');
+      let value;
+      try{value=JSON.parse(raw);}catch{throw new Error('Collection backup is not JSON');}
+      if(!value||value.schema!==SMART_COLLECTIONS_SCHEMA||!Array.isArray(value.collections)||
+        value.collections.length>SMART_COLLECTION_LIMIT)
+        throw new Error('Invalid Smart Collections backup format');
+      const records=[],ids=new Set(),names=new Set();
+      for(const item of value.collections){
+        const parsed=smartValidateCollection(item);
+        if(!parsed||ids.has(parsed.id)||names.has(smartText(parsed.name)))
+          throw new Error('Invalid, duplicate, or conflicting Smart Collection');
+        ids.add(parsed.id);names.add(smartText(parsed.name));records.push(parsed);
+      }
+      return records;
+    }
+    function smartExportBackup(collections){
+      if(!Array.isArray(collections)||collections.length>SMART_COLLECTION_LIMIT)
+        throw new Error('Too many Smart Collections to export');
+      const raw=JSON.stringify({schema:SMART_COLLECTIONS_SCHEMA,collections});
+      smartParseBackup(raw);
+      return raw;
+    }
+    return {SMART_COLLECTIONS_SCHEMA,SMART_COLLECTION_LIMIT,SMART_RULE_LIMIT,
+      SMART_BACKUP_LIMIT,SMART_FIELDS,SMART_TYPES,SMART_BUILTINS,smartText,smartDate,
+      smartMimeType,smartRuleValid,smartValidateCollection,smartEvaluateRule,
+      smartMatch,smartMembers,smartExplain,smartParseBackup,smartExportBackup};
+  })();
+  /* GENERATED SMART COLLECTIONS END */
   const humanBytes = n => n ? `${(n / 1024 / 1024).toFixed(1)} MB` : 'Unknown size';
   const SCAN_INTERVAL = 15 * 60 * 1000;
   const FULL_SCAN_INTERVAL = 24 * 60 * 60 * 1000;
@@ -380,14 +526,14 @@
     state.browseSaveTimer=null;
     try{localStorage.removeItem(BROWSE_STORAGE);}catch{}
   }
-  function browsingView(){return ['all','memes','photos','favorites','review'].includes(state.view);}
+  function browsingView(){return ['all','memes','photos','favorites','review','smart','smart-results'].includes(state.view);}
   function saveBrowsingPosition(){
     if(state.browseSaveTimer)clearTimeout(state.browseSaveTimer);
     state.browseSaveTimer=null;
     if(!state.connected||!state.rememberBrowsing||!state.driveIdentity||!browsingView())return;
     const position={
       schema:1,account:state.driveIdentity,sheetId:state.config.sheetId,savedAt:Date.now(),
-      view:state.view,folder:state.folder,search:state.search.slice(0,200),
+      view:state.view,smartCollectionId:state.smartCollectionId,folder:state.folder,search:state.search.slice(0,200),
       sort:state.sort,mediaType:state.mediaType,layout:state.layout,
       page:Math.max(1,Math.min(20,state.page)),
       scrollY:Math.max(0,Math.min(100000,Math.floor(window.scrollY||window.pageYOffset||0)))
@@ -404,10 +550,11 @@
     let saved;
     try{saved=JSON.parse(localStorage.getItem(BROWSE_STORAGE)||'null');}catch{return false;}
     if(!saved||saved.schema!==1||saved.account!==state.driveIdentity||
-       saved.sheetId!==state.config.sheetId||!['all','memes','photos','favorites','review'].includes(saved.view)||
+       saved.sheetId!==state.config.sheetId||!['all','memes','photos','favorites','review','smart','smart-results'].includes(saved.view)||
        !Number.isFinite(saved.savedAt)||saved.savedAt>Date.now()+60000||
        Date.now()-saved.savedAt>30*24*60*60*1000)return false;
-    state.view=saved.view;
+    state.smartCollectionId=typeof saved.smartCollectionId==='string'&&allSmartCollections().some(x=>x.id===saved.smartCollectionId)?saved.smartCollectionId:'';
+    state.view=saved.view==='smart-results'&&!state.smartCollectionId?'smart':saved.view;
     state.folder=typeof saved.folder==='string'&&(saved.folder==='all'||state.folders.some(f=>f.path===saved.folder))?saved.folder:'all';
     state.search=typeof saved.search==='string'?saved.search.slice(0,200):'';
     state.sort=['name','date-desc','date-asc','review'].includes(saved.sort)?saved.sort:'name';
@@ -686,6 +833,185 @@
     state.reviewDirty=false;
   }
 
+  /* GENERATED SMART CONTROLLER START */
+  function smartStorageKey(){
+    return state.driveIdentity&&state.config.sheetId?
+      SMART_COLLECTIONS_STORAGE+'-'+state.driveIdentity+'-'+state.config.sheetId:'';
+  }
+  function allSmartCollections(){
+    return [...smartEngine.SMART_BUILTINS,...state.smartCollections];
+  }
+  function currentSmartCollection(){
+    return allSmartCollections().find(x=>x.id===state.smartCollectionId)||null;
+  }
+  function smartContext(item){
+    return {description:effectiveDescription(item),tags:effectiveTags(item),
+      favorite:state.favorites.has(item.id)};
+  }
+  function smartFor(item,collection=currentSmartCollection()){
+    return smartEngine.smartMatch(item,collection,smartContext(item));
+  }
+  function loadSmartCollections(){
+    state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;
+    const key=smartStorageKey();if(!key)return;
+    try{
+      const raw=localStorage.getItem(key);
+      if(raw)state.smartCollections=smartEngine.smartParseBackup(raw);
+    }catch(error){
+      // Bad local data is never silently overwritten.
+      state.smartStorageHealthy=false;
+      alertUser('Saved Smart Collections need recovery; original data is preserved: '+error.message,'error');
+    }
+  }
+  function saveSmartCollections(next){
+    const key=smartStorageKey();
+    if(!key)throw new Error('Connect Drive with a verified account identity first');
+    if(!state.smartStorageHealthy)throw new Error('Invalid existing collection data was not overwritten');
+    if(!Array.isArray(next)||next.length>smartEngine.SMART_COLLECTION_LIMIT)
+      throw new Error('At most '+smartEngine.SMART_COLLECTION_LIMIT+' custom collections');
+    const names=new Set(smartEngine.SMART_BUILTINS.map(x=>smartEngine.smartText(x.name)));
+    for(const x of next){
+      const valid=smartEngine.smartValidateCollection(x);
+      if(!valid||names.has(smartEngine.smartText(x.name)))
+        throw new Error('Invalid or duplicate collection');
+      names.add(smartEngine.smartText(x.name));
+    }
+    const raw=smartEngine.smartExportBackup(next);
+    try{localStorage.setItem(key,raw);}
+    catch{throw new Error('Browser storage unavailable; collection rules were not modified');}
+    state.smartCollections=next;
+  }
+  function renderSmartCollections(){
+    $('smartCollectionStatus').textContent=state.connected?
+      format(state.images.length)+' current media · '+state.smartCollections.length+
+        ' custom collections · membership follows Drive changes':
+      'Connect Drive to evaluate rules and create private collections.';
+    $('smartAddButton').disabled=!state.connected||!smartStorageKey()||!state.smartStorageHealthy;
+    $('smartImportButton').disabled=!state.connected||!smartStorageKey()||!state.smartStorageHealthy;
+    $('smartExportButton').disabled=!state.connected||!state.smartCollections.length;
+    $('smartCollectionCards').innerHTML=allSmartCollections().map(collection=>{
+      const count=state.connected?smartEngine.smartMembers(state.images,collection,smartContext).length:0;
+      const custom=!collection.id.startsWith('builtin-');
+      return '<article class="smart-card"><div class="smart-card-heading"><span aria-hidden="true">✦</span><div><strong>'+
+        escapeHTML(collection.name)+'</strong><small>'+format(count)+' files · '+
+        (custom?'Custom':'Suggested')+'</small></div></div><p>'+
+        escapeHTML(smartEngine.smartExplain(collection))+'</p><div class="smart-card-actions">'+
+        '<button type="button" class="btn outline" data-smart-open="'+escapeHTML(collection.id)+'">Browse</button>'+
+        (custom?'<button type="button" class="btn quiet" data-smart-edit="'+escapeHTML(collection.id)+'">Edit</button>'+
+          '<button type="button" class="btn quiet" data-smart-delete="'+escapeHTML(collection.id)+'">Delete</button>':'')+
+        '</div></article>';
+    }).join('');
+    const grid=$('smartCollectionCards');
+    grid.querySelectorAll('[data-smart-open]').forEach(btn=>btn.onclick=()=>{
+      state.smartCollectionId=btn.dataset.smartOpen;
+      state.search='';state.folder='all';state.mediaType='all';state.page=1;
+      $('searchInput').value='';$('mediaTypeSelect').value='all';
+      displayPage('smart-results',{reset:false});
+    });
+    grid.querySelectorAll('[data-smart-edit]').forEach(btn=>btn.onclick=()=>openSmartEditor(btn.dataset.smartEdit));
+    grid.querySelectorAll('[data-smart-delete]').forEach(btn=>btn.onclick=()=>deleteSmartCollection(btn.dataset.smartDelete));
+  }
+  function renderSmartRuleRows(){
+    const draft=state.smartDraft;
+    if(!draft)return;
+    const labels={
+      text:'Text across title, description, tags and category',
+      name:'Filename',description:'Description',tags:'Tags',folder:'Folder',
+      category:'Category',dateAfter:'Date on/after',dateBefore:'Date on/before',
+      type:'Media type',favorite:'Favorite'
+    };
+    $('smartRuleRows').innerHTML=draft.rules.map((rule,i)=>'<div class="smart-rule-row">'+
+      '<label>Field<select class="field" data-smart-field="'+i+'">'+
+      smartEngine.SMART_FIELDS.map(field=>'<option value="'+field+'"'+
+        (field===rule.field?' selected':'')+'>'+labels[field]+'</option>').join('')+
+      '</select></label><label>Value<input class="field" required maxlength="150" data-smart-value="'+i+
+      '" value="'+escapeHTML(rule.value)+'" placeholder="'+
+      (rule.field==='type'?'image, gif, video, pdf':rule.field==='favorite'?'true or false':
+        rule.field.startsWith('date')?'YYYY-MM-DD':'Word or phrase')+'"></label>'+
+      '<button type="button" class="btn quiet" data-smart-remove="'+i+
+      '" aria-label="Remove rule '+(i+1)+'"'+(draft.rules.length<=1?' disabled':'')+'>Remove</button></div>').join('');
+    const rows=$('smartRuleRows');
+    rows.querySelectorAll('[data-smart-field]').forEach(sel=>sel.onchange=e=>{
+      draft.rules[Number(e.target.dataset.smartField)].field=e.target.value;
+      renderSmartRuleRows();
+    });
+    rows.querySelectorAll('[data-smart-value]').forEach(input=>input.oninput=e=>{
+      draft.rules[Number(e.target.dataset.smartValue)].value=e.target.value;
+    });
+    rows.querySelectorAll('[data-smart-remove]').forEach(btn=>btn.onclick=()=>{
+      if(draft.rules.length<=1)return;
+      draft.rules.splice(Number(btn.dataset.smartRemove),1);
+      renderSmartRuleRows();
+    });
+    $('smartAddRuleButton').disabled=draft.rules.length>=smartEngine.SMART_RULE_LIMIT;
+  }
+  function openSmartEditor(id=''){
+    if(!state.connected||!smartStorageKey()||!state.smartStorageHealthy)return;
+    const current=state.smartCollections.find(c=>c.id===id);
+    state.smartDraft=current?{...current,rules:current.rules.map(x=>({...x}))}:
+      {id:'',name:'',mode:'any',rules:[{field:'text',value:''}]};
+    $('smartDialogTitle').textContent=current?'Edit Smart Collection':'New Smart Collection';
+    $('smartName').value=state.smartDraft.name;
+    $('smartMode').value=state.smartDraft.mode;
+    renderSmartRuleRows();
+    $('smartEditorDialog').showModal();
+    $('smartName').focus();
+  }
+  function saveSmartEditor(event){
+    event.preventDefault();
+    const draft=state.smartDraft;if(!draft)return;
+    const now=Date.now(),existing=state.smartCollections.find(x=>x.id===draft.id);
+    let id=existing?.id||('c'+now+'_1'),suffix=1;
+    while(!existing&&state.smartCollections.some(x=>x.id===id))id='c'+now+'_'+(++suffix);
+    const item=smartEngine.smartValidateCollection({id,name:$('smartName').value.trim(),
+      mode:$('smartMode').value,rules:draft.rules,
+      createdAt:existing?.createdAt??now,updatedAt:now});
+    if(!item){alertUser('Check every rule: valid date YYYY-MM-DD, type image/gif/video/pdf, or favorite true/false.','error');return;}
+    const next=existing?state.smartCollections.map(x=>x.id===id?item:x):[...state.smartCollections,item];
+    try{saveSmartCollections(next);}
+    catch(error){alertUser(error.message,'error');return;}
+    state.smartDraft=null;$('smartEditorDialog').close();
+    renderSmartCollections();alertUser('Collection rules saved locally; Drive files untouched.','success');
+  }
+  function deleteSmartCollection(id){
+    const item=state.smartCollections.find(x=>x.id===id);
+    if(!item||!confirm('Delete Smart Collection "'+item.name+'"? No Drive files will be changed.'))return;
+    try{saveSmartCollections(state.smartCollections.filter(x=>x.id!==id));}
+    catch(error){alertUser(error.message,'error');return;}
+    if(state.smartCollectionId===id)state.smartCollectionId='';
+    renderSmartCollections();
+  }
+  function exportSmartCollections(){
+    if(!state.smartCollections.length)return;
+    const raw=smartEngine.smartExportBackup(state.smartCollections);
+    const url=URL.createObjectURL(new Blob([raw],{type:'application/json'}));
+    const link=document.createElement('a');
+    link.href=url;link.download='image-vault-smart-collections.json';
+    document.body.appendChild(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),0);
+    alertUser('Exported collection rules only; private photos were not included.','success');
+  }
+  async function importSmartCollections(file){
+    if(!state.connected||!smartStorageKey())throw new Error('Connect Drive first');
+    if(!state.smartStorageHealthy)throw new Error('Existing invalid collection data was preserved');
+    if(!file||file.size>smartEngine.SMART_BACKUP_LIMIT)throw new Error('Backup exceeds 100 KB');
+    const imported=smartEngine.smartParseBackup(await file.text());
+    const ids=new Set(state.smartCollections.map(x=>x.id));
+    const names=new Set(allSmartCollections().map(x=>smartEngine.smartText(x.name)));
+    const additions=[];
+    for(const item of imported){
+      if(ids.has(item.id)||names.has(smartEngine.smartText(item.name)))continue;
+      ids.add(item.id);names.add(smartEngine.smartText(item.name));additions.push(item);
+    }
+    if(!additions.length){alertUser('All imported rules already exist. No changes made.');return;}
+    if(state.smartCollections.length+additions.length>smartEngine.SMART_COLLECTION_LIMIT)
+      throw new Error('Import would exceed the 40-collection limit');
+    if(!confirm('Import '+additions.length+' new collection rules? Existing rules and Drive files remain unchanged.'))return;
+    saveSmartCollections([...state.smartCollections,...additions]);
+    renderSmartCollections();
+    alertUser('Imported '+additions.length+' collections; skipped '+(imported.length-additions.length)+' existing.','success');
+  }
+  /* GENERATED SMART CONTROLLER END */
   function savedSearchStorageKey(){
     return state.driveIdentity&&state.config.sheetId?
       SAVED_SEARCHES_STORAGE+'-'+state.driveIdentity+'-'+state.config.sheetId:'';
@@ -965,6 +1291,7 @@
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       const reviewLoadWarning=loadReviewNotes();
       loadSavedSearches();
+      loadSmartCollections();
       if(restoreSyncCache())mergeLiveFolders();
       buildFolderIndex(); updateStatus();
       const resumed=restoreBrowsingPosition();
@@ -978,7 +1305,7 @@
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
       state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
-      state.images=DEMO;state.connected=false;state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.reviewFilter='pending';state.folder='all';state.page=1;
+      state.images=DEMO;state.connected=false;state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.reviewFilter='pending';state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
     }
@@ -1729,7 +2056,7 @@
     saveBrowsingPosition();
     stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
-    clearThumbnailCache(); state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.reviewDirty=false;state.reviewFilter='pending';state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.reviewDirty=false;state.reviewFilter='pending';state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -1750,25 +2077,27 @@
   }
   function displayPage(view,{reset=true,scroll=true}={}) {
     if(state.connected&&browsingView())saveBrowsingPosition();
-    if(view==='home'||view==='health'){
+    if(view==='home'||view==='health'||view==='smart'){
       state.autoLoadObserver?.disconnect();
       state.autoLoadObserver=null;
       state.galleryRevision++;
     }
     state.view=view;
+    if(view!=='smart-results')state.smartCollectionId='';
     if(reset){
       state.folder='all';state.folderQuery='';state.page=1;
       if($('folderSearch'))$('folderSearch').value='';
     }
     $('homeView').classList.toggle('hidden',view!=='home');
-    $('galleryView').classList.toggle('hidden',view==='home'||view==='health');
+    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart');
+    $('smartView').classList.toggle('hidden',view!=='smart');
     $('healthView').classList.toggle('hidden',view!=='health');
-    document.querySelectorAll('[data-view]').forEach(btn=>{const active=btn.dataset.view===view; btn.classList.toggle('active',active);if(active)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');});
+    document.querySelectorAll('[data-view]').forEach(btn=>{const active=btn.dataset.view===(view==='smart-results'?'smart':view); btn.classList.toggle('active',active);if(active)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');});
     render();
     if(scroll)window.scrollTo({top:0,behavior:'smooth'});
     updateScrollControls();
   }
-  function render() {if(state.view==='home') renderHome();else if(state.view==='health')renderHealth();else renderGallery();}
+  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
     $('statImages').textContent=count(state.images.length);
@@ -1809,6 +2138,7 @@
         if(state.reviewFilter==='deferred'&&stage!=='deferred')continue;
         if(state.reviewFilter==='reviewed'&&stage!=='reviewed')continue;
       }
+      if(state.view==='smart-results'&&!smartFor(image).matched)continue;
       if(state.folder!=='all'&&image.folder!==state.folder)continue;
       if(state.mediaType!=='all'&&mediaKind(image)!==state.mediaType)continue;
       const rank=searchEngine.searchRank(image,parsed,{
@@ -1830,7 +2160,7 @@
     });
     return scored.map(x=>x.image);
   }
-  function galleryTitle() {return ({all:'All media',memes:'Meme gallery',photos:'Photo archive',favorites:'Your favorites',review:'Needs review'})[state.view]||'Gallery';}
+  function galleryTitle() {if(state.view==='smart-results')return currentSmartCollection()?.name||'Smart Collection';return ({all:'All media',memes:'Meme gallery',photos:'Photo archive',favorites:'Your favorites',review:'Needs review'})[state.view]||'Gallery';}
   function bindGalleryTileEvents(previews,hearts){
     for(const btn of previews)btn.addEventListener('click',()=>openImage(btn.dataset.openImage,btn));
     for(const btn of hearts)btn.addEventListener('click',e=>{
@@ -1896,9 +2226,11 @@
     state.autoLoadObserver?.disconnect();state.autoLoadObserver=null;
     state.autoLoadPending=false;
     const title=galleryTitle();$('galleryTitle').textContent=title;
+    $('backSmartCollections').classList.toggle('hidden',state.view!=='smart-results');
     renderReviewToolbar();
     $('galleryEyebrow').textContent=state.connected?'YOUR PRIVATE LIBRARY':'DESIGN PREVIEW';
     $('galleryDescription').textContent=state.connected ?
+      state.view==='smart-results'?'Virtual collection · '+smartEngine.smartExplain(currentSmartCollection())+'. Original Drive files stay put.':
       state.view==='review'?'Only unresolved visual reviews appear here. Missing EXIF dates and duplicate decisions remain separate in your Sheet.':
       'Search the current Drive library. Previews load as you scroll.' :
       'Connect Google Drive to load your real collections and thumbnails.';
@@ -1963,7 +2295,8 @@
       kind==='pdf'?'PDF':isGIF(item)?'GIF':'DESCRIBED';
     const badgeClass=(status==='reviewed'||status==='source-reviewed')&&!item.demo?'reviewed':
       status==='deferred'?'deferred':'';
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p><div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    const why=state.view==='smart-results'?smartFor(item).reasons.join(' · '):'';
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   function observeThumbs() {
     state.observer?.disconnect();
@@ -2440,6 +2773,22 @@
     $('connectButton').onclick=connect;$('heroConnectButton').onclick=connect;$('disconnectButton').onclick=disconnect;
     $('installButton').onclick=installApp;$('installClose').onclick=()=>$('installDialog').close();$('installOkay').onclick=()=>$('installDialog').close();
     $('exploreButton').onclick=()=>displayPage('all');$('seeAllButton').onclick=()=>displayPage('all');
+    $('backSmartCollections').onclick=()=>displayPage('smart');
+    $('smartAddButton').onclick=()=>openSmartEditor();
+    $('smartAddRuleButton').onclick=()=>{
+      if(!state.smartDraft||state.smartDraft.rules.length>=smartEngine.SMART_RULE_LIMIT)return;
+      state.smartDraft.rules.push({field:'text',value:''});renderSmartRuleRows();
+    };
+    $('smartEditorForm').onsubmit=saveSmartEditor;
+    $('smartEditorCancel').onclick=()=>{$('smartEditorDialog').close();state.smartDraft=null;};
+    $('smartImportButton').onclick=()=>$('smartImportFile').click();
+    $('smartImportFile').onchange=async event=>{
+      const file=event.target.files?.[0];if(!file)return;
+      try{await importSmartCollections(file);}
+      catch(error){alertUser('Smart Collection import failed: '+error.message,'error');}
+      finally{event.target.value='';}
+    };
+    $('smartExportButton').onclick=exportSmartCollections;
     $('searchInput').oninput=event=>{
       const input=event.target.value.slice(0,searchEngine.SEARCH_MAX_QUERY);
       if(input.trim()&&!state.search.trim()&&state.sort==='name')state.sort='relevance';
