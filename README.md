@@ -1,5 +1,21 @@
 # Jack's Image Vault — Windows image and media library
 
+## Optional native Google OAuth bridge (Windows beta)
+
+In **Google Drive setup**, Windows EXE users can opt into a separate
+**Desktop application** OAuth client. This opens authorization in the OS
+browser, uses a random localhost callback with PKCE S256 + one-time state,
+and supplies the existing gallery only a short-lived read-only Drive/Sheets
+access token. The existing Google web sign-in remains the default.
+
+No account password, authorization code, Desktop client secret or refresh
+token is saved. This beta does not support automatic Desktop reconnect. It
+requires a Google Cloud **Desktop app** OAuth client in addition to the
+existing Web app client and a newly built native EXE. Full WebView2 hosting
+is still future work, not included in this phase.
+
+See [Desktop OAuth setup and security notes](docs/desktop-oauth-bridge.md).
+
 ## Windows desktop window integration (next phase)
 
 The native launcher now recognizes certain **verified Microsoft Edge installed-app
