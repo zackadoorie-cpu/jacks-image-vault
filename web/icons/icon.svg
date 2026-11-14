@@ -1,16 +1,35 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Jack's Image Vault icon">
- <defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1D2036"/><stop offset="1" stop-color="#0B0D19"/></linearGradient>
-  <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#DAC7FF"/><stop offset="1" stop-color="#8F76ED"/></linearGradient>
-  <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7FD4E5"/><stop offset="1" stop-color="#5364BC"/></linearGradient>
- </defs>
- <rect width="512" height="512" rx="116" fill="url(#bg)"/>
- <circle cx="378" cy="125" r="157" fill="#9A79DD" opacity=".09"/>
- <rect x="114" y="158" width="240" height="238" rx="26" fill="#365C7C" stroke="#A3BAF1" stroke-width="10" transform="rotate(-12 114 158)"/>
- <rect x="179" y="113" width="220" height="243" rx="25" fill="#694E89" stroke="#F0D7F8" stroke-width="10" transform="rotate(9 179 113)"/>
- <rect x="139" y="135" width="234" height="240" rx="29" fill="url(#purple)" stroke="#F0E8FF" stroke-width="9"/>
- <circle cx="214" cy="219" r="25" fill="#F0E8FF" opacity=".94"/>
- <path d="M165 332l62-79 43 46 33-32 44 65H165z" fill="#322B65" opacity=".9"/>
- <path d="M380 83l12 29 29 12-29 12-12 29-12-29-29-12 29-12z" fill="#D9C0FF"/>
- <circle cx="365" cy="188" r="6" fill="#DDD0FF"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Jack's Image Vault — multicolor photo folder">
+  <defs>
+    <clipPath id="app"><rect x="18" y="18" width="476" height="476" rx="120"/></clipPath>
+    <linearGradient id="night" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#111c30"/><stop offset="1" stop-color="#0a1428"/>
+    </linearGradient>
+    <linearGradient id="folder-back" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#ffd54c"/><stop offset="1" stop-color="#f9af00"/>
+    </linearGradient>
+    <linearGradient id="folder-front" x1="0" y1="0" x2="0.15" y2="1">
+      <stop stop-color="#ffda26"/><stop offset="1" stop-color="#fbbc04"/>
+    </linearGradient>
+    <linearGradient id="photo-purple" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#5941b9"/><stop offset="1" stop-color="#9560e7"/>
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#app)">
+    <rect width="512" height="512" fill="#0d162a"/>
+    <path d="M0 0H256V256H0z" fill="#00c853"/>
+    <path d="M256 0H512V256H256z" fill="#fbbc04"/>
+    <path d="M0 256H256V512H0z" fill="#1a73e8"/>
+    <path d="M256 256H512V512H256z" fill="#ea4335"/>
+    <rect x="37" y="37" width="438" height="438" rx="104" fill="url(#night)"/>
+  </g>
+  <!-- Familiar straightforward folder silhouette, optimized for small app icons. -->
+  <path d="M106 151q0-25 25-25h114q11 0 18 8l28 30h91q24 0 24 24v152H106z" fill="url(#folder-back)"/>
+  <path d="M121 175h260q27 0 27 27v177q0 23-23 23H128q-24 0-24-24V200q0-25 17-25z" fill="url(#folder-front)"/>
+  <path d="M121 175h260q27 0 27 27v9q-5-14-25-14H130q-21 0-26 11v-8q0-25 17-25z" fill="#ffe463"/>
+  <!-- A simple white photo card and two purple mountain peaks. -->
+  <rect x="159" y="229" width="194" height="138" rx="17" fill="#fff" />
+  <circle cx="302" cy="263" r="17" fill="#8350dd"/>
+  <path d="M172 348l57-69q7-9 15 0l54 69z" fill="url(#photo-purple)"/>
+  <path d="M254 348l35-41q7-9 14 0l37 41z" fill="#8854da"/>
+  <path d="M172 348h168" stroke="#623bb7" stroke-width="2" stroke-linecap="round" opacity=".15"/>
 </svg>
