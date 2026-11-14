@@ -1,5 +1,22 @@
 # Jack's Image Vault — Windows image and media library
 
+## Windows desktop window integration (next phase)
+
+The native launcher now recognizes certain **verified Microsoft Edge installed-app
+shortcuts**, so Windows can use the PWA's own taskbar/app identity and current
+Edge Google login. It verifies the exact local Vault URL, trusted Edge
+executable, and Web App ID before running a shortcut; if recognition fails,
+the existing Edge/Chrome window opens as before. Shortcut locations can vary
+across Edge versions, so this is intentionally best-effort.
+
+The backend also supports an internal `--serve-only` mode for later native
+desktop hosting. This mode is not required for ordinary use.
+
+A full WebView2 replacement is **not enabled**: Google forbids OAuth sign-in
+inside embedded WebViews. Changing the authentication approach needs a separate
+system-browser OAuth broker and testing. See
+[Windows native window roadmap](docs/windows-native-window-roadmap.md).
+
 ## Windows integration: recoverable shortcuts and browser-window lifecycle (v2.1.16)
 
 The install panel now distinguishes **Windows launcher setup** from an optional
