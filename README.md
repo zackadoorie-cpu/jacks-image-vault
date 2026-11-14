@@ -27,9 +27,12 @@ versioned EXEs remain for manual recovery.
 
 **Taskbar:** The EXE shortcut starts the localhost server, not the browser
 window. For the running Vault window to have its own app icon and taskbar group,
-install Image Vault as an Edge browser app, then use `edge://apps` →
-**Details → Pin to taskbar**. Pin the installed PWA rather than the native
-EXE. The app is still browser-hosted, not a WebView2 replacement.
+open `http://localhost:8765/` in a normal Edge browser tab while the
+native EXE is running, install the browser app, then use `edge://apps` →
+**Details → Pin to taskbar**. The browser app is still browser-hosted, not a
+WebView2 replacement. **A pinned PWA cannot start the localhost server by
+itself.** Start the native EXE from its Windows shortcut after a full shutdown,
+then use the PWA pin for its distinct running-window identity.
 
 **Window shutdown:** App documents now send nonce-authenticated heartbeats.
 When the last registered app window closes, the native server releases
