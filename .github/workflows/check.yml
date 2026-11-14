@@ -26,6 +26,8 @@ jobs:
           node scripts/build-smart-controller.cjs --check
           node scripts/build-memory-lane.cjs --check
           node scripts/build-memory-controller.cjs --check
+          node scripts/build-video-library.cjs --check
+          node scripts/build-video-controller.cjs --check
           node --check web/app.js
       - name: Run Drive sync and media stress tests
         run: node --test tests/*.test.cjs
