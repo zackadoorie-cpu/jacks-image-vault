@@ -3721,6 +3721,24 @@
     $('statMemes').textContent=count(state.images.filter(x=>folderKind(x.folder)==='memes').length);
     $('statPhotos').textContent=count(state.images.filter(x=>folderKind(x.folder)==='photos').length);
     $('statDescribed').textContent=count(state.images.filter(x=>!!effectiveDescription(x).trim()).length);
+    const files=state.connected?state.images.filter(x=>!x.demo):[];
+    const described=files.filter(x=>!!effectiveDescription(x).trim()).length;
+    const videos=files.filter(x=>mediaKind(x)==='video').length;
+    const reviews=state.connected?reviewCounts():null;
+    const total=files.length;
+    const coverage=total?Math.round(100*described/total):0;
+    $('homeCoveragePercent').textContent=state.connected?coverage+'%':'—';
+    $('homeCoverageBar').style.width=(state.connected?coverage:0)+'%';
+    $('homeCoverageProgress').setAttribute('aria-valuenow',String(state.connected?coverage:0));
+    $('homeCoverageSummary').textContent=state.connected?
+      format(described)+' of '+format(total)+' loaded files have descriptions. This is not a full verification measure.':
+      'Connect to see coverage based on the current Sheet and Drive gallery.';
+    $('homeVideoCount').textContent=count(videos);
+    $('homeFolderCount').textContent=count(state.folders.length);
+    $('homeFavoriteCount').textContent=count(files.filter(x=>state.favorites.has(x.id)).length);
+    $('homeNeedReview').textContent=count((reviews?.pending||0)+(reviews?.deferred||0));
+    $('homeLiveness').textContent=state.connected?'● Drive linked · read-only':'○ Private preview';
+
     commandRender();
     // Featured collections are selected from the private inventory at runtime.
     // Never bake personal folder names into a public GitHub application bundle.
@@ -4487,6 +4505,11 @@
     $('connectButton').onclick=()=>connect();$('heroConnectButton').onclick=()=>connect();$('disconnectButton').onclick=disconnect;
     $('installButton').onclick=installApp;$('installClose').onclick=()=>$('installDialog').close();$('installOkay').onclick=()=>$('installDialog').close();
     $('exploreButton').onclick=()=>displayPage('all');$('seeAllButton').onclick=()=>displayPage('all');
+    $('homeActionReview').onclick=()=>displayPage('review-inbox');
+    $('homeActionVideos').onclick=()=>displayPage('video-library');
+    $('homeActionRename').onclick=()=>displayPage('rename-desk');
+    $('homeActionCollections').onclick=()=>displayPage('smart');
+    $('homeActionHealth').onclick=()=>displayPage('health');
     $('commandSync').onclick=()=>refreshSheetAndDrive();
     $('commandFullScan').onclick=()=>syncWithDrive({full:true});
     $('commandReview').onclick=()=>displayPage('review');
