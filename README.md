@@ -1,5 +1,45 @@
 # Jack's Image Vault — Windows image and media library
 
+## Next UI refresh: Vault Home, themes and optional Google reconnect (PR)
+
+**Home makeover.** The landing screen now has a visual gallery-inspired hero,
+read-only connection status, live description coverage, quick actions for Video
+Library, Rename Desk, Smart Collections and Library Health, and counts for
+videos, folders, favorites and items needing review. All counts come from the
+current in-memory, authenticated library, not a static public sample. Description
+coverage is *not* proof that the original files or videos are fully verified.
+
+**Appearance.** App preferences offer Midnight Violet, Deep Ocean, Ember Glow,
+Evergreen and Daylight Pearl (light mode). Choosing a palette previews it live.
+Cancel or Escape reverts to the saved theme, while Save persists the palette
+locally across ordinary app updates. The selection does not leave the device
+or change any Google Drive files.
+
+**Google connection.** The old code forced a new Google consent prompt on
+every Connect click. A returning user now requests the existing read-only
+grant without forcing consent; Google may still show account or permission
+prompts. Opt-in **Try reconnecting automatically** in App preferences after
+a successful verified connection to store only the OAuth client ID, configured
+Sheet ID and Drive account permission ID, not access tokens, refresh tokens,
+credentials or passwords. At the next app launch, one silent Google token
+request uses an existing browser/Google grant, provided the browser permits
+it. The token is held only in memory. The Drive account ID is revalidated
+**before any Sheet read**. Any failed, blocked or different-account attempt
+falls back to **Connect Drive** with a readable message.
+
+Some browsers or Google policy require a user gesture for Google OAuth, and
+some Windows app WebView sessions may not share browser cookies. There is no
+guarantee of password-free unattended login, and no refresh-token or service
+backend is introduced. Explicit Disconnect disables startup reconnect, revokes
+the current access token through Google when supported, clears in-memory media
+and the stored account binding. Changing OAuth Client or Sheet clears that
+binding too. All calls remain read-only; no extra OAuth scopes.
+
+**Testing:** Linux Go/JS regression tests, native Windows EXE install and
+rollback, Chromium synthetic-Google E2E for opt-in and wrong-account refusal,
+theme persistence/revert and responsive home layouts. Do not publish this
+feature until all gates are green.
+
 ## Video Rename Desk and UI refinements (released in v2.1.10)
 
 **What's new:** Video Library has an on-device title/tag/folder search box and
