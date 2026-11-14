@@ -47,6 +47,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -59,6 +62,16 @@ jobs:
       - name: Test shortcut transaction rollback and crash recovery in sandbox
         shell: pwsh
         run: ./scripts/windows-shortcut-transaction-smoke.ps1
+      - name: Build and smoke-test optional WebView2 desktop host
+        shell: pwsh
+        run: ./scripts/windows-desktop-host-smoke.ps1
+      - name: Upload verified native desktop host for release packaging
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacks-vault-webview2-host
+          path: ${{ runner.temp }}/JacksDesktopBuild/Jacks_Image_Vault_Desktop.exe
+          if-no-files-found: error
+          retention-days: 2
       - name: Build native Windows Image Vault
         shell: pwsh
         run: go build -o "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe" .
@@ -153,7 +166,22 @@ jobs:
           mkdir -p dist
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-H windowsgui -s -w -X main.builtinVersion=${RELEASE_VERSION}" -o "dist/Jacks_Image_Vault_${RELEASE_VERSION}.exe" .
           python3 make_patch.py --version "$RELEASE_VERSION" --web web --output dist/jacks-image-vault-patch.zip --notes "UI update from GitHub release v${RELEASE_VERSION}"
-          (cd dist && sha256sum * > SHA256SUMS.txt)
+      - name: Download verified Windows Desktop host
+        uses: actions/download-artifact@v4
+        with:
+          name: jacks-vault-webview2-host
+          path: desktop-host-artifact
+      - name: Package optional self-contained desktop bundle and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s desktop-host-artifact/Jacks_Image_Vault_Desktop.exe
+          python3 scripts/build-desktop-bundle.py \
+            --version "$RELEASE_VERSION" \
+            --server "dist/Jacks_Image_Vault_${RELEASE_VERSION}.exe" \
+            --host desktop-host-artifact/Jacks_Image_Vault_Desktop.exe \
+            --output "dist/Jacks_Image_Vault_Desktop_Bundle_v${RELEASE_VERSION}.zip"
+          (cd dist && sha256sum Jacks_Image_Vault_*.exe jacks-image-vault-patch.zip Jacks_Image_Vault_Desktop_Bundle_v*.zip > SHA256SUMS.txt)
       - name: Verify EXE, ZIP manifest allowlist, and public checksums
         shell: bash
         run: python3 scripts/verify-release-assets.py --version "$RELEASE_VERSION" --dist dist
