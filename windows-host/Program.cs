@@ -18,9 +18,33 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        bool securityTest = args.Length == 1 && args[0] == "--security-test";
         bool smoke = args.Length == 1 && args[0] == "--self-test";
         try
         {
+            if (securityTest)
+            {
+                string[] localAllowed = { DesktopNavigation.Home, DesktopNavigation.Home + "index.html" };
+                string[] localBlocked = {
+                    "https://accounts.google.com/", "https://drive.google.com/",
+                    "http://localhost:8765/", "http://127.0.0.1:8765/__vault_update/status",
+                    "http://127.0.0.1:8765/?token=fake",
+                    "file:///C:/Windows/System32/", "javascript:alert(1)"
+                };
+                string[] externalAllowed = {
+                    "https://drive.google.com/file/d/fixture/view",
+                    "https://github.com/zackadoorie-cpu/jacks-image-vault/releases"
+                };
+                string[] externalBlocked = {
+                    "http://drive.google.com/", "https://drive.google.com.evil.test/",
+                    "https://github.com/attacker/repo/", "javascript:alert(1)"
+                };
+                return localAllowed.All(DesktopNavigation.IsLocalDocument)
+                    && localBlocked.All(v => !DesktopNavigation.IsLocalDocument(v))
+                    && externalAllowed.All(DesktopNavigation.CanOpenExternally)
+                    && externalBlocked.All(v => !DesktopNavigation.CanOpenExternally(v))
+                    ? 0 : 2;
+            }
             using var backend = BackendConnection.StartAsync().GetAwaiter().GetResult();
             if (smoke)
             {
