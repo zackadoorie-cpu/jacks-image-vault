@@ -35,8 +35,10 @@ jobs:
           node --check web/app.js
       - name: Run Drive sync and media stress tests
         run: node --test tests/*.test.cjs
-      - name: Check patch builder
-        run: python3 -m py_compile make_patch.py
+      - name: Check patch builder and adversarial release artifact fixtures
+        run: |
+          python3 -m py_compile make_patch.py scripts/verify-release-assets.py
+          python3 -m unittest discover -s tests -p 'test_verify_release_assets.py'
       - name: Ensure Windows build compiles
         run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/Jacks_Image_Vault.exe .
 
