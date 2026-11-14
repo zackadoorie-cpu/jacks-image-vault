@@ -2160,6 +2160,7 @@
     return {images,baseFolderSources};
   }
   async function loadLiveIndex() {
+    const authorizationEpoch=state.authEpoch;
     // Invalidate previous scans before loading a refreshed spreadsheet snapshot.
     stopScans();
     const btn = $('connectButton'); btn.disabled = true; btn.textContent = 'Reading library…';
@@ -2172,6 +2173,7 @@
         if(safeId(about?.user?.permissionId))state.driveIdentity=about.user.permissionId;
       }catch{}
       const {images,baseFolderSources}=await readSpreadsheetSnapshot();
+      if(authorizationEpoch!==state.authEpoch||!state.accessToken)return;
       state.snapshotLoadedAt=new Date().toISOString();
       state.lastSyncError='';
       state.inventory=images;
@@ -2195,6 +2197,7 @@
       else alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
       scheduleScans();
     } catch (error) {
+      if(authorizationEpoch!==state.authEpoch)return;
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
       state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
