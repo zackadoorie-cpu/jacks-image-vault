@@ -74,6 +74,7 @@ type vault struct {
 	notice         string
 	client         *http.Client
     windows        *windowSessions
+    desktopAuth    *desktopAuthBroker
 }
 
 func randNonce() string {
@@ -108,7 +109,7 @@ func newVault(dir string) (*vault, error) {
 		}
 		return nil
 	}}
-	v := &vault{root: dir, nonce: randNonce(), currentVersion: builtinVersion, client: c, windows: newWindowSessions()}
+	v := &vault{root: dir, nonce: randNonce(), currentVersion: builtinVersion, client: c, windows: newWindowSessions(),desktopAuth:newDesktopAuthBroker()}
 	var choice selectedPatch
 	if b, err := os.ReadFile(filepath.Join(dir, "current.json")); err == nil && json.Unmarshal(b, &choice) == nil {
 		v.choice = choice
@@ -878,6 +879,10 @@ func (v *vault) handler() http.Handler {
 	mux.HandleFunc("/__vault_update/reset", v.handleReset)
     mux.HandleFunc("/__vault_windows/status", v.handleWindowsStatus)
     mux.HandleFunc("/__vault_windows/install", v.handleWindowsSetup)
+    mux.HandleFunc("/__vault_desktop_auth/status",v.handleDesktopAuthStatus)
+    mux.HandleFunc("/__vault_desktop_auth/start",v.handleDesktopAuth)
+    mux.HandleFunc("/__vault_desktop_auth/poll",v.handleDesktopAuth)
+    mux.HandleFunc("/__vault_desktop_auth/cancel",v.handleDesktopAuth)
     mux.HandleFunc("/__vault_window/heartbeat", v.handleWindowHeartbeat)
     mux.HandleFunc("/__vault_window/leave", v.handleWindowLeave)
 	mux.HandleFunc("/", v.handleFile)
