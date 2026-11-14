@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish (for example 2.0.1)"
+        description: "NEW unused version, e.g. 2.0.12 or 2.1.0 (no v prefix or trailing dot)"
         required: true
-        default: "2.0.1"
         type: string
 
 permissions:
@@ -24,17 +23,39 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+      - name: Validate new release version before building
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Invalid version '$RELEASE_VERSION'. Use three numbers like 2.0.12 or 2.1.0 (no leading v, spaces, or trailing dot)."
+            exit 1
+          fi
+          TAG="v${RELEASE_VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists. Releases cannot be republished under the same tag. Choose a new version."
+            exit 1
+          fi
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+            echo "::error::The Git tag $TAG already exists even if its release was deleted. Choose a new version."
+            exit 1
+          fi
+          LATEST="$(gh release view --json tagName --jq '.tagName' 2>/dev/null || true)"
+          if [[ "$LATEST" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] &&
+             [[ "$(printf '%s\n' "$RELEASE_VERSION" "${LATEST#v}" | sort -V | tail -n 1)" != "$RELEASE_VERSION" ]]; then
+            echo "::error::Version $RELEASE_VERSION is older than latest published $LATEST. Choose a higher number."
+            exit 1
+          fi
+          echo "### Release preflight passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Requested release: `$TAG`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Latest published release: `${LATEST:-none}`" >> "$GITHUB_STEP_SUMMARY"
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Validate version
-        shell: bash
-        run: |
-          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Version must be like 2.0.1" >&2
-            exit 1
-          fi
+          cache: false
       - name: Run updater security tests
         run: go test -v ./...
       - name: Run Drive sync and media stress tests
