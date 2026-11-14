@@ -61,7 +61,7 @@ function harness({withObserver=true}={}){
     setInterval:()=>1,clearInterval:()=>{},
     queueMicrotask,location:{origin:'http://localhost:8765',hostname:'localhost',protocol:'http:'},
     localStorage:{getItem:key=>storage.get(key)||null,setItem(k,v){storage.set(k,String(v));},removeItem(k){storage.delete(k);}},
-    navigator:{},document:{visibilityState:'visible',getElementById:el,querySelectorAll:()=>[]},
+    navigator:{},document:{visibilityState:'visible',getElementById:el,querySelectorAll:()=>[],querySelector:()=>null,documentElement:{dataset:{}}},
     window:{scrollTo(){}},
   };
   if(withObserver){
@@ -79,6 +79,8 @@ function harness({withObserver=true}={}){
   }));
   h.state.folders=[{path:'Memes/Test',name:'Test',kind:'memes',count:140}];
   h.state.page=1;h.state.pageSize=16;h.state.autoLoad=true;h.state.search='';
+  el('prefTheme').value='midnight';
+  el('prefAutoReconnect').checked=false;
   return {h,el,grid,storage,observers,context};
 }
 async function drain(){await Promise.resolve();await Promise.resolve();await Promise.resolve();}
