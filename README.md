@@ -1,6 +1,6 @@
 # Jack's Image Vault — Windows image and media library
 
-## Phase 8A: Smart Review Inbox (feature PR, unreleased)
+## Phase 8A: Smart Review Inbox (released in v2.1.7)
 
 The new **Review Inbox** is an optional read-only screen that groups live new
 Drive IDs, unfinished visual reviews, deferred items, and reviewed meme images
@@ -10,7 +10,7 @@ previews only**, with same-folder duplicate, extension, unsafe character and
 Windows reserved-name checks. The existing image detail viewer remains the
 place to inspect images and save **device-local** review drafts.
 
-The first implementation PR deliberately does not request Sheets/Drive write
+The first implementation deliberately does not request Sheets/Drive write
 scopes, update the Manifest, rename files, create approval history or perform
 undo. The separate next milestones will add opt-in Sheet writeback with
 account/Sheet/file-ID/row/field conflict checks, user confirmation and
@@ -22,14 +22,13 @@ milestones and acceptance tests.
 
 Run `node --test tests/review-inbox.test.cjs` and both
 `scripts/build-review-inbox*.cjs --check` checks. The CI Chromium run uses
-synthetic accounts and library metadata only. This PR should be merged only
-after all normal Linux, Windows and browser checks pass; release publication
-is separate.
+synthetic accounts and library metadata only. Merged in PR #35 and released as v2.1.7 after Linux, Windows and
+Chromium browser tests passed. Future write-back features remain separate.
 
 
-**Status (2026-11-14):** v2.1.5 is the latest published release and includes Similarity Lab, Video Library and Command Center. Phase 7 updater reliability and release hardening are under review in PR #33 and are NOT included in v2.1.5. The next candidate after merge and validation is v2.1.6; do not reuse published tags.
+**Status (2026-11-14):** **v2.1.7 is the latest published release**, including the read-only Phase 8A Smart Review Inbox and filename previews. Phase 7 native updater recovery shipped in v2.1.6. Future Phase 8B direct Sheet write-back remains unimplemented and separately opt-in. Use a new unused tag for the next release.
 
-## Phase 7: updater HTTP 403 recovery and release hardening (unreleased)
+## Phase 7: updater HTTP 403 recovery and release hardening (included in v2.1.6)
 
 **Why:** Older Windows EXEs ask `api.github.com/repos/OWNER/REPO/releases/latest` for public release metadata. If that endpoint returns HTTP 403, the older native updater fails before it can invoke its existing release-ZIP download fallback. The repository can be public and have valid releases even when this API call is blocked.
 
