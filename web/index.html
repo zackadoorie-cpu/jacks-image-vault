@@ -34,6 +34,7 @@
         <button class="nav-item" data-view="video-library"><span class="nav-icon">▶</span>Video Library</button>
         <button class="nav-item" data-view="similarity"><span class="nav-icon">▥</span>Similarity Lab</button>
         <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
+        <button class="nav-item" data-view="review-inbox"><span class="nav-icon">▤</span>Review Inbox</button>
         <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
       </nav>
       <div class="sidebar-spacer"></div>
@@ -289,6 +290,38 @@
           </div>
           <p class="privacy-note">Video Library reads the existing Google Sheet and Drive index. Videos are only downloaded after you select Play, Generate thumbnail, or Generate storyboard in the media details. Download limits are enforced, and source Drive files and Sheets remain untouched.</p>
         </section>
+        <section id="reviewInboxView" class="view hidden" aria-labelledby="reviewInboxTitle">
+          <div class="gallery-heading">
+            <div><p class="eyebrow">PHASE 8A · REVIEW FIRST, CHANGE NOTHING</p>
+              <h1 id="reviewInboxTitle">Smart Review Inbox</h1>
+              <p>New Drive discoveries, unfinished visual reviews, deferred items, and descriptive filename candidates. Suggestions use existing reviewed tags, not unseen image contents.</p>
+            </div>
+          </div>
+          <p class="review-inbox-warning" role="note">Read-only preview. This version cannot update Sheet cells or rename Drive files. New items appear after a Drive sync; a partial scan is not proof of a complete inventory.</p>
+          <div class="review-inbox-metrics" aria-label="Actionable review counts">
+            <div><span>New in Drive</span><strong id="reviewInboxNewCount">—</strong><small>May not have a Manifest row yet</small></div>
+            <div><span>Visual review needed</span><strong id="reviewInboxPendingCount">—</strong><small>Source evidence not yet confirmed</small></div>
+            <div><span>Filename candidates</span><strong id="reviewInboxNamingCount">—</strong><small>Tag-based suggestions only</small></div>
+          </div>
+          <div class="review-inbox-toolbar">
+            <label for="reviewInboxFilter">Show review items</label>
+            <select id="reviewInboxFilter" class="select" disabled>
+              <option value="all">All actionable items</option>
+              <option value="new">Newly discovered in Drive</option>
+              <option value="pending">Needs visual inspection</option>
+              <option value="deferred">Deferred / review later</option>
+              <option value="naming">Filename suggestions</option>
+            </select>
+          </div>
+          <p class="review-inbox-summary" id="reviewInboxSummary" role="status" aria-live="polite">Connect to see your private inbox.</p>
+          <div id="reviewInboxList" class="review-inbox-list" aria-label="Read-only review inbox"></div>
+          <div class="review-inbox-pages">
+            <button id="reviewInboxPrev" class="btn outline" type="button" disabled>Previous</button>
+            <span id="reviewInboxPage" aria-live="polite">—</span>
+            <button id="reviewInboxNext" class="btn outline" type="button" disabled>Next</button>
+          </div>
+          <p class="privacy-note">Missing photo EXIF dates and duplicate decisions remain in the existing spreadsheet Review Queue. No photo bytes, descriptions or tags are sent to GitHub. Filename drafts require individual approval in a later release.</p>
+        </section>
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
           <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original spreadsheet snapshot with current Drive files. New subfolders under the verified Memes and Jacks Photos roots are discovered automatically.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Discover &amp; verify folders</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
           <div class="index-metrics" id="indexMetrics" aria-label="Index coverage"><div class="index-metric"><span>Spreadsheet snapshot</span><strong id="metricSnapshot">—</strong><small>Original inventory, unchanged</small></div><div class="index-metric"><span>Live Drive files</span><strong id="metricLive">—</strong><small id="metricLiveNote">Not yet verified</small></div><div class="index-metric"><span>New files</span><strong id="metricAdded">—</strong><small>Not in spreadsheet snapshot</small></div><div class="index-metric"><span>Missing files</span><strong id="metricMissing">—</strong><small>No longer in watched roots</small></div></div>
@@ -306,6 +339,21 @@
     </div>
   </div>
 
+  <dialog id="reviewInboxPreviewDialog" class="dialog review-inbox-dialog" aria-labelledby="reviewInboxPreviewTitle">
+    <div class="dialog-header">
+      <div><p class="eyebrow">FILENAME · DRY RUN ONLY</p><h2 id="reviewInboxPreviewTitle">Preview descriptive filename</h2></div>
+      <button id="reviewInboxDraftCancel" class="icon-button" type="button" aria-label="Close filename preview">×</button>
+    </div>
+    <p class="dialog-copy">This is a proposal based on previously reviewed tags. Inspect the image before approving it. No Sheet, Drive or local file is modified.</p>
+    <dl class="review-inbox-preview-details">
+      <dt>Current filename</dt><dd id="reviewInboxOldName"></dd>
+    </dl>
+    <label class="field-label" for="reviewInboxDraftName">Proposed filename (edit to check a draft)</label>
+    <input id="reviewInboxDraftName" class="field" type="text" maxlength="96" spellcheck="false">
+    <p id="reviewInboxFilenameStatus" class="review-inbox-status" role="status" aria-live="polite">Preview only.</p>
+    <div class="dialog-actions"><button id="reviewInboxDraftCheck" class="btn outline" type="button">Validate draft</button>
+      <span class="review-inbox-preview-hint">Preview only · no changes are saved</span></div>
+  </dialog>
   <dialog id="shortcutsDialog" class="dialog shortcut-dialog" aria-labelledby="shortcutsTitle">
     <div class="dialog-header"><div><p class="eyebrow">NAVIGATE WITHOUT A MOUSE</p><h2 id="shortcutsTitle">Keyboard shortcuts</h2></div>
       <button id="shortcutsClose" class="icon-button" type="button" aria-label="Close keyboard shortcuts">×</button></div>

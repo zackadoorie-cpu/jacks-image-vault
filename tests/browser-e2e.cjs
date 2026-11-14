@@ -4,11 +4,11 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),http=require('n
 const {chromium}=require('playwright');
 const root=path.resolve(__dirname,'../web');
 const id='fixture_image_123456789',vid='fixture_video_123456789',folder='fixture_folder_123456789';
-const fake={id,name:'Orange test cat.jpg',mimeType:'image/jpeg',size:'521',parents:[folder]};
+const fake={id,name:'IMG_123456789.jpg',mimeType:'image/jpeg',size:'521',parents:[folder]};
 const fakeVideo={id:vid,name:'Fabricated clip.mp4',mimeType:'video/mp4',size:'5000',parents:[folder]};
 const batch={valueRanges:[
 {values:[['Collection','Folder','Current filename','Open file','Visual description','Searchable tags','OCR text','Photo capture date','Duplicate group','Review status','File ID','Analysis confidence','Search category'],
-  ['Memes','Memes/Cats',fake.name,'Open in Drive','Fabricated orange cat','cat','','','','Visually verified',id,'Reviewed','Cat meme'],
+  ['Memes','Memes/Cats',fake.name,'Open in Drive','Fabricated orange cat','orange cat, reaction meme','','','','Visually verified',id,'Reviewed','Cat meme'],
   ['Memes','Memes/Cats',fakeVideo.name,'Open in Drive','Fabricated two video frames','video','','','','Video preview reviewed',vid,'Preview','Other meme']]},
 {values:[['Collection','Folder path','Original filename','Drive file ID','Drive URL','MIME type','Size bytes','Drive created UTC','Drive modified UTC','Filename date','Date evidence','Folder category'],
   ['Memes','Memes/Cats',fake.name,id,'','image/jpeg','521','','','','None','Folder name only'],
@@ -82,6 +82,19 @@ async function main(){
     await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
     assert.equal((await p.locator('#commandLive').innerText()).trim(),'—');
     assert.match(await p.locator('#commandLiveNote').innerText(),/Not verified/);
+    await p.locator('[data-view="review-inbox"]').click();
+    assert.equal(await p.locator('#reviewInboxView').isVisible(),true);
+    await p.waitForFunction(()=>document.querySelector('#reviewInboxNamingCount')?.textContent==='1');
+    assert.match(await p.locator('#reviewInboxSummary').innerText(),/1 actionable/);
+    await p.locator('[data-inbox-action="preview"]').click();
+    assert.equal(await p.locator('#reviewInboxPreviewDialog').evaluate(d=>d.open),true);
+    assert.equal(await p.locator('#reviewInboxDraftName').inputValue(),'orange cat - reaction meme.jpg');
+    await p.locator('#reviewInboxDraftCheck').click();
+    assert.match(await p.locator('#reviewInboxFilenameStatus').innerText(),/Valid draft/);
+    await p.keyboard.press('Escape');
+    assert.equal(await p.locator('#reviewInboxPreviewDialog').evaluate(d=>d.open),false);
+    assert.equal(connected.requests.every(x=>x==='GET'),true);
+    await p.keyboard.press('Alt+1');
     await p.locator('#commandVideos').click();
     assert.match(await p.locator('#videoCatalogSummary').innerText(),/1 video files/);
     await p.keyboard.press('Alt+1');connected.failSheet();

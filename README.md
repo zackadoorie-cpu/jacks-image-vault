@@ -1,5 +1,32 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 8A: Smart Review Inbox (feature PR, unreleased)
+
+The new **Review Inbox** is an optional read-only screen that groups live new
+Drive IDs, unfinished visual reviews, deferred items, and reviewed meme images
+with opaque filenames. Filename suggestions use **already reviewed tags**, not
+new visual analysis or any external AI service. They are editable **dry-run
+previews only**, with same-folder duplicate, extension, unsafe character and
+Windows reserved-name checks. The existing image detail viewer remains the
+place to inspect images and save **device-local** review drafts.
+
+The first implementation PR deliberately does not request Sheets/Drive write
+scopes, update the Manifest, rename files, create approval history or perform
+undo. The separate next milestones will add opt-in Sheet writeback with
+account/Sheet/file-ID/row/field conflict checks, user confirmation and
+recoverable audits. Actual Drive renaming requires its own explicit scope
+and protections. The existing historical Review Queue for EXIF/duplicates is
+not modified. See [Phase 8 roadmap](docs/phase8-smart-library-manager.md)
+for the audited column mapping, formula-boundary limitations, risks,
+milestones and acceptance tests.
+
+Run `node --test tests/review-inbox.test.cjs` and both
+`scripts/build-review-inbox*.cjs --check` checks. The CI Chromium run uses
+synthetic accounts and library metadata only. This PR should be merged only
+after all normal Linux, Windows and browser checks pass; release publication
+is separate.
+
+
 **Status (2026-11-14):** v2.1.5 is the latest published release and includes Similarity Lab, Video Library and Command Center. Phase 7 updater reliability and release hardening are under review in PR #33 and are NOT included in v2.1.5. The next candidate after merge and validation is v2.1.6; do not reuse published tags.
 
 ## Phase 7: updater HTTP 403 recovery and release hardening (unreleased)

@@ -326,3 +326,42 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 @media(max-width:1020px){.command-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.command-lower-grid{grid-template-columns:1fr}}
 @media(max-width:630px){.command-heading{align-items:stretch;flex-direction:column}.command-metrics{grid-template-columns:1fr}.command-center{margin-top:23px}.command-lower-grid{gap:9px}.command-panel{padding:14px}.command-timestamps div{align-items:flex-start;gap:12px;flex-direction:column}.command-timestamps dd{text-align:left}.command-quick{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto!important}*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+
+/* Phase 8A Smart Review Inbox: read-only evidence and candidate previews. */
+.review-inbox-warning{padding:13px 15px;border:1px solid #6d5a3c;background:#28251f;border-radius:11px;color:#e5d8bd;font-size:12px;line-height:1.6;margin:16px 0}
+.review-inbox-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:15px 0}
+.review-inbox-metrics>div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:15px;min-width:0}
+.review-inbox-metrics span{display:block;color:#eee8fb;font-size:12px;font-weight:700}
+.review-inbox-metrics strong{display:block;font-size:30px;margin:7px 0}
+.review-inbox-metrics small{color:var(--muted);font-size:11px;line-height:1.6}
+.review-inbox-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:18px 0 10px}
+.review-inbox-toolbar label{font-size:12px;font-weight:700}
+.review-inbox-toolbar select{min-height:42px;max-width:min(300px,100%);min-width:215px}
+.review-inbox-summary{font-size:12px;color:var(--muted);line-height:1.7;margin:12px 0}
+.review-inbox-list{display:flex;flex-direction:column;gap:11px}
+.review-inbox-item{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(220px,.75fr);gap:16px;align-items:start;padding:16px;border-radius:13px;border:1px solid #383b4d;background:var(--surface);min-width:0}
+.review-inbox-item-main{display:flex;align-items:flex-start;gap:14px;min-width:0}
+.review-inbox-type{display:flex;justify-content:center;align-items:center;min-width:60px;min-height:45px;border-radius:8px;background:#282d3e;color:#d5d8fa;text-transform:uppercase;letter-spacing:.3px;font-size:10px;font-weight:750}
+.review-inbox-item-text{min-width:0}
+.review-inbox-bucket{display:block;color:#e7c899;font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.5px}
+.review-inbox-item h3{margin:5px 0 3px;font-size:14px;overflow-wrap:anywhere}
+.review-inbox-item p{margin:4px 0;font-size:11px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}
+.review-inbox-item .review-inbox-desc{color:#e0deed}
+.review-inbox-item .review-inbox-method{font-size:10px}
+.review-inbox-side{min-width:0;display:flex;flex-direction:column;gap:11px}
+.review-inbox-suggestion{display:flex;flex-direction:column;gap:5px;background:#1b2624;border:1px solid #345e51;border-radius:8px;padding:10px;overflow-wrap:anywhere}
+.review-inbox-suggestion small{font-size:10px;color:#b7d6c7}
+.review-inbox-suggestion strong{font-size:12px;color:#f3faf7}
+.review-inbox-item-actions{display:flex;flex-wrap:wrap;gap:8px}
+.review-inbox-item-actions .btn{min-height:40px;white-space:normal}
+.review-inbox-empty{border:1px dashed #52566f;border-radius:11px;padding:30px 20px;text-align:center;font-size:13px;color:var(--muted)}
+.review-inbox-pages{display:flex;justify-content:center;align-items:center;gap:16px;margin:20px 0 16px}
+.review-inbox-pages span{font-size:12px;color:var(--muted)}
+.review-inbox-dialog{max-width:min(530px,calc(100vw - 24px));width:100%}
+.review-inbox-preview-details{display:grid;grid-template-columns:minmax(90px,.35fr) minmax(0,1fr);gap:12px;margin:12px 0 18px;font-size:12px}
+.review-inbox-preview-details dt{color:var(--muted)}
+.review-inbox-preview-details dd{margin:0;overflow-wrap:anywhere}
+.review-inbox-status{color:#d6ceeb;font-size:12px;line-height:1.7;margin:13px 0}
+@media(max-width:840px){.review-inbox-item{grid-template-columns:1fr}.review-inbox-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:500px){.review-inbox-metrics{grid-template-columns:1fr}.review-inbox-item{padding:12px}.review-inbox-item-main{gap:9px}.review-inbox-item-actions{flex-direction:column}.review-inbox-item-actions .btn{width:100%}}
