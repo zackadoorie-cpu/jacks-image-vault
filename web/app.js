@@ -660,7 +660,7 @@
       }
       list.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''))||a.id.localeCompare(b.id));
       const totalPages=Math.max(1,Math.ceil(list.length/VIDEO_CATALOG_PAGE));
-    const current=Math.max(1,Math.min(totalPages,Math.floor(Number(page)||1)));
+      const current=Math.max(1,Math.min(totalPages,Math.floor(Number(page)||1)));
       return {total:list.length,page:current,pageCount:Math.max(1,Math.ceil(list.length/VIDEO_CATALOG_PAGE)),
         entries:list.slice((current-1)*VIDEO_CATALOG_PAGE,current*VIDEO_CATALOG_PAGE)};
     }
