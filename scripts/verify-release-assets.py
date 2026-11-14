@@ -25,7 +25,11 @@ def verify(dist, version):
         raise ValueError("version must be three numbers")
     exe_name = f"Jacks_Image_Vault_{version}.exe"
     zip_name = "jacks-image-vault-patch.zip"
+    bundle_name = f"Jacks_Image_Vault_Desktop_Bundle_v{version}.zip"
+    bundle_present = (dist / bundle_name).exists()
     expected = {exe_name, zip_name, "SHA256SUMS.txt"}
+    if bundle_present:
+        expected.add(bundle_name)
     files = {p.name for p in dist.iterdir() if p.is_file()}
     if files != expected:
         raise ValueError(f"unexpected release assets: missing={expected-files}, extra={files-expected}")
@@ -65,7 +69,30 @@ def verify(dist, version):
                 raise ValueError(f"checksum mismatch for {name}")
         if expanded > MAX_EXPANDED:
             raise ValueError("expanded ZIP exceeds native updater limit")
-    expected_hashes = {name: digest((dist / name).read_bytes()) for name in [exe_name, zip_name]}
+    if bundle_present:
+        bundle = dist / bundle_name
+        if bundle.stat().st_size > 150 << 20:
+            raise ValueError("Desktop bundle is unexpectedly large")
+        with zipfile.ZipFile(bundle) as desktop:
+            members = desktop.infolist()
+            names = [m.filename for m in members]
+            expected_members = {exe_name, "Jacks_Image_Vault_Desktop.exe", "START_HERE.txt"}
+            if len(names) != 3 or set(names) != expected_members:
+                raise ValueError("Desktop bundle contains unknown or missing entries")
+            if any(m.is_dir() or m.filename.startswith("/") or
+                   "\\\\" in m.filename or ".." in m.filename.split("/") for m in members):
+                raise ValueError("Unsafe desktop bundle entry")
+            if digest(desktop.read(exe_name)) != digest(exe.read_bytes()):
+                raise ValueError("Desktop bundle backend differs from standalone EXE")
+            host = desktop.read("Jacks_Image_Vault_Desktop.exe")
+            if not host.startswith(b"MZ") or len(host) < 1000:
+                raise ValueError("Desktop bundle host is not a Windows executable")
+            if len(host) > 150 << 20:
+                raise ValueError("Desktop bundle host exceeds safe size")
+            if "NOT an in-app" not in desktop.read("START_HERE.txt").decode("utf-8"):
+                raise ValueError("Desktop bundle missing installation warning")
+    asset_names = [exe_name, zip_name] + ([bundle_name] if bundle_present else [])
+    expected_hashes = {name: digest((dist / name).read_bytes()) for name in asset_names}
     recorded = {}
     for line in (dist / "SHA256SUMS.txt").read_text().splitlines():
         parts = line.strip().split(None, 1)
