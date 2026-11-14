@@ -29,6 +29,7 @@
         <button class="nav-item" data-view="photos"><span class="nav-icon">▧</span>Photos</button>
         <button class="nav-item" data-view="favorites"><span class="nav-icon">♡</span>Favorites</button>
         <button class="nav-item" data-view="smart"><span class="nav-icon">✦</span>Smart Collections</button>
+        <button class="nav-item" data-view="memory"><span class="nav-icon">◷</span>Memory Lane</button>
         <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
         <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
       </nav>
@@ -90,7 +91,7 @@
         </section>
 
         <section id="galleryView" class="view hidden">
-          <div class="gallery-heading"><div><p class="eyebrow" id="galleryEyebrow">YOUR PRIVATE GALLERY</p><h1 id="galleryTitle">All media</h1><button class="btn quiet hidden" id="backSmartCollections" type="button">← All Smart Collections</button><p id="galleryDescription">Browse every collection in one place.</p></div><div class="gallery-counters"><span class="result-count" id="resultCount">—</span><span class="preview-stat" id="previewStatus">Previews start when visible</span><span class="browse-progress" id="browseProgress" role="status">0 shown</span><button class="btn outline hidden" type="button" id="retryFailedButton">↻ Retry failed</button></div></div>
+          <div class="gallery-heading"><div><p class="eyebrow" id="galleryEyebrow">YOUR PRIVATE GALLERY</p><h1 id="galleryTitle">All media</h1><button class="btn quiet hidden" id="backSmartCollections" type="button">← All Smart Collections</button><button class="btn quiet hidden" id="backMemoryLane" type="button">← Memory Lane</button><p id="galleryDescription">Browse every collection in one place.</p></div><div class="gallery-counters"><span class="result-count" id="resultCount">—</span><span class="preview-stat" id="previewStatus">Previews start when visible</span><span class="browse-progress" id="browseProgress" role="status">0 shown</span><button class="btn outline hidden" type="button" id="retryFailedButton">↻ Retry failed</button></div></div>
           <div class="filters">
             <label class="searchbox"><span>⌕</span><input type="search" id="searchInput" placeholder="Search images, videos, moments, tags…" autocomplete="off" aria-label="Search media"><kbd>/</kbd></label>
             <select class="select" id="mediaTypeSelect" aria-label="File type"><option value="all">All media</option><option value="image">Images</option><option value="video">Videos</option><option value="pdf">PDFs</option></select>
@@ -139,6 +140,40 @@
           <p class="smart-status" id="smartCollectionStatus" role="status"></p>
           <div class="smart-grid" id="smartCollectionCards"></div>
           <p class="privacy-note">Suggested collections use general tags and words, not an external AI model. Custom collections live only in this browser for the connected account and Sheet; backing them up is your responsibility.</p>
+        </section>
+        <section id="memoryView" class="view hidden" aria-labelledby="memoryTitle">
+          <div class="gallery-heading"><div><p class="eyebrow">CHRONOLOGICAL EXPLORATION</p><h1 id="memoryTitle">Memory Lane</h1>
+            <p>Explore months and previous years without guessing when a picture was taken. Drive-added dates are identified separately from capture dates.</p></div></div>
+          <div class="memory-toolbar" role="group" aria-label="Timeline filters">
+            <label for="memoryYearSelect">Year
+              <select class="select" id="memoryYearSelect"><option value="all">All years</option></select>
+            </label>
+            <label for="memorySourceSelect">Date evidence
+              <select class="select" id="memorySourceSelect">
+                <option value="all">All date sources</option>
+                <option value="exif">Verified camera EXIF</option>
+                <option value="filename">Filename-derived</option>
+                <option value="drive-upload">Drive added (local time)</option>
+                <option value="unknown">Unknown dates</option>
+              </select>
+            </label>
+          </div>
+          <p id="memoryOverview" class="memory-overview" role="status"></p>
+          <article class="memory-today" aria-labelledby="memoryTodayHeading">
+            <div><p class="eyebrow">REMEMBER WHEN</p><h2 id="memoryTodayHeading">On This Day</h2>
+              <p id="memoryTodayCount">Connect Drive to see memories from previous years.</p>
+              <p id="memoryTodayExamples" class="memory-examples"></p>
+            </div>
+            <button id="memoryTodayButton" type="button" class="btn primary" disabled>Explore memories</button>
+          </article>
+          <div class="section-heading memory-section-heading"><h2>Browse by month</h2></div>
+          <div class="memory-month-grid" id="memoryMonthCards"></div>
+          <div class="memory-unknown hidden" id="memoryUnknown">
+            <div><strong>Undated media</strong><p id="memoryUnknownCount">0 items</p>
+              <small>Not assigned a fabricated capture or upload date.</small></div>
+            <button class="btn outline" type="button" id="memoryUnknownButton" disabled>Browse undated</button>
+          </div>
+          <p class="privacy-note">EXIF and filename timestamps retain their calendar date. Drive creation timestamps are converted to this device's local date and labeled as uploads, not capture dates. On This Day ignores upload dates. Your originals and Sheet remain untouched by browsing.</p>
         </section>
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
           <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original spreadsheet snapshot with current Drive files. New subfolders under the verified Memes and Jacks Photos roots are discovered automatically.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Discover &amp; verify folders</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
