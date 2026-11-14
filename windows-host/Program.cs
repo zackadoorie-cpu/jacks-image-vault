@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Drawing;
+using System.Windows.Forms;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.InteropServices;
