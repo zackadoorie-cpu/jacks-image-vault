@@ -37,16 +37,17 @@ function renameDeskRow(item,titleInfo,reviewStage,evidence){
   const oldName=String(item.name||'');
   const ext=renameDeskExtension(oldName);
   const eligible=['reviewed','source-reviewed'].includes(reviewStage)&&!item.newInDrive&&
-    Number.isSafeInteger(item.manifestRow)&&item.manifestRow>=2&&!!titleInfo?.suggested&&
+    Number.isSafeInteger(item.manifestRow)&&item.manifestRow>=2&&
     RENAME_DESK_EXTENSIONS.includes(ext);
-  const suggested=eligible?renameDeskDisplayName(titleInfo.title,oldName):'';
+  const suggested=eligible&&titleInfo?.suggested?renameDeskDisplayName(titleInfo.title,oldName):'';
   return {
     id:item.id,oldName,folder:String(item.folder||''),mime:item.mime,
     manifestRow:Number.isSafeInteger(item.manifestRow)?item.manifestRow:null,
     reviewStage:String(reviewStage||''),evidence:String(evidence||''),
-    proposed:suggested,eligible:eligible&&!!suggested,
+    proposed:suggested,eligible,
     reason:eligible&&suggested?'Suggested from previously indexed review metadata. Verify the video first.':
-      'No eligible source-reviewed filename proposal. Manual review is required.'
+      eligible?'No automatic suggestion; enter a descriptive name if you want to rename this video.':
+      'This video needs verified source evidence and a Manifest row before naming.'
   };
 }
 function renameDeskValidate(row,next,library,otherStaged=[]){
