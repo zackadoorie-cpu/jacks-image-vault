@@ -124,8 +124,7 @@ func TestDesktopOAuthRejectsInsufficientScopes(t *testing.T){
 func TestDesktopOAuthCancellationAndConcurrentStart(t *testing.T){
  b:=newDesktopAuthBroker();b.launch=func(string)error{return nil}
  if _,err:=b.start("not-a-desktop-id","");err==nil{t.Fatal("invalid client accepted")}
- if _,err:=b.start(fakeDesktopID,"bad
-secret");err==nil{t.Fatal("invalid client secret accepted")}
+ if _,err:=b.start(fakeDesktopID,"bad"+string([]byte{10})+"secret");err==nil{t.Fatal("invalid client secret accepted")}
  id,err:=b.start(fakeDesktopID,"")
  if err!=nil{t.Fatal(err)}
  if _,err:=b.start(fakeDesktopID,"");err==nil{t.Fatal("concurrent sign-in accepted")}
