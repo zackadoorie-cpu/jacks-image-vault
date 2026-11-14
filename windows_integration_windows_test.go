@@ -30,7 +30,8 @@ func TestWindowsInstallCopyIsVersionedAndIdempotent(t *testing.T) {
 func TestWindowsSetupUsesCurrentUserAndPreventsShortcutHijack(t *testing.T) {
     for _,marker:=range []string{"GetFolderPath('Programs')","GetFolderPath('DesktopDirectory')",
         "WScript.Shell","JACKS_VAULT_INSTALL_EXE","TargetPath","IconLocation",
-        "A different app already uses","Jacks_Image_Vault"} {
+        "unknown app or location", "OrdinalIgnoreCase", "ownedPrefix",
+        "Jacks_Image_Vault"} {
         if !strings.Contains(windowsShortcutScript,marker){t.Fatalf("missing Windows shortcut safety marker: %q",marker)}
     }
     if strings.Contains(windowsShortcutScript,"HKCU")||
