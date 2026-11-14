@@ -1,6 +1,6 @@
 # Jack's Image Vault — Windows image and media library
 
-## Video Rename Desk and UI refinements (unreleased implementation PR)
+## Video Rename Desk and UI refinements (released in v2.1.10)
 
 **What's new:** Video Library has an on-device title/tag/folder search box and
 a direct path to **Rename Desk** under the grouped Review & Health sidebar.
@@ -66,7 +66,7 @@ synthetic accounts and library metadata only. Merged in PR #35 and released as v
 Chromium browser tests passed. Future write-back features remain separate.
 
 
-**Status (2026-11-14):** **v2.1.9 is the latest published release**, including readable video-card titles, a compact collapsible sidebar, Video Library descriptions and Phase 8A Smart Review Inbox. Display titles do not change Drive filenames. Phase 7 native updater recovery shipped in v2.1.6; Phase 8B direct Sheet write-back remains unimplemented and separately opt-in. Use a new unused tag for the next release.
+**Status (2026-11-14):** **v2.1.10 is the latest published release**, including the review-only Video Rename Desk, private approval-plan export, local video search, readable video-card titles, the compact sidebar, and Phase 8A Smart Review Inbox. Video filename exports remain unapplied; no Drive renames or Sheet write-back is enabled. Phase 8B/8D actual write-back and verified renaming require separate explicit approval.
 
 ## Phase 7: updater HTTP 403 recovery and release hardening (included in v2.1.6)
 
