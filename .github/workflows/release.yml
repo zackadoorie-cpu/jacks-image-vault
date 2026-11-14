@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "NEW unused version, e.g. 2.0.12 or 2.1.0 (no v prefix or trailing dot)"
+        description: "NEW unused version higher than latest, e.g. 2.1.1 (no v or trailing dot)"
         required: true
         type: string
 
