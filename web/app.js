@@ -1968,7 +1968,10 @@
     $('clientIdInput').setCustomValidity(''); $('sheetIdInput').setCustomValidity('');
     const changed = clientId !== state.config.clientId || sheetId !== state.config.sheetId;
     if (changed && state.connected) disconnect();
-    if(changed){clearAutoBinding();state.autoReconnect=false;state.authEpoch++;}
+    if(changed){
+      clearAutoBinding();state.autoReconnect=false;state.authEpoch++;
+      try{localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({...readPreferences(),autoReconnect:false}));}catch{}
+    }
     state.config = {clientId, sheetId};
     try {
       if ($('rememberConfig').checked) localStorage.setItem(SHELL_STORAGE, JSON.stringify(state.config));
