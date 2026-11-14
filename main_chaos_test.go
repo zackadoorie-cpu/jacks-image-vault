@@ -162,6 +162,25 @@ func FuzzParseZip(f *testing.F) {
     // Run with go test -run '^$' -fuzz '^FuzzParseZip$' -fuzztime=3s -parallel=2
     f.Add([]byte("not a zip"))
     f.Add([]byte{'P','K',3,4,0,0,0})
+    // Include a fully valid archive seed so mutation reaches deep checksums.
+    seedFiles := map[string][]byte{}
+    seedManifest := patchManifest{Schema:1,Version:"2.1.15",Files:map[string]string{}}
+    for _,p := range required {
+        data := []byte("fuzz-data:"+p)
+        seedFiles[p]=data
+        seedManifest.Files[p]=sha(data)
+    }
+    seedZip := &bytes.Buffer{}
+    writer := zip.NewWriter(seedZip)
+    meta,_ := json.Marshal(seedManifest)
+    header,_ := writer.Create("vault-patch.json")
+    _,_ = header.Write(meta)
+    for _,p := range required {
+        item,_ := writer.Create("web/"+p)
+        _,_ = item.Write(seedFiles[p])
+    }
+    if err := writer.Close(); err != nil { f.Fatal(err) }
+    f.Add(seedZip.Bytes())
     f.Fuzz(func(t *testing.T, data []byte) {
         if len(data)>maxArchive {t.Skip()}
         manifest,files,err:=parseZip(data)
