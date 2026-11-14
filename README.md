@@ -1,6 +1,6 @@
 # Jack's Image Vault — Windows image and media library
 
-## Next UI refresh: Vault Home, themes and optional Google reconnect (PR)
+## Vault Home 3.0, palettes and Google reconnect (released in v2.1.11)
 
 **Home makeover.** The landing screen now has a visual gallery-inspired hero,
 read-only connection status, live description coverage, quick actions for Video
@@ -106,7 +106,7 @@ synthetic accounts and library metadata only. Merged in PR #35 and released as v
 Chromium browser tests passed. Future write-back features remain separate.
 
 
-**Status (2026-11-14):** **v2.1.10 is the latest published release**, including the review-only Video Rename Desk, private approval-plan export, local video search, readable video-card titles, the compact sidebar, and Phase 8A Smart Review Inbox. Video filename exports remain unapplied; no Drive renames or Sheet write-back is enabled. Phase 8B/8D actual write-back and verified renaming require separate explicit approval.
+**Status (2026-11-14):** **v2.1.11 is the latest published release**, including the opt-in Google silent reconnect attempt, redesigned Vault Home dashboard, five color palettes including Daylight Pearl, plus the v2.1.10 review-only Video Rename Desk. Google may still require manual confirmation; no access tokens are saved. Video filename plans remain unapplied, and Drive/Sheets retain read-only OAuth scopes. Phase 8B/8D actual write-back and verified renaming require separate explicit approval.
 
 ## Phase 7: updater HTTP 403 recovery and release hardening (included in v2.1.6)
 
