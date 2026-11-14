@@ -1984,9 +1984,11 @@
     $('syncButton').classList.toggle('hidden', !state.connected);
     commandRender();
   }
+  const IN_NATIVE_DESKTOP=window.__JACKS_VAULT_DESKTOP_HOST===true;
   function showSettings() {
     $('clientIdInput').value = state.config.clientId;
     $('sheetIdInput').value = state.config.sheetId;
+    $('desktopSheetIdInput').value = state.config.sheetId;
     $('originText').textContent = location.origin;
     $('desktopAuthSection').hidden = true;
     $('settingsDialog').showModal();
@@ -2034,6 +2036,23 @@
       const data=await res.json();
       if($('settingsDialog').open)$('desktopAuthSection').hidden=!data.available;
     }catch{$('desktopAuthSection').hidden=true;}
+  }
+  function saveDesktopSheetId(){
+    const sheetId=$('desktopSheetIdInput').value.trim();
+    if(!safeId(sheetId)){
+      $('desktopAuthMessage').textContent='Enter the raw spreadsheet ID, not its full URL.';
+      $('desktopSheetIdInput').focus();
+      return;
+    }
+    if(state.connected&&state.config.sheetId!==sheetId){
+      $('desktopAuthMessage').textContent='Disconnect from the current library before changing its Sheet ID.';
+      return;
+    }
+    state.config={...state.config,sheetId};
+    // Only the ID is persisted. Never persist Desktop OAuth credentials.
+    try{localStorage.setItem(SHELL_STORAGE,JSON.stringify(state.config));}
+    catch{$('desktopAuthMessage').textContent='Browser profile storage unavailable. ID is saved only for this session.';return;}
+    $('desktopAuthMessage').textContent='Spreadsheet ID saved. Continue with your Google Desktop client credentials.';
   }
   async function desktopAuthPost(path,body){
     if(!desktopNonce){
@@ -2132,6 +2151,13 @@
     }
   }
   async function connect({automatic=false}={}) {
+    if(IN_NATIVE_DESKTOP){
+      if(!automatic){
+        showSettings();
+        $('desktopAuthMessage').textContent='Use Connect via system browser. Google login cannot run inside WebView2.';
+      }
+      return;
+    }
     if(!automatic)clearAlert();
     if(state.connected&&Date.now()<state.expiry)return;
     if(!state.config.clientId||!state.config.sheetId){
@@ -2215,6 +2241,7 @@
     }
   }
   function tryAutoReconnect(){
+    if(IN_NATIVE_DESKTOP)return;
     if(!state.autoReconnect||!readAutoBinding()||!state.config.clientId||!state.config.sheetId)return;
     if(location.protocol==='file:')return;
     let attempts=0;
@@ -4710,6 +4737,7 @@
     $('sheetIdInput').oninput=()=>$('sheetIdInput').setCustomValidity('');
     $('settingsForm').onsubmit=saveSettings;
     $('desktopAuthConnectButton').onclick=connectDesktopOAuth;
+    $('desktopSaveSheetButton').onclick=saveDesktopSheetId;
     $('desktopAuthCancelButton').onclick=()=>void cancelDesktopAuth();
     $('settingsDialog').addEventListener('close',()=>{if(desktopFlowId)void cancelDesktopAuth();});
     $('connectButton').onclick=()=>connect();$('heroConnectButton').onclick=()=>connect();$('disconnectButton').onclick=disconnect;
@@ -4947,6 +4975,12 @@
     start();
   }
   function init() {
+    if(IN_NATIVE_DESKTOP){
+      document.documentElement.classList.add('vault-desktop-host');
+      // The WebView2 profile is intentionally independent of Edge/Chrome.
+      // Keep the user on the external-browser Desktop PKCE flow only.
+      state.autoReconnect=false;
+    }
     startNativeWindowLifecycle();
     applyVaultTheme(state.theme);
     buildFolderIndex();initEvents();enableBackdropDismissal();updateStatus();render();$('originText').textContent=location.origin;
