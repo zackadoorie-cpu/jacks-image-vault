@@ -49,6 +49,9 @@
     smartCollectionId: '',
     smartDraft: null,
     smartStorageHealthy: true,
+    memoryYear: 'all',
+    memorySource: 'all',
+    memorySelection: {key:'all',source:'all'},
     layout: 'grid',
     density: readDensity(),
     folderQuery: '',
@@ -461,6 +464,115 @@
       smartMatch,smartMembers,smartExplain,smartParseBackup,smartExportBackup};
   })();
   /* GENERATED SMART COLLECTIONS END */
+  /* GENERATED MEMORY LANE START */
+  const memoryEngine=(()=>{
+    const MEMORY_LANE_SCHEMA=1;
+    const MEMORY_SOURCES=Object.freeze(['exif','filename','drive-upload','unknown']);
+    const MEMORY_SOURCE_LABELS=Object.freeze({
+      exif:'EXIF camera date',filename:'Filename-derived date',
+      'drive-upload':'Drive added (local date)',unknown:'Date unknown'
+    });
+    function memoryValidDay(input){
+      const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(input||''));
+      if(!match)return '';
+      const y=+match[1],m=+match[2],d=+match[3];
+      if(y<1900||y>2100||m<1||m>12||d<1||d>31)return '';
+      const dt=new Date(Date.UTC(y,m-1,d));
+      return dt.getUTCFullYear()===y&&dt.getUTCMonth()===m-1&&dt.getUTCDate()===d?
+        match[0]:'';
+    }
+    function memoryCaptureDay(value){
+      const m=/^(\d{4})[-:/](\d{2})[-:/](\d{2})(?=$|[ T])/.
+        exec(typeof value==='string'?value.trim():'');
+      return m?memoryValidDay(m[1]+'-'+m[2]+'-'+m[3]):'';
+    }
+    function memoryLocalDriveDay(value){
+      if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i.test(value))
+        return '';
+      const parsed=new Date(value);
+      if(!Number.isFinite(parsed.getTime()))return '';
+      const day=[parsed.getFullYear(),String(parsed.getMonth()+1).padStart(2,'0'),
+        String(parsed.getDate()).padStart(2,'0')].join('-');
+      return memoryValidDay(day);
+    }
+    function memoryEvidence(record){
+      if(!record||typeof record!=='object')return {day:'',source:'unknown',label:MEMORY_SOURCE_LABELS.unknown,basis:''};
+      // Camera and filename calendar dates are intentionally NOT timezone-shifted.
+      const exif=memoryCaptureDay(record.exifCapture||record.captureDate);
+      if(exif)return {day:exif,source:'exif',label:MEMORY_SOURCE_LABELS.exif,
+        basis:record.provenance?.date?.source==='exif'?
+          (record.provenance.date.basis||'Manifest!P'):'Manifest!P'};
+      const filename=memoryCaptureDay(record.filenameDate);
+      if(filename)return {day:filename,source:'filename',label:MEMORY_SOURCE_LABELS.filename,
+        basis:record.filenameDateEvidence||'Manifest!J'};
+      // Drive creation is an instant, and is converted to the viewing device's
+      // local calendar day. It is never presented as the moment a photo was taken.
+      const created=memoryLocalDriveDay(record.driveCreatedAt);
+      if(created)return {day:created,source:'drive-upload',label:MEMORY_SOURCE_LABELS['drive-upload'],
+        basis:'Manifest!H · '+record.driveCreatedAt};
+      return {day:'',source:'unknown',label:MEMORY_SOURCE_LABELS.unknown,basis:''};
+    }
+    function memoryDedupe(items){
+      const seen=new Set(),unique=[];
+      for(const item of items||[]){
+        if(!item||typeof item.id!=='string'||!item.id||seen.has(item.id))continue;
+        seen.add(item.id);unique.push(item);
+      }
+      return unique;
+    }
+    function memoryMatches(item,selection={},now=new Date()){
+      const e=memoryEvidence(item),source=selection.source||'all',key=selection.key||'all';
+      if(source!=='all'&&e.source!==source)return false;
+      if(key==='all')return true;
+      if(key==='unknown')return e.source==='unknown';
+      if(key==='today'){
+        if(!['exif','filename'].includes(e.source)||!e.day||!Number.isFinite(now.getTime()))return false;
+        const today=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),
+          String(now.getDate()).padStart(2,'0')].join('-');
+        return +e.day.slice(0,4)<now.getFullYear()&&e.day.slice(5)===today.slice(5);
+      }
+      if(/^\d{4}-\d{2}$/.test(key))return e.day.startsWith(key+'-');
+      return false;
+    }
+    function memoryBuildTimeline(records,{year='all',source='all',now=new Date()}={}){
+      const items=memoryDedupe(records);
+      const allYears=new Set(),sourceCounts={exif:0,filename:0,'drive-upload':0,unknown:0};
+      const groups=new Map(),unknown=[],today=[];
+      for(const item of items){
+        const evidence=memoryEvidence(item);
+        sourceCounts[evidence.source]++;
+        if(evidence.day)allYears.add(evidence.day.slice(0,4));
+        if(memoryMatches(item,{key:'today',source},now))today.push({item,evidence});
+        if(source!=='all'&&evidence.source!==source)continue;
+        if(year!=='all'&&(evidence.day?evidence.day.slice(0,4):'unknown')!==year)continue;
+        if(!evidence.day){unknown.push({item,evidence});continue;}
+        const key=evidence.day.slice(0,7);
+        if(!groups.has(key))groups.set(key,{key,year:key.slice(0,4),month:key.slice(5),
+          count:0,sources:{exif:0,filename:0,'drive-upload':0},sample:[]});
+        const group=groups.get(key);group.count++;group.sources[evidence.source]++;
+        if(group.sample.length<3)group.sample.push({name:item.name||'Untitled media',id:item.id});
+      }
+      return {
+        schema:MEMORY_LANE_SCHEMA,
+        years:[...allYears].sort((a,b)=>b.localeCompare(a)),
+        sourceCounts,
+        months:[...groups.values()].sort((a,b)=>b.key.localeCompare(a.key)),
+        unknownCount:unknown.length,
+        onThisDay:today.sort((a,b)=>b.evidence.day.localeCompare(a.evidence.day)),
+        total:items.length
+      };
+    }
+    function memoryMonthLabel(key){
+      const m=/^(\d{4})-(\d{2})$/.exec(key||'');
+      if(!m||!memoryValidDay(key+'-01'))return 'Unknown month';
+      return new Date(Date.UTC(+m[1],+m[2]-1,1)).
+        toLocaleDateString(undefined,{month:'long',year:'numeric',timeZone:'UTC'});
+    }
+    return {MEMORY_LANE_SCHEMA,MEMORY_SOURCES,MEMORY_SOURCE_LABELS,
+      memoryValidDay,memoryCaptureDay,memoryLocalDriveDay,memoryEvidence,
+      memoryDedupe,memoryMatches,memoryBuildTimeline,memoryMonthLabel};
+  })();
+  /* GENERATED MEMORY LANE END */
   const humanBytes = n => n ? `${(n / 1024 / 1024).toFixed(1)} MB` : 'Unknown size';
   const SCAN_INTERVAL = 15 * 60 * 1000;
   const FULL_SCAN_INTERVAL = 24 * 60 * 60 * 1000;
@@ -526,14 +638,16 @@
     state.browseSaveTimer=null;
     try{localStorage.removeItem(BROWSE_STORAGE);}catch{}
   }
-  function browsingView(){return ['all','memes','photos','favorites','review','smart','smart-results'].includes(state.view);}
+  function browsingView(){return ['all','memes','photos','favorites','review','smart','smart-results','memory','memory-results'].includes(state.view);}
   function saveBrowsingPosition(){
     if(state.browseSaveTimer)clearTimeout(state.browseSaveTimer);
     state.browseSaveTimer=null;
     if(!state.connected||!state.rememberBrowsing||!state.driveIdentity||!browsingView())return;
     const position={
       schema:1,account:state.driveIdentity,sheetId:state.config.sheetId,savedAt:Date.now(),
-      view:state.view,smartCollectionId:state.smartCollectionId,folder:state.folder,search:state.search.slice(0,200),
+      view:state.view,smartCollectionId:state.smartCollectionId,
+      memoryYear:state.memoryYear,memorySource:state.memorySource,memorySelection:state.memorySelection,
+      folder:state.folder,search:state.search.slice(0,200),
       sort:state.sort,mediaType:state.mediaType,layout:state.layout,
       page:Math.max(1,Math.min(20,state.page)),
       scrollY:Math.max(0,Math.min(100000,Math.floor(window.scrollY||window.pageYOffset||0)))
@@ -550,11 +664,17 @@
     let saved;
     try{saved=JSON.parse(localStorage.getItem(BROWSE_STORAGE)||'null');}catch{return false;}
     if(!saved||saved.schema!==1||saved.account!==state.driveIdentity||
-       saved.sheetId!==state.config.sheetId||!['all','memes','photos','favorites','review','smart','smart-results'].includes(saved.view)||
+       saved.sheetId!==state.config.sheetId||!['all','memes','photos','favorites','review','smart','smart-results','memory','memory-results'].includes(saved.view)||
        !Number.isFinite(saved.savedAt)||saved.savedAt>Date.now()+60000||
        Date.now()-saved.savedAt>30*24*60*60*1000)return false;
     state.smartCollectionId=typeof saved.smartCollectionId==='string'&&allSmartCollections().some(x=>x.id===saved.smartCollectionId)?saved.smartCollectionId:'';
-    state.view=saved.view==='smart-results'&&!state.smartCollectionId?'smart':saved.view;
+    state.memoryYear=typeof saved.memoryYear==='string'&&/^(all|\d{4})$/.test(saved.memoryYear)?saved.memoryYear:'all';
+    state.memorySource=['all',...memoryEngine.MEMORY_SOURCES].includes(saved.memorySource)?saved.memorySource:'all';
+    const savedKey=saved.memorySelection?.key;
+    state.memorySelection={key:typeof savedKey==='string'&&/^(today|unknown|\d{4}-\d{2})$/.test(savedKey)?savedKey:'all',
+      source:['all',...memoryEngine.MEMORY_SOURCES].includes(saved.memorySelection?.source)?saved.memorySelection.source:'all'};
+    state.view=saved.view==='smart-results'&&!state.smartCollectionId?'smart':
+      saved.view==='memory-results'&&state.memorySelection.key==='all'?'memory':saved.view;
     state.folder=typeof saved.folder==='string'&&(saved.folder==='all'||state.folders.some(f=>f.path===saved.folder))?saved.folder:'all';
     state.search=typeof saved.search==='string'?saved.search.slice(0,200):'';
     state.sort=['name','date-desc','date-asc','review'].includes(saved.sort)?saved.sort:'name';
@@ -1012,6 +1132,79 @@
     alertUser('Imported '+additions.length+' collections; skipped '+(imported.length-additions.length)+' existing.','success');
   }
   /* GENERATED SMART CONTROLLER END */
+  /* GENERATED MEMORY CONTROLLER START */
+  function memoryCurrentSnapshot(){
+    return memoryEngine.memoryBuildTimeline(state.connected?state.images:[],{
+      year:state.memoryYear,source:state.memorySource,now:new Date()
+    });
+  }
+  function memoryOpenGroup(key){
+    if(!state.connected)return;
+    state.memorySelection={key,source:state.memorySource};
+    state.search='';state.folder='all';state.mediaType='all';state.page=1;
+    state.sort='date-desc';
+    $('searchInput').value='';$('mediaTypeSelect').value='all';
+    $('sortSelect').value='date-desc';
+    displayPage('memory-results',{reset:false});
+  }
+  function memoryMonthDetail(group){
+    const sources=[];
+    if(group.sources.exif)sources.push(format(group.sources.exif)+' camera');
+    if(group.sources.filename)sources.push(format(group.sources.filename)+' filename');
+    if(group.sources['drive-upload'])sources.push(format(group.sources['drive-upload'])+' Drive-added');
+    return sources.join(' · ');
+  }
+  function renderMemoryLane(){
+    const year=$('memoryYearSelect'),source=$('memorySourceSelect');
+    const stats=memoryCurrentSnapshot();
+    const years=stats.years;
+    year.innerHTML='<option value="all">All years</option>'+
+      years.map(y=>'<option value="'+escapeHTML(y)+'">'+escapeHTML(y)+'</option>').join('');
+    if(state.memoryYear!=='all'&&!years.includes(state.memoryYear))state.memoryYear='all';
+    year.value=state.memoryYear;source.value=state.memorySource;
+    const totals=stats.sourceCounts;
+    $('memoryOverview').textContent=state.connected?
+      format(stats.total)+' indexed media · '+
+      format(totals.exif)+' camera dates · '+
+      format(totals.filename)+' filename dates · '+
+      format(totals['drive-upload'])+' Drive-added dates · '+
+      format(totals.unknown)+' undated':
+      'Connect Drive to browse your private media timeline.';
+    const day=stats.onThisDay;
+    $('memoryTodayHeading').textContent='On This Day · '+new Date().toLocaleDateString(undefined,{
+      month:'long',day:'numeric'});
+    $('memoryTodayCount').textContent=day.length?
+      format(day.length)+' older media with a capture or filename date matching today':
+      'No verified capture or filename dates on this day in past years.';
+    $('memoryTodayButton').disabled=!state.connected||!day.length;
+    $('memoryTodayExamples').textContent=day.slice(0,5).map(x=>
+      x.evidence.day.slice(0,4)+' · '+x.item.name).join('  ·  ');
+    $('memoryMonthCards').innerHTML=stats.months.length?stats.months.map(g=>
+      '<article class="memory-month"><span class="memory-month-icon" aria-hidden="true">▧</span>'+
+      '<div><strong>'+escapeHTML(memoryEngine.memoryMonthLabel(g.key))+'</strong>'+
+      '<small>'+format(g.count)+' media · '+escapeHTML(memoryMonthDetail(g))+'</small>'+
+      '<p>'+escapeHTML(g.sample.map(x=>x.name).join(' · '))+'</p></div>'+
+      '<button type="button" class="btn outline" data-memory-key="'+escapeHTML(g.key)+
+      '">Browse month</button></article>').join(''):
+      '<p class="memory-empty">No media matches the selected year and date source.</p>';
+    const unknownVisible=state.memoryYear==='all'&&stats.unknownCount>0;
+    $('memoryUnknown').classList.toggle('hidden',!unknownVisible);
+    $('memoryUnknownCount').textContent=format(stats.unknownCount)+' files without a usable date';
+    $('memoryUnknownButton').disabled=!state.connected||!unknownVisible;
+    $('memoryMonthCards').querySelectorAll('[data-memory-key]').forEach(btn=>
+      btn.onclick=()=>memoryOpenGroup(btn.dataset.memoryKey));
+  }
+  function memorySourceLabel(item){
+    const e=memoryEngine.memoryEvidence(item);
+    return e.day?e.day+' · '+e.label:e.label;
+  }
+  function memoryTitle(){
+    const key=state.memorySelection.key;
+    if(key==='today')return 'On This Day';
+    if(key==='unknown')return 'Unknown dates';
+    return memoryEngine.memoryMonthLabel(key);
+  }
+  /* GENERATED MEMORY CONTROLLER END */
   function savedSearchStorageKey(){
     return state.driveIdentity&&state.config.sheetId?
       SAVED_SEARCHES_STORAGE+'-'+state.driveIdentity+'-'+state.config.sheetId:'';
@@ -1254,7 +1447,8 @@
         if (safeId(r[3])) byId.set(r[3], {
           url:r[4]||'',mime:r[5]||'',size:Number(r[6]||0),
           review:reviewStatuses[row]?.[0]||'',analysisMethod:analysisMethods[row]?.[0]||'',
-          filenameDate:r[9]||'',filenameDateEvidence:r[10]||''
+          filenameDate:r[9]||'',filenameDateEvidence:r[10]||'',
+          driveCreatedAt:r[7]||'',driveModifiedAt:r[8]||''
         });
       }
       const images = [];
@@ -1263,7 +1457,8 @@
         const id = r[10]; const source = byId.get(id);
         if (!safeId(id) || !source || !supportedMedia(source.mime) || found.has(id)) continue;
         found.add(id);
-        images.push(mediaContract.normalizeMediaRecord({id,collection:r[0]||'',folder:r[1]||'',name:r[2]||'Untitled image',description:r[4]||'',tags:r[5]||'',captureDate:r[7]||'',filenameDate:source.filenameDate,filenameDateEvidence:source.filenameDateEvidence,review:source.review||r[9]||'',analysisMethod:source.analysisMethod,confidence:r[11]||'',category:r[12]||'',mime:source.mime,size:source.size,url:linkToDrive({id}),demo:false}));
+        images.push(mediaContract.normalizeMediaRecord({id,collection:r[0]||'',folder:r[1]||'',name:r[2]||'Untitled image',description:r[4]||'',tags:r[5]||'',captureDate:r[7]||'',filenameDate:source.filenameDate,filenameDateEvidence:source.filenameDateEvidence,
+        driveCreatedAt:source.driveCreatedAt,driveModifiedAt:source.driveModifiedAt,review:source.review||r[9]||'',analysisMethod:source.analysisMethod,confidence:r[11]||'',category:r[12]||'',mime:source.mime,size:source.size,url:linkToDrive({id}),demo:false}));
       }
       if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
       const baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
@@ -1292,6 +1487,7 @@
       const reviewLoadWarning=loadReviewNotes();
       loadSavedSearches();
       loadSmartCollections();
+      state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};
       if(restoreSyncCache())mergeLiveFolders();
       buildFolderIndex(); updateStatus();
       const resumed=restoreBrowsingPosition();
@@ -2056,7 +2252,7 @@
     saveBrowsingPosition();
     stopScans();stopVideo();clearBrowsingPosition();clearLocalSyncCache();state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
-    clearThumbnailCache(); state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.reviewDirty=false;state.reviewFilter='pending';state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -2077,7 +2273,7 @@
   }
   function displayPage(view,{reset=true,scroll=true}={}) {
     if(state.connected&&browsingView())saveBrowsingPosition();
-    if(view==='home'||view==='health'||view==='smart'){
+    if(view==='home'||view==='health'||view==='smart'||view==='memory'){
       state.autoLoadObserver?.disconnect();
       state.autoLoadObserver=null;
       state.galleryRevision++;
@@ -2089,15 +2285,16 @@
       if($('folderSearch'))$('folderSearch').value='';
     }
     $('homeView').classList.toggle('hidden',view!=='home');
-    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart');
+    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory');
+    $('memoryView').classList.toggle('hidden',view!=='memory');
     $('smartView').classList.toggle('hidden',view!=='smart');
     $('healthView').classList.toggle('hidden',view!=='health');
-    document.querySelectorAll('[data-view]').forEach(btn=>{const active=btn.dataset.view===(view==='smart-results'?'smart':view); btn.classList.toggle('active',active);if(active)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');});
+    document.querySelectorAll('[data-view]').forEach(btn=>{const active=btn.dataset.view===(view==='smart-results'?'smart':view==='memory-results'?'memory':view); btn.classList.toggle('active',active);if(active)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');});
     render();
     if(scroll)window.scrollTo({top:0,behavior:'smooth'});
     updateScrollControls();
   }
-  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else renderGallery();}
+  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
     $('statImages').textContent=count(state.images.length);
@@ -2139,6 +2336,7 @@
         if(state.reviewFilter==='reviewed'&&stage!=='reviewed')continue;
       }
       if(state.view==='smart-results'&&!smartFor(image).matched)continue;
+      if(state.view==='memory-results'&&!memoryEngine.memoryMatches(image,state.memorySelection,new Date()))continue;
       if(state.folder!=='all'&&image.folder!==state.folder)continue;
       if(state.mediaType!=='all'&&mediaKind(image)!==state.mediaType)continue;
       const rank=searchEngine.searchRank(image,parsed,{
@@ -2150,9 +2348,9 @@
     scored.sort((a,b)=>{
       if(state.sort==='relevance'&&state.search.trim())return b.rank-a.rank||
         a.image.name.localeCompare(b.image.name)||a.image.id.localeCompare(b.image.id);
-      if(state.sort==='date-desc')return String(b.image.captureDate||'').localeCompare(String(a.image.captureDate||''))||
+      if(state.sort==='date-desc')return String(state.view==='memory-results'?memoryEngine.memoryEvidence(b.image).day:b.image.captureDate||'').localeCompare(String(state.view==='memory-results'?memoryEngine.memoryEvidence(a.image).day:a.image.captureDate||''))||
         a.image.name.localeCompare(b.image.name);
-      if(state.sort==='date-asc')return String(a.image.captureDate||'9999').localeCompare(String(b.image.captureDate||'9999'))||
+      if(state.sort==='date-asc')return String(state.view==='memory-results'?memoryEngine.memoryEvidence(a.image).day||'9999':a.image.captureDate||'9999').localeCompare(String(state.view==='memory-results'?memoryEngine.memoryEvidence(b.image).day||'9999':b.image.captureDate||'9999'))||
         a.image.name.localeCompare(b.image.name);
       if(state.sort==='review')return Number(!!b.image.description)-Number(!!a.image.description)||
         a.image.name.localeCompare(b.image.name);
@@ -2160,7 +2358,7 @@
     });
     return scored.map(x=>x.image);
   }
-  function galleryTitle() {if(state.view==='smart-results')return currentSmartCollection()?.name||'Smart Collection';return ({all:'All media',memes:'Meme gallery',photos:'Photo archive',favorites:'Your favorites',review:'Needs review'})[state.view]||'Gallery';}
+  function galleryTitle() {if(state.view==='memory-results')return memoryTitle();if(state.view==='smart-results')return currentSmartCollection()?.name||'Smart Collection';return ({all:'All media',memes:'Meme gallery',photos:'Photo archive',favorites:'Your favorites',review:'Needs review'})[state.view]||'Gallery';}
   function bindGalleryTileEvents(previews,hearts){
     for(const btn of previews)btn.addEventListener('click',()=>openImage(btn.dataset.openImage,btn));
     for(const btn of hearts)btn.addEventListener('click',e=>{
@@ -2227,9 +2425,11 @@
     state.autoLoadPending=false;
     const title=galleryTitle();$('galleryTitle').textContent=title;
     $('backSmartCollections').classList.toggle('hidden',state.view!=='smart-results');
+    $('backMemoryLane').classList.toggle('hidden',state.view!=='memory-results');
     renderReviewToolbar();
     $('galleryEyebrow').textContent=state.connected?'YOUR PRIVATE LIBRARY':'DESIGN PREVIEW';
     $('galleryDescription').textContent=state.connected ?
+      state.view==='memory-results'?'Timeline grouped by evidence: EXIF, filename-derived, or Drive-added (not necessarily captured). No files moved.':
       state.view==='smart-results'?'Virtual collection · '+smartEngine.smartExplain(currentSmartCollection())+'. Original Drive files stay put.':
       state.view==='review'?'Only unresolved visual reviews appear here. Missing EXIF dates and duplicate decisions remain separate in your Sheet.':
       'Search the current Drive library. Previews load as you scroll.' :
@@ -2296,7 +2496,8 @@
     const badgeClass=(status==='reviewed'||status==='source-reviewed')&&!item.demo?'reviewed':
       status==='deferred'?'deferred':'';
     const why=state.view==='smart-results'?smartFor(item).reasons.join(' · '):'';
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    const when=state.view==='memory-results'?memorySourceLabel(item):'';
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   function observeThumbs() {
     state.observer?.disconnect();
@@ -2447,6 +2648,7 @@
     $('modalTitle').textContent=item.name;
     $('modalDescription').textContent=effectiveDescription(item)||'This image has no verified description yet.';
     const fields=[['Tags',effectiveTags(item)||'Not indexed'],['Capture date',item.captureDate||'Unknown or unverified'],
+       ['Memory Lane date',memorySourceLabel(item)],
       ['Local review',reviewStage(item).replace('-',' ')],
       ['Source review',item.review||'Not reviewed'],['Source confidence',item.confidence||'Not provided']];
     $('modalMeta').innerHTML=fields.map(([key,val])=>`<dt>${escapeHTML(key)}</dt><dd>${escapeHTML(val)}</dd>`).join('');
@@ -2774,6 +2976,11 @@
     $('installButton').onclick=installApp;$('installClose').onclick=()=>$('installDialog').close();$('installOkay').onclick=()=>$('installDialog').close();
     $('exploreButton').onclick=()=>displayPage('all');$('seeAllButton').onclick=()=>displayPage('all');
     $('backSmartCollections').onclick=()=>displayPage('smart');
+    $('backMemoryLane').onclick=()=>displayPage('memory',{reset:false});
+    $('memoryYearSelect').onchange=e=>{state.memoryYear=e.target.value;renderMemoryLane();scheduleBrowseSave();};
+    $('memorySourceSelect').onchange=e=>{state.memorySource=e.target.value;renderMemoryLane();scheduleBrowseSave();};
+    $('memoryTodayButton').onclick=()=>memoryOpenGroup('today');
+    $('memoryUnknownButton').onclick=()=>memoryOpenGroup('unknown');
     $('smartAddButton').onclick=()=>openSmartEditor();
     $('smartAddRuleButton').onclick=()=>{
       if(!state.smartDraft||state.smartDraft.rules.length>=smartEngine.SMART_RULE_LIMIT)return;
