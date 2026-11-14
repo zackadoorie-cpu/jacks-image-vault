@@ -29,16 +29,17 @@ async function server(){
  await new Promise(done=>s.listen(0,'127.0.0.1',done));
  return {server:s,url:'http://127.0.0.1:'+s.address().port+'/'};
 }
-async function fixturePage(browser,url,{mobile=false,narrow=false}={}){
+async function fixturePage(browser,url,{mobile=false,narrow=false,native=false}={}){
  const ctx=await browser.newContext({viewport:mobile?{width:narrow?320:375,height:812}:{width:1366,height:860},reducedMotion:mobile?'reduce':'no-preference'});
  let fail=false;const requests=[];let activeAccount='fixture_permission_123456789';
- await ctx.addInitScript(()=>{
+ await ctx.addInitScript(native=>{
+   if(native)window.__JACKS_VAULT_DESKTOP_HOST=true;
    localStorage.setItem('jack-vault-settings-v2',JSON.stringify({clientId:'123456789-fixture.apps.googleusercontent.com',sheetId:'fixture_sheet_123456789'}));
    window.google={accounts:{oauth2:{
      initTokenClient(opts){return {requestAccessToken(options){(window.__authPrompts??=[]).push(options?.prompt);opts.callback({access_token:'fake-e2e-token',expires_in:3600});}};},
      revoke(_,fn){fn();}
    }}};
- });
+ },native);
  await ctx.route('https://accounts.google.com/**',r=>r.abort());
  await ctx.route('https://drive.google.com/**',r=>r.abort());
  await ctx.route('https://sheets.googleapis.com/**',r=>{requests.push(r.request().method());return r.fulfill(fail?{status:503,body:'{"error":{"message":"fixture failure"}}'}:reply(batch));});
@@ -190,6 +191,28 @@ async function main(){
     assert.equal(await p.evaluate(()=>localStorage.getItem('jack-vault-autoconnect-binding-v1')),null,
       'Desktop access must not accidentally authorize browser auto reconnect');
   }finally{await desktop.ctx.close()}
+  // Embedded WebView2 may not invoke the Google GIS widget. Test first-run
+  // Sheet-ID setup and the redirect to the external-browser PKCE panel.
+  const nativeHost=await fixturePage(browser,url,{native:true});
+  try{
+    const p=nativeHost.page;
+    await p.route('**/__vault_desktop_auth/status',route=>route.fulfill(reply({
+      available:true,storesRefreshTokens:false,
+      scopes:['https://www.googleapis.com/auth/drive.readonly','https://www.googleapis.com/auth/spreadsheets.readonly']
+    })));
+    await p.locator('#connectButton').click();
+    await p.locator('#desktopAuthSection').waitFor({state:'visible'});
+    assert.equal(await p.locator('html').evaluate(el=>el.classList.contains('vault-desktop-host')),true);
+    assert.equal(await p.locator('#clientIdInput').isVisible(),false);
+    assert.equal(await p.locator('#desktopSheetIdInput').isVisible(),true);
+    await p.locator('#desktopSheetIdInput').fill('fixture_native_sheet_123456789');
+    await p.locator('#desktopSaveSheetButton').click();
+    assert.match(await p.locator('#desktopAuthMessage').innerText(),/Spreadsheet ID saved/);
+    assert.equal(await p.evaluate(()=>JSON.parse(localStorage.getItem('jack-vault-settings-v2')).sheetId),'fixture_native_sheet_123456789');
+    assert.equal(await p.evaluate(()=>window.__authPrompts?.length||0),0,
+      'Embedded WebView2 must never launch the browser GIS OAuth popup');
+    await p.locator('#cancelSettings').click();
+  }finally{await nativeHost.ctx.close();}
   const connected=await fixturePage(browser,url);
   try{
     const p=connected.page;
