@@ -25,7 +25,7 @@ test('release workflow regenerates PWA icons and embeds a Windows Explorer icon'
   const rc=read('scripts/vault-icon.rc');
   for(const source of [release,check]){
     assert.match(source,/scripts\/render-brand-icons\.py --ico build\/Jacks_Image_Vault\.ico/);
-    assert.match(source,/x86_64-w64-mingw32-windres -i scripts\/vault-icon\.rc -o vault-icon\.syso/);
+    assert.match(source,/x86_64-w64-mingw32-windres --preprocessor=cpp -i scripts\/vault-icon\.rc -o vault-icon\.syso/);
   }
   assert.match(rc,/1 ICON "build\/Jacks_Image_Vault\.ico"/);
   assert.ok(release.indexOf('Render branded app icons')<release.indexOf('Build unsigned Windows EXE'));
