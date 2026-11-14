@@ -38,6 +38,10 @@ if (-not (Test-Path -LiteralPath $hostExe)) { throw 'WebView2 host EXE missing f
 Copy-Item -LiteralPath $hostExe -Destination (Join-Path $OutputDirectory 'Jacks_Image_Vault_Desktop.exe') -Force
 $hostPath = Join-Path $OutputDirectory 'Jacks_Image_Vault_Desktop.exe'
 
+# Check the native host's navigation policy before starting a backend.
+$security = Start-Process -FilePath $hostPath -ArgumentList '--security-test' -Wait -PassThru
+if ($security.ExitCode -ne 0) { throw "Native WebView2 navigation allowlist failed: $($security.ExitCode)" }
+
 # Run the new desktop executable with fake data and no GUI. It starts the real
 # matching Go process in server-only mode, verifies health, then kills only its
 # own CI child process.
