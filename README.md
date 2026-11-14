@@ -2,6 +2,40 @@
 
 **Status:** Working Windows EXE built, Go updater tests passed, local ZIP patch installed and rolled back in an HTTP smoke test. **Live Windows/Google thumbnail verification has not been performed** in the build environment.
 
+## Smart Collections (v2.1 development)
+
+The **Smart Collections** navigation creates virtual albums dynamically from
+the existing read-only Drive metadata. Suggested collections cover cats/animals,
+aircraft/aviation, travel/places, reaction memes and GIFs. Membership uses
+descriptions, tags, filename and category text already loaded from the Sheet.
+It is deterministic local rule matching, **not a claim of AI recognition**.
+
+Create up to 40 named custom collections with up to eight conditions each.
+Choose **Any rule (OR)** or **Every rule (AND)**. Rule fields: text, filename,
+description, tags, folder, category, known date on/after or on/before, file
+type, and local favorite status. Results show a **Why here** explanation for
+each matching media tile, and a collection can match zero files. Moving or
+renaming a file does not create a duplicate, since matching always uses the
+current Drive-ID-backed gallery. No file is moved, duplicated, renamed, or
+deleted by collection management.
+
+Custom rule definitions are kept in local browser storage **scoped to the
+signed-in Drive account and Sheet**. Export and import a JSON backup using the
+Smart Collections view. Imports validate schema, field types, size and
+duplicate IDs/names, merge new rules only and preserve existing rules on
+conflicts. Corrupt existing local storage is preserved rather than overwritten.
+The backup contains rules and names, **not photos, tokens, or source file IDs**.
+It remains your responsibility to back up local data before clearing browser
+storage or changing devices.
+
+New pure `src/smart-collections.js` and browser controller
+`src/smart-controller.js` are embedded via their matching scripts in
+`scripts/build-smart-collections.cjs` and
+`scripts/build-smart-controller.cjs`. Existing updater builds still ship
+only the allowed `web/app.js` browser script, not separate runtime modules.
+This feature is **not yet in the published v2.0.11 Windows app**; it requires
+a tested future v2.1 release.
+
 ## Search 2.0 (v2.1 development)
 
 Search operates **entirely on the private media metadata already loaded in the
