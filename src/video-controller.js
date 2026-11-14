@@ -12,6 +12,31 @@ function videoUpdateEvidence(item){
   $('videoEvidenceStatus').textContent=item&&mediaKind(item)==='video'?videoEvidenceMessage(item):'';
   $('videoEvidenceStatus').classList.toggle('hidden',!item||mediaKind(item)!=='video');
 }
+function videoTitleInfo(item){
+  const filename=String(item?.name||'Untitled video');
+  const stem=filename.replace(/\.[^.]+$/,'').trim();
+  const opaque=/^(?:\d{8,}(?:[\s_-]\d+)*|(?:vid|img|dsc|rdt|mov|pxl)[\s_.-]?\d{4,}.*)$/i.test(stem);
+  if(!opaque){
+    const clean=stem.replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim();
+    return {title:clean?clean.replace(/^./,c=>c.toUpperCase()):'Untitled video',
+      source:'Original filename',suggested:false};
+  }
+  // This is only an on-screen title. It NEVER changes a Drive filename.
+  // Existing Sheet or user-local visual notes are the sole content source.
+  const description=String(effectiveDescription(item)||'').trim();
+  if(!description)return {title:filename,source:'Original filename · no visual summary',suggested:false};
+  const tags=String(effectiveTags(item)||'').split(',').map(x=>x.trim())
+    .filter(x=>x.length>=3&&x.length<=48&&!/^(?:video|preview inspected|frame sampled|full video review needed|sampled frames|poster thumbnail only|large video|meme)$/i.test(x))
+    .map(x=>x.replace(/\s+/g,' ').replace(/[\u0000-\u001f<>]/g,'').trim())
+    .filter(Boolean);
+  const titleCase=text=>text.replace(/\b[a-z]/g,c=>c.toUpperCase());
+  const title=tags.slice(0,2).map(titleCase).join(' · ').slice(0,76);
+  if(title)return {title,source:'Suggested from reviewed tags · Drive name unchanged',suggested:true};
+  const excerpt=description.replace(/^(?:video(?:\s+(?:frame|preview|footage))?\s+(?:of|shows|showing)|outdoor video (?:of|showing)|vertical video (?:of|showing))\s+/i,'')
+    .split(/[.!?;]/)[0].trim().split(/\s+/).slice(0,9).join(' ').slice(0,76);
+  return excerpt?{title:titleCase(excerpt),source:'Suggested from description · Drive name unchanged',suggested:true}:
+    {title:filename,source:'Original filename',suggested:false};
+}
 function videoCardDescription(item){
   const description=String(effectiveDescription(item)||'').trim();
   if(!description){
@@ -37,14 +62,22 @@ function videoRenderCatalog(){
     listing.page+' of '+listing.pageCount:
     'Connect Drive to inspect videos already indexed in your private Google Sheet.';
   $('videoCatalogFilter').value=state.videoLibraryFilter;
+  $('videoTitleMode').value=state.videoTitleMode;
   $('videoCatalogPrev').disabled=listing.page<=1;
   $('videoCatalogNext').disabled=listing.page>=listing.pageCount;
   $('videoCatalogList').innerHTML=listing.entries.length?listing.entries.map(item=>{
     const ev=videoLibrary.videoEvidence(item);
+    const titleInfo=videoTitleInfo(item);
+    const displayOriginal=state.videoTitleMode==='filename'||!titleInfo.suggested;
+    const titleMarkup=displayOriginal?
+      '<strong class="video-display-title">'+escapeHTML(state.videoTitleMode==='filename'?item.name:titleInfo.title)+'</strong>':
+      '<strong class="video-display-title">'+escapeHTML(titleInfo.title)+'</strong>'+
+      '<p class="video-original-name">Drive filename: '+escapeHTML(item.name)+'</p>'+
+      '<small class="video-title-provenance">'+escapeHTML(titleInfo.source)+'</small>';
     const preview=videoLibrary.videoEligibility(item,{operation:'storyboard'});
     const reason=preview.allowed?'Storyboard available on request (12 MB max)':preview.reason;
     return '<article class="video-library-card"><div class="video-library-glyph" aria-hidden="true">▶</div>'+
-      '<div class="video-library-card-body"><strong>'+escapeHTML(item.name)+'</strong><p>'+
+      '<div class="video-library-card-body">'+titleMarkup+'<p>'+
       escapeHTML(item.folder||'Unknown folder')+'</p><small>'+escapeHTML(videoLibrary.videoFormat(item))+
       ' · '+escapeHTML(humanBytes(item.size))+'</small>'+videoCardDescription(item)+
       '<p class="video-library-evidence">'+escapeHTML(ev.label)+' · '+escapeHTML(ev.origin)+'</p>'+

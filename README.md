@@ -1,5 +1,27 @@
 # Jack's Image Vault — Windows image and media library
 
+## Compact sidebar and readable video titles (implementation PR)
+
+- The sidebar uses native, keyboard-operable Library, Explore Tools and Review
+  & Health sections. Command Center remains directly accessible, all prior
+  `data-view` destinations and keyboard shortcuts remain. Expanded group
+  preferences stay on the local device and have no account or file identifiers.
+  Keyboard shortcuts reopen the matching collapsed group.
+- In Video Library, **Readable titles** is the default. For timestamp-like
+  filenames, it constructs a display-only title from existing visual review
+  tags or, where tags are insufficient, an excerpt from the existing visual
+  description. It does not download any video or generate new visual evidence.
+- The original Drive filename is shown beneath a suggested title, with an
+  explicit **Drive name unchanged** label. Select **Original Drive filenames**
+  to switch back to the exact file names at any time. Already descriptive
+  filenames continue to be shown naturally.
+- This feature **does not rename Drive files** or edit the Google Sheet. Actual
+  filename changes require a separate explicit approval and verified rename
+  journal, consistent with Phase 8D. This implementation is independent of
+  Phase 8B Sheet write-back.
+- Run `node --test tests/video-titles.test.cjs`, full JS/Go suites, browser E2E,
+  mobile and Windows smoke, and source-bundle parity before releasing.
+
 ## Phase 8A: Smart Review Inbox (released in v2.1.7)
 
 The new **Review Inbox** is an optional read-only screen that groups live new

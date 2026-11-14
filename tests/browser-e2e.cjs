@@ -5,11 +5,11 @@ const {chromium}=require('playwright');
 const root=path.resolve(__dirname,'../web');
 const id='fixture_image_123456789',vid='fixture_video_123456789',folder='fixture_folder_123456789';
 const fake={id,name:'IMG_123456789.jpg',mimeType:'image/jpeg',size:'521',parents:[folder]};
-const fakeVideo={id:vid,name:'Fabricated clip.mp4',mimeType:'video/mp4',size:'5000',parents:[folder]};
+const fakeVideo={id:vid,name:'20260808_141341.mp4',mimeType:'video/mp4',size:'5000',parents:[folder]};
 const batch={valueRanges:[
 {values:[['Collection','Folder','Current filename','Open file','Visual description','Searchable tags','OCR text','Photo capture date','Duplicate group','Review status','File ID','Analysis confidence','Search category'],
   ['Memes','Memes/Cats',fake.name,'Open in Drive','Fabricated orange cat','orange cat, reaction meme','','','','Visually verified',id,'Reviewed','Cat meme'],
-  ['Memes','Memes/Cats',fakeVideo.name,'Open in Drive','Fabricated two video frames','video','','','','Video preview reviewed',vid,'Preview','Other meme']]},
+  ['Memes','Memes/Cats',fakeVideo.name,'Open in Drive','Fabricated two video frames','airfield, vintage aircraft, grass runway','','','','Video preview reviewed',vid,'Preview','Other meme']]},
 {values:[['Collection','Folder path','Original filename','Drive file ID','Drive URL','MIME type','Size bytes','Drive created UTC','Drive modified UTC','Filename date','Date evidence','Folder category'],
   ['Memes','Memes/Cats',fake.name,id,'','image/jpeg','521','','','','None','Folder name only'],
   ['Memes','Memes/Cats',fakeVideo.name,vid,'','video/mp4','5000','','','','None','Folder name only']]},
@@ -72,6 +72,12 @@ async function main(){
     await p.keyboard.press('Escape');
     assert.equal(await p.locator('#shortcutsDialog').evaluate(e=>e.open),false);
     assert.equal(await p.evaluate(()=>document.activeElement.id),'shortcutHelpButton');
+    assert.equal(await p.locator('#navigation details[data-nav-group]').count(),3);
+    await p.locator('#navigation details[data-nav-group="library"] summary').click();
+    assert.equal(await p.locator('#navigation details[data-nav-group="library"]').getAttribute('open'),null);
+    await p.keyboard.press('Alt+3');
+    assert.equal(await p.locator('#navigation details[data-nav-group="library"]').getAttribute('open')!==null,true);
+    await p.keyboard.press('Alt+1');
     await p.keyboard.press('Alt+3');assert.equal(await p.locator('#videoLibraryView').isVisible(),true);
     await p.keyboard.press('Alt+1');assert.equal(await p.locator('#homeView').isVisible(),true);
   }finally{await preview.ctx.close();}
@@ -82,6 +88,8 @@ async function main(){
     await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
     assert.equal((await p.locator('#commandLive').innerText()).trim(),'—');
     assert.match(await p.locator('#commandLiveNote').innerText(),/Not verified/);
+    await p.locator('#navigation details[data-nav-group="manage"] summary').click();
+    assert.equal(await p.locator('#navigation details[data-nav-group="manage"]').getAttribute('open')!==null,true);
     await p.locator('[data-view="review-inbox"]').click();
     assert.equal(await p.locator('#reviewInboxView').isVisible(),true);
     await p.waitForFunction(()=>document.querySelector('#reviewInboxNamingCount')?.textContent==='1');
@@ -100,6 +108,12 @@ async function main(){
     assert.match(await p.locator('#videoCatalogSummary').innerText(),/1 with descriptions/);
     assert.match(await p.locator('#videoCatalogList .video-library-description-text').innerText(),/Fabricated two video frames/);
     assert.match(await p.locator('#videoCatalogList .video-library-description-label').innerText(),/Google Sheet/);
+    assert.equal((await p.locator('#videoCatalogList .video-display-title').innerText()).trim(),'Airfield · Vintage Aircraft');
+    assert.match(await p.locator('#videoCatalogList .video-original-name').innerText(),/20260808_141341.mp4/);
+    await p.locator('#videoTitleMode').selectOption('filename');
+    assert.equal((await p.locator('#videoCatalogList .video-display-title').innerText()).trim(),'20260808_141341.mp4');
+    await p.locator('#videoTitleMode').selectOption('title');
+    assert.equal((await p.locator('#videoCatalogList .video-display-title').innerText()).trim(),'Airfield · Vintage Aircraft');
     await p.keyboard.press('Alt+1');connected.failSheet();
     await p.locator('#commandSync').click();
     await p.waitForFunction(()=>document.querySelector('#commandError')?.textContent.includes('Spreadsheet refresh failed'),null,{timeout:15000});
