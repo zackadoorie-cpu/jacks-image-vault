@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -144,5 +146,75 @@ func TestHTTPGuardsAndAppFiles(t *testing.T) {
 	body, _ := io.ReadAll(rec.Body)
 	if rec.Code != 200 || !strings.Contains(string(body), "test-file-app.js2.0.1") {
 		t.Fatalf("patch assets not served %d", rec.Code)
+	}
+}
+
+type testRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f testRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+func testHTTPBody(code int, body []byte) *http.Response {
+	return &http.Response{StatusCode: code, Body: io.NopCloser(bytes.NewReader(body)),
+		Header: make(http.Header)}
+}
+func TestGitHubReleaseDownloadFallsBackAfterHTTP403(t *testing.T) {
+	v, err := newVault(t.TempDir())
+	if err != nil { t.Fatal(err) }
+	const repo = "zackadoorie-cpu/jacks-image-vault"
+	const asset = "https://github.com/" + repo + "/releases/download/v2.0.2/jacks-image-vault-patch.zip"
+	zipBytes := testPatch(t, "2.0.2", false, false)
+	payload := fmt.Sprintf(`{"tag_name":"v2.0.2","assets":[{"id":123,"name":"jacks-image-vault-patch.zip","browser_download_url":%q,"size":%d,"digest":"sha256:%s"}]}`,
+		asset, len(zipBytes), sha(zipBytes))
+	calls := []string{}
+	v.client = &http.Client{Transport: testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		calls = append(calls, req.URL.String())
+		switch req.URL.String() {
+		case "https://api.github.com/repos/" + repo + "/releases/latest":
+			return testHTTPBody(200, []byte(payload)), nil
+		case asset:
+			return testHTTPBody(403, []byte("blocked")), nil
+		case "https://api.github.com/repos/" + repo + "/releases/assets/123":
+			if req.Header.Get("Accept") != "application/octet-stream" {
+				t.Errorf("asset API Accept header missing")
+			}
+			return testHTTPBody(200, zipBytes), nil
+		default:
+			t.Errorf("unexpected network destination: %s", req.URL)
+			return testHTTPBody(404, nil), nil
+		}
+	})}
+	got, err := v.installGithub(repo)
+	if err != nil || got != "2.0.2" || v.currentVersion != "2.0.2" {
+		t.Fatalf("fallback failed: version %q, err %v", got, err)
+	}
+	if len(calls) != 3 { t.Fatalf("expected latest, direct, API; got %v", calls) }
+}
+
+func TestGitHubDownloadFailureGivesLocalZipRecovery(t *testing.T) {
+	v, err := newVault(t.TempDir())
+	if err != nil { t.Fatal(err) }
+	v.client = &http.Client{Transport: testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		return testHTTPBody(403, []byte("blocked")), nil
+	})}
+	_, err = v.downloadReleaseAsset("example/vault",
+		"https://github.com/example/vault/releases/download/v2.0.2/jacks-image-vault-patch.zip", 123)
+	if err == nil || !strings.Contains(err.Error(), "release URL: HTTP 403") ||
+		!strings.Contains(err.Error(), "GitHub asset API: HTTP 403") ||
+		!strings.Contains(err.Error(), "Install a local patch") {
+		t.Fatalf("missing safe recovery instructions: %v", err)
+	}
+}
+
+func TestGitHubAssetMetadataCannotBeInstalledAsZip(t *testing.T) {
+	v, err := newVault(t.TempDir())
+	if err != nil { t.Fatal(err) }
+	v.client = &http.Client{Transport: testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		return testHTTPBody(200, []byte(`{"id":123,"content_type":"application/zip"}`)), nil
+	})}
+	_, err = v.downloadReleaseAsset("example/vault",
+		"https://github.com/example/vault/releases/download/v2.0.2/jacks-image-vault-patch.zip", 123)
+	if err == nil || !strings.Contains(err.Error(), "did not return a ZIP") {
+		t.Fatalf("non-ZIP response accepted: %v", err)
 	}
 }
