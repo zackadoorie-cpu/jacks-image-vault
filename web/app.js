@@ -4351,7 +4351,48 @@
     state.activeImage=null;
     if(state.returnFocus?.isConnected)state.returnFocus.focus();
   }
-  function installApp() {if(state.installPrompt){const event=state.installPrompt;state.installPrompt=null;event.prompt();event.userChoice?.catch(()=>{});}else $('installDialog').showModal();}
+  async function installApp(){
+    const dialog=$('installDialog');
+    if(!dialog.open)dialog.showModal();
+    $('winInstallSection').hidden=true;
+    $('winInstallButton').disabled=true;
+    try{
+      const response=await fetch('/__vault_windows/status',{cache:'no-store'});
+      if(!response.ok)throw new Error('Not a native Windows launcher');
+      const status=await response.json();
+      if(!status.available||!dialog.open)return;
+      $('winInstallSection').hidden=false;
+      $('winInstallButton').disabled=false;
+      $('winInstallStatus').textContent=status.installedHere?
+        'You are running a versioned Windows launcher. Set up again to repair or refresh its shortcuts.':
+        'Windows will ask you to confirm. A versioned app copy and shortcuts will be created only if you choose Yes.';
+    }catch{
+      // Web previews and older EXEs have no native shortcut API.
+      $('winInstallSection').hidden=true;
+    }
+  }
+  function installBrowserApp(){
+    if(!state.installPrompt){
+      $('installBrowserStatus').textContent='Use your Edge or Chrome menu to install. The local Windows launcher must remain running.';
+      return;
+    }
+    const prompt=state.installPrompt;state.installPrompt=null;
+    prompt.prompt();
+    prompt.userChoice?.catch(()=>{});
+    if($('installDialog').open)$('installDialog').close();
+  }
+  async function installWindowsShortcuts(){
+    const button=$('winInstallButton'),status=$('winInstallStatus');
+    button.disabled=true;status.textContent='Waiting for your Windows confirmation…';
+    try{
+      if(!state.updater?.nonce && !await getUpdateStatus())
+        throw new Error('This requires the current native Windows EXE, not a UI-only patch.');
+      const result=await updateRequest('/__vault_windows/install',{body:'{}'});
+      status.textContent=result.message||'Windows shortcuts installed.';
+    }catch(error){
+      status.textContent=error.message||'Windows setup failed.';
+    }finally{button.disabled=false;}
+  }
   function showUpdateMessage(message,error=false){const el=$('updateStatusMessage');el.textContent=message;el.classList.toggle('error',error);}
   function updateRepoValue(){return $('updateRepo').value.trim();}
   function validRepo(repo){return /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo)&&!repo.includes('..');}
@@ -4551,7 +4592,11 @@
     $('sheetIdInput').oninput=()=>$('sheetIdInput').setCustomValidity('');
     $('settingsForm').onsubmit=saveSettings;
     $('connectButton').onclick=()=>connect();$('heroConnectButton').onclick=()=>connect();$('disconnectButton').onclick=disconnect;
-    $('installButton').onclick=installApp;$('installClose').onclick=()=>$('installDialog').close();$('installOkay').onclick=()=>$('installDialog').close();
+    $('installButton').onclick=installApp;
+    $('winInstallButton').onclick=installWindowsShortcuts;
+    $('installBrowserButton').onclick=installBrowserApp;
+    $('installClose').onclick=()=>$('installDialog').close();
+    $('installOkay').onclick=()=>$('installDialog').close();
     $('exploreButton').onclick=()=>displayPage('all');$('seeAllButton').onclick=()=>displayPage('all');
     $('homeActionReview').onclick=()=>displayPage('review-inbox');
     $('homeActionVideos').onclick=()=>displayPage('video-library');
