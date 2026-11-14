@@ -64,7 +64,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq binutils-mingw-w64-x86-64
-          x86_64-w64-mingw32-windres -i scripts/vault-icon.rc -o vault-icon.syso -O coff
+          x86_64-w64-mingw32-windres --preprocessor=cpp -i scripts/vault-icon.rc -o vault-icon.syso -O coff
           test -s vault-icon.syso
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/Jacks_Image_Vault.exe .
           test -s /tmp/Jacks_Image_Vault.exe
