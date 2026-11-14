@@ -10,7 +10,7 @@ function segment(text,a,b){
   return {start:i,end:j+b.length,inside:text.slice(i+a.length,j).trim()};
 }
 const sourceRegion=segment(source,'/* review-inbox:portable:start */','/* review-inbox:portable:end */');
-const start='  GENERATED REVIEW INBOX START',end='  GENERATED REVIEW INBOX END';
+const start='  /* GENERATED REVIEW INBOX START */',end='  /* GENERATED REVIEW INBOX END */';
 const embedded=segment(app,start,end);
 const content=[start,'  const reviewInboxEngine=(()=>{', ...sourceRegion.inside.split('\n').map(x=>'    '+x),
 '    return {REVIEW_INBOX_SCHEMA,REVIEW_INBOX_MAX_SCAN,REVIEW_INBOX_PAGE_SIZE,REVIEW_INBOX_FILTERS,reviewInboxId,reviewInboxOpaqueName,reviewInboxCleanSegment,reviewInboxSafeFilename,reviewInboxSuggest,reviewInboxEntries,reviewInboxPage,reviewInboxFilenamePreview,reviewInboxConflict};',
