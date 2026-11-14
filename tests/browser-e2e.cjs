@@ -29,8 +29,8 @@ async function server(){
  await new Promise(done=>s.listen(0,'127.0.0.1',done));
  return {server:s,url:'http://127.0.0.1:'+s.address().port+'/'};
 }
-async function fixturePage(browser,url,{mobile=false}={}){
- const ctx=await browser.newContext({viewport:mobile?{width:375,height:812}:{width:1366,height:860},reducedMotion:mobile?'reduce':'no-preference'});
+async function fixturePage(browser,url,{mobile=false,narrow=false}={}){
+ const ctx=await browser.newContext({viewport:mobile?{width:narrow?320:375,height:812}:{width:1366,height:860},reducedMotion:mobile?'reduce':'no-preference'});
  let fail=false;const requests=[];let activeAccount='fixture_permission_123456789';
  await ctx.addInitScript(()=>{
    localStorage.setItem('jack-vault-settings-v2',JSON.stringify({clientId:'123456789-fixture.apps.googleusercontent.com',sheetId:'fixture_sheet_123456789'}));
@@ -131,6 +131,22 @@ async function main(){
     await p.locator('#connectButton').click();
     await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
     assert.equal((await p.locator('#commandLive').innerText()).trim(),'—');
+    // Hostile search and saved-search names must render as text, never markup.
+    const browserErrors=[];
+    p.on('pageerror',err=>browserErrors.push(err.message));
+    await p.locator('[data-view="all"]').click();
+    const hostile='<img src=x onerror="window.__vaultXss=1">';
+    await p.locator('#searchInput').fill(hostile);
+    await p.locator('#saveSearchButton').click();
+    await p.locator('#savedSearchName').fill(hostile);
+    await p.locator('#saveSearchForm button[type="submit"]').click();
+    assert.equal(await p.locator('#saveSearchDialog').evaluate(d=>d.open),false);
+    assert.equal(await p.locator('#savedSearchSelect option').allTextContents().then(x=>x.includes(hostile)),true);
+    assert.equal(await p.locator('img[src="x"]').count(),0);
+    assert.equal(await p.evaluate(()=>window.__vaultXss||0),0);
+    assert.deepEqual(browserErrors,[],'Saved search created uncaught browser errors');
+    await p.locator('#searchInput').fill('');
+    await p.keyboard.press('Alt+1');
     assert.match(await p.locator('#commandLiveNote').innerText(),/Not verified/);
     await p.locator('#navigation details[data-nav-group="manage"] summary').click();
     assert.equal(await p.locator('#navigation details[data-nav-group="manage"]').getAttribute('open')!==null,true);
@@ -280,7 +296,22 @@ async function main(){
     assert.ok(overflow<=1,'Unexpected horizontal overflow: '+overflow);
     assert.equal(await p.evaluate(()=>getComputedStyle(document.documentElement).scrollBehavior),'auto');
   }finally{await mobile.ctx.close();}
-  console.log('PASS: fabricated Sheets/Drive, Command Center, keyboard focus, sync failure, mobile and reduced motion.');
+  const narrow=await fixturePage(browser,url,{mobile:true,narrow:true});
+  try{
+    const p=narrow.page;
+    await p.locator('#commandCenter').waitFor({state:'visible'});
+    for(const view of ['home','all','video-library','review-inbox']) {
+      if(view==='home')await p.keyboard.press('Alt+1');
+      else await p.evaluate(view=>document.querySelector('[data-view="'+view+'"]').click(),view);
+      const excess=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
+      assert.ok(excess<=1,'320px viewport overflows '+view+' by '+excess+'px');
+    }
+    await p.locator('#installButton').click();
+    const dialogExcess=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
+    assert.ok(dialogExcess<=1,'320px install dialog overflows by '+dialogExcess+'px');
+    await p.locator('#installOkay').click();
+  }finally{await narrow.ctx.close();}
+  console.log('PASS: fabricated Sheets/Drive, adversarial saved searches, 320px viewports, updates and native safety.');
  }finally{
    if(browser)await browser.close();
    await new Promise(done=>host.close(done));
