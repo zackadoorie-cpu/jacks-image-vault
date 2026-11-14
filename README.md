@@ -1,8 +1,16 @@
 # Jack's Image Vault — Windows image and media library
 
-**Status:** Working Windows EXE built, Go updater tests passed, local ZIP patch installed and rolled back in an HTTP smoke test. **Live Windows/Google thumbnail verification has not been performed** in the build environment.
+**Status:** v2.1.0 is published with Search 2.0, Smart Collections and Memory Lane. The v2.1.1 updater recovery patch is in development. GitHub CI can validate builds, but a live Windows upgrade and Google thumbnail smoke test still require Windows testing.
 
-## Memory Lane (v2.1 development)
+## v2.1.1 updater recovery
+
+Some Windows network environments return **HTTP 403** when the built-in updater downloads GitHub release ZIP assets. v2.1.1 first tries the verified browser release URL, then GitHub's official public release-asset API. It still requires an approved update and verifies the ZIP format, the release tag, SHA-256 digest (when provided), allowlisted files and per-file checksums before installation. Both download paths stay on trusted GitHub hosts.
+
+The Updates panel also shows a link to the latest matching **GitHub release**. If the automated download fails, open that release in the browser, save `jacks-image-vault-patch.zip`, and choose **Verify & install ZIP** in Updates. A local patch updates the interface, **not the Windows updater executable**. To receive the new native HTTP 403 fallback, download and launch the **v2.1.1 Windows EXE** after it is published. Neither route changes Drive photos, filenames or your source Sheet.
+
+Release procedure: merge the reviewed PR, run the **Build and publish Image Vault update** GitHub Action with `version=2.1.1` (no leading `v`), verify the published EXE/ZIP/checksums, and test upgrade and rollback on Windows. Do not claim the release is shipped before those steps succeed.
+
+## Memory Lane (v2.1.0)
 
 **Memory Lane** adds a read-only chronological view of the existing gallery,
 with year and date-source filters, month cards, an undated section and **On This
@@ -32,8 +40,7 @@ The pure implementation is `src/memory-lane.js` and the UI controller is
 using `node scripts/build-memory-lane.cjs` and
 `node scripts/build-memory-controller.cjs`; both accept `--check`.
 No extra files ship inside the installed Windows app, preserving the existing
-ZIP updater allowlist. The current published v2.0.11 app does not contain this
-feature until a separately tested release.
+ZIP updater allowlist. Memory Lane shipped in the published v2.1.0 release.
 
 The live Sheet's **Photo Date Audit** already contains verified EXIF timestamps.
 An audit during this phase identified 471 verified entries missing from the
@@ -42,7 +49,7 @@ matching exact Drive IDs without changing any Drive originals, date-exception
 decisions, or existing EXIF values. The app still treats upload timestamps
 as a separate evidence class.
 
-## Smart Collections (v2.1 development)
+## Smart Collections (v2.1.0)
 
 The **Smart Collections** navigation creates virtual albums dynamically from
 the existing read-only Drive metadata. Suggested collections cover cats/animals,
@@ -73,10 +80,9 @@ New pure `src/smart-collections.js` and browser controller
 `scripts/build-smart-collections.cjs` and
 `scripts/build-smart-controller.cjs`. Existing updater builds still ship
 only the allowed `web/app.js` browser script, not separate runtime modules.
-This feature is **not yet in the published v2.0.11 Windows app**; it requires
-a tested future v2.1 release.
+Smart Collections shipped in the published v2.1.0 release.
 
-## Search 2.0 (v2.1 development)
+## Search 2.0 (v2.1.0)
 
 Search operates **entirely on the private media metadata already loaded in the
 browser**, without sending search terms or photos to any other service.
@@ -109,16 +115,14 @@ devices**, and clearing browser site data will remove them.
 The pure search implementation is `src/search-engine.js`; run
 `node scripts/build-search-engine.cjs` to regenerate the patch-compatible
 `web/app.js`, then run the same command with `--check` to verify consistency.
-The search controls are part of the UI and are not included in v2.0.11 until a
-separate, tested release is published.
+Search 2.0 shipped in the published v2.1.0 release.
 
-## v2.1 development (work in progress)
+## v2.1 roadmap
 
 The v2.1 roadmap is tracked in [GitHub issue #12](https://github.com/zackadoorie-cpu/jacks-image-vault/issues/12).
 The first foundation PR introduces a portable, versioned media record contract
 with separate visual-evidence and date-provenance states. It is compatible with
-the existing **read-only** Google Drive and Google Sheets workflows. **No v2.1
-feature is released in the installed app until a separately tested release.**
+the existing **read-only** Google Drive and Google Sheets workflows. Search 2.0, Smart Collections and Memory Lane shipped in v2.1.0; Similarity Lab, Video Library and Command Center remain future phases.
 
 The browser app remains one `web/app.js` file for updater compatibility. The
 shared source for the pure contract is `src/media-contract.js`; use
