@@ -927,8 +927,13 @@ func main() {
 		nativeMessage("Jack's Image Vault", err.Error())
 		return
 	}
+	serverOnly := false
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+        case "--serve-only":
+            // Desktop host prototype owns the native window. Never start
+            // Edge/Chrome or display an interactive message from this mode.
+            serverOnly = true
 		case "--version":
 			nativeMessage("Jack's Image Vault", "Version "+v.currentVersion)
 			return
@@ -957,6 +962,12 @@ func main() {
 	}
 	listener, err := net.Listen("tcp4", addr)
 	if err != nil {
+        if serverOnly {
+            // The desktop host probes the existing server independently;
+            // never attempt to launch a competing browser window here.
+            fmt.Fprintln(os.Stderr, "Image Vault server unavailable:", err)
+            return
+        }
         running := instanceStatus()
         switch classifyRunningInstance(running, builtinVersion) {
         case "reuse":
@@ -982,10 +993,12 @@ func main() {
 			nativeMessage("Image Vault server stopped", e.Error())
 		}
 	}()
-	if err = launchApp(); err != nil {
-		nativeMessage("Browser launch failed", "Please open "+appURL+" in Edge or Chrome.\n"+err.Error())
-        return
-	}
+	if !serverOnly {
+        if err = launchApp(); err != nil {
+            nativeMessage("Browser launch failed", "Please open "+appURL+" in Edge or Chrome.\n"+err.Error())
+            return
+        }
+    }
     // Closing the last registered app window releases the local port. A short
     // grace period permits reloads and browser restarts without losing state.
     // A UI patch too old to send heartbeats is never shut down unexpectedly.
