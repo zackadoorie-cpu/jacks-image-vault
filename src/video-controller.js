@@ -55,7 +55,11 @@ function videoRenderCatalog(){
   const all=state.connected?state.images:[];
   const count=all.filter(x=>mediaKind(x)==='video').length;
   const described=all.filter(x=>mediaKind(x)==='video'&&String(effectiveDescription(x)||'').trim()).length;
-  const listing=videoLibrary.videoList(all,{filter:state.videoLibraryFilter,page:state.videoLibraryPage});
+  const query=String(state.videoQuery||'').trim().toLocaleLowerCase('en-US').slice(0,120);
+  const matching=query?all.filter(item=>mediaKind(item)==='video'&&[
+    item.name,item.folder,videoTitleInfo(item).title,effectiveDescription(item),effectiveTags(item)
+  ].some(value=>String(value||'').toLocaleLowerCase('en-US').includes(query))):all;
+  const listing=videoLibrary.videoList(matching,{filter:state.videoLibraryFilter,page:state.videoLibraryPage});
   state.videoLibraryPage=Math.min(listing.page,listing.pageCount);
   $('videoCatalogSummary').textContent=state.connected?
     format(count)+' video files · '+format(described)+' with descriptions · '+format(listing.total)+' match this filter · page '+
@@ -63,6 +67,7 @@ function videoRenderCatalog(){
     'Connect Drive to inspect videos already indexed in your private Google Sheet.';
   $('videoCatalogFilter').value=state.videoLibraryFilter;
   $('videoTitleMode').value=state.videoTitleMode;
+  $('videoSearch').value=state.videoQuery;
   $('videoCatalogPrev').disabled=listing.page<=1;
   $('videoCatalogNext').disabled=listing.page>=listing.pageCount;
   $('videoCatalogList').innerHTML=listing.entries.length?listing.entries.map(item=>{
