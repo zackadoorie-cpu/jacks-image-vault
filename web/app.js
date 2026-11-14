@@ -3714,6 +3714,11 @@
     $('commandDiagnostics').onclick=()=>displayPage('health');
     $('shortcutHelpButton').onclick=()=>commandOpenHelp($('shortcutHelpButton'));
     $('shortcutsClose').onclick=commandCloseHelp;
+    // The help dialog intentionally has exactly one focusable control.
+    // Keep Tab inside it even on Chromium builds that briefly focus browser chrome.
+    $('shortcutsDialog').addEventListener('keydown',event=>{
+      if(event.key==='Tab'){event.preventDefault();$('shortcutsClose').focus();}
+    });
     $('shortcutsDialog').addEventListener('close',()=>{
       if(state.shortcutReturnFocus?.isConnected)state.shortcutReturnFocus.focus();
       state.shortcutReturnFocus=null;
