@@ -168,3 +168,27 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .search-save-body{padding:4px 25px 23px}
 .visually-hidden{position:absolute!important;height:1px;width:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media(max-width:680px){.search-extras{align-items:stretch}.saved-search-tools{width:100%}.saved-search-tools .select{max-width:none;flex:1 1 155px}.saved-search-tools .btn{flex:0 1 auto}}
+
+/* Smart Collections: virtual, local-only albums. */
+.smart-actions{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 13px}
+.smart-status{color:var(--muted);font-size:12px;margin:0 0 22px}
+.smart-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,265px),1fr));gap:15px}
+.smart-card{display:flex;flex-direction:column;gap:13px;border:1px solid var(--line);border-radius:16px;padding:19px;background:var(--surface);min-height:185px}
+.smart-card-heading{display:flex;align-items:center;gap:11px}
+.smart-card-heading>span{display:flex;align-items:center;justify-content:center;border-radius:11px;width:40px;height:40px;background:#59497a;color:#e2d2ff;font-size:23px}
+.smart-card-heading strong{font-size:14px;display:block;overflow-wrap:anywhere}
+.smart-card-heading small{color:var(--muted);display:block;font-size:11px;margin-top:3px}
+.smart-card p{font-size:12px;line-height:1.6;color:var(--muted);overflow-wrap:anywhere;margin:0;flex:1}
+.smart-card-actions{display:flex;gap:7px;flex-wrap:wrap}
+.smart-card-actions .btn{font-size:11px;padding:8px 11px}
+.smart-editor{max-width:710px;width:calc(100% - 32px);max-height:90dvh;overflow:auto}
+.smart-editor-body{padding:5px 24px 22px}
+.smart-editor-body .field-label{margin-top:12px}
+.smart-rule-rows{margin:20px 0 13px;display:flex;flex-direction:column;gap:12px}
+.smart-rule-row{display:grid;grid-template-columns:minmax(170px,1.1fr) minmax(130px,1fr) auto;align-items:end;gap:9px;border:1px solid #333747;background:#ffffff05;padding:12px;border-radius:12px}
+.smart-rule-row label{color:var(--muted);font-size:11px}
+.smart-rule-row .field{display:block;width:100%;margin-top:7px}
+.smart-rule-row .btn{min-height:39px}
+.smart-why{color:#c2b5f8;font-size:10px;line-height:1.45;overflow-wrap:anywhere;margin:4px 0 12px}
+#backSmartCollections{margin-top:10px}
+@media(max-width:680px){.smart-grid{grid-template-columns:1fr}.smart-rule-row{grid-template-columns:1fr}.smart-rule-row .btn{width:max-content}.smart-actions .btn{flex:1 1 auto}}
