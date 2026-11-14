@@ -3574,13 +3574,21 @@
   function showUpdateMessage(message,error=false){const el=$('updateStatusMessage');el.textContent=message;el.classList.toggle('error',error);}
   function updateRepoValue(){return $('updateRepo').value.trim();}
   function validRepo(repo){return /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo)&&!repo.includes('..');}
+  function publicReleasesURL(repo){
+    return validRepo(repo)?'https://github.com/'+repo+'/releases/latest':'';
+  }
   function vettedReleaseURL(repo, value){
     if(!validRepo(repo)||typeof value!=='string')return '';
     try{
       const url=new URL(value);
-      if(url.protocol!=='https:'||url.hostname!=='github.com'||url.username||url.password)return '';
-      const prefix=`/${repo.toLowerCase()}/releases/tag/`;
-      return url.pathname.toLowerCase().startsWith(prefix)?url.href:'';
+      if(url.protocol!=='https:'||url.hostname!=='github.com'||url.username||url.password||
+         url.search||url.hash)return '';
+      const prefix='/'+repo.toLowerCase()+'/releases/';
+      const path=url.pathname.toLowerCase();
+      if(path===prefix+'latest')return url.href;
+      if(!path.startsWith(prefix+'tag/'))return '';
+      const tag=url.pathname.slice((prefix+'tag/').length);
+      return /^v?\d+\.\d+\.\d+$/.test(tag)?url.href:'';
     }catch{return '';}
   }
   function setManualReleaseLink(repo, value){
@@ -3607,33 +3615,61 @@
   }
   async function openUpdates(){
     $('updateRepo').value=state.updateRepo;
+    setManualReleaseLink(state.updateRepo,publicReleasesURL(state.updateRepo));
     $('updatesDialog').showModal();await getUpdateStatus();
   }
   function saveUpdateRepo(){
     const repo=updateRepoValue();
     if(repo&&!validRepo(repo)){showUpdateMessage('Enter a GitHub repository as owner/repo.',true);return false;}
-    state.updateRepo=repo;state.remoteRelease=null;$('githubInstallButton').disabled=true;setManualReleaseLink('',null);
+    state.updateRepo=repo;state.remoteRelease=null;$('githubInstallButton').disabled=true;
+    setManualReleaseLink(repo,publicReleasesURL(repo));
     try {if(repo)localStorage.setItem(REPO_STORAGE,repo);else localStorage.removeItem(REPO_STORAGE);localStorage.removeItem(UPDATE_CHECK_STORAGE);}
     catch {showUpdateMessage('Browser storage unavailable; repository saved only until reload.',true);return false;}
     showUpdateMessage(repo?'Repository saved. Updates are checked once per day, and installation is always your choice.':'GitHub repository cleared. Local ZIP patches still work.');return true;
   }
   async function checkGithub({automatic=false}={}){
     const repo=automatic?state.updateRepo:updateRepoValue();
-    if(!validRepo(repo)){if(!automatic)showUpdateMessage('Enter a public GitHub repository as owner/repo first.',true);return;}
-    const btn=$('updateCheckButton');btn.disabled=true;$('githubInstallButton').disabled=true;setManualReleaseLink('',null);
+    if(!validRepo(repo)){
+      if(!automatic)showUpdateMessage('Enter a public GitHub repository as owner/repo first.',true);
+      return;
+    }
+    const btn=$('updateCheckButton');
+    btn.disabled=true;
+    $('githubInstallButton').disabled=true;
+    state.remoteRelease=null;
+    // Manual recovery must remain visible even if native discovery fails.
+    setManualReleaseLink(repo,publicReleasesURL(repo));
     try{
-      const res=await fetch(`/__vault_update/check?repo=${encodeURIComponent(repo)}`,{cache:'no-store'});
-      const data=await res.json();if(!res.ok)throw new Error(data.error||`GitHub returned HTTP ${res.status}`);
+      const res=await fetch('/__vault_update/check?repo='+encodeURIComponent(repo),{cache:'no-store'});
+      const data=await res.json();
+      if(!res.ok)throw new Error(data.error||('GitHub returned HTTP '+res.status));
       state.remoteRelease=data;
-      setManualReleaseLink(repo,data.releaseURL);
-      $('releaseStatus').textContent=data.hasPatch ? `Latest release: ${data.releaseVersion}. ${data.available?'An update is ready to install.':'You are up to date.'}` : `Latest release ${data.releaseVersion} does not contain the required ZIP patch.`;
+      setManualReleaseLink(repo,data.releaseURL||publicReleasesURL(repo));
+      const unlisted=data.lookupSource==='public-release-page'&&!data.patchListed;
+      $('releaseStatus').textContent=!data.hasPatch?
+        'Latest release '+data.releaseVersion+' does not contain a confirmed ZIP patch.':
+        'Latest release: '+data.releaseVersion+'. '+
+        (data.available?'A newer version was found.':'You are up to date.')+
+        (unlisted?' Public release-page fallback: the ZIP was not independently listed.':'');
       $('githubInstallButton').disabled=!data.available;
-      if(data.available){$('updatesButton').classList.add('update-available');$('updatesButton').title=`Update ${data.releaseVersion} available`;}
-      else{$('updatesButton').classList.remove('update-available');}
-      showUpdateMessage(data.available?`Update ${data.releaseVersion} found. Choose Install update to apply it.`:'No newer GitHub patch available.');
+      if(data.available){
+        $('updatesButton').classList.add('update-available');
+        $('updatesButton').title='Update '+data.releaseVersion+' available';
+      }else{
+        $('updatesButton').classList.remove('update-available');
+      }
+      showUpdateMessage(data.available?
+        'Update '+data.releaseVersion+' found.'+
+        (unlisted?' ZIP availability is unconfirmed; installation will validate it.':'')+
+        ' You can also download it manually.':
+        'No newer GitHub patch detected. The manual releases link remains available.');
       try{localStorage.setItem(UPDATE_CHECK_STORAGE,String(Date.now()));}catch{}
-    }catch(error){if(!automatic)showUpdateMessage(`GitHub check failed: ${error.message}`,true);}
-    finally{btn.disabled=false;}
+    }catch(error){
+      state.remoteRelease=null;
+      $('githubInstallButton').disabled=true;
+      $('releaseStatus').textContent='Automatic release discovery is unavailable. Open public releases and choose the ZIP under Assets.';
+      if(!automatic)showUpdateMessage('GitHub check failed: '+error.message+'. Manual ZIP installation is still available.',true);
+    }finally{btn.disabled=false;}
   }
   async function updateRequest(path,{body,contentType='application/json'}={}){
     if(!state.updater?.nonce)throw new Error('The Windows updater is not available.');
