@@ -95,9 +95,15 @@ jobs:
       - name: Test shortcut transaction rollback and crash recovery in sandbox
         shell: pwsh
         run: ./scripts/windows-shortcut-transaction-smoke.ps1
+      - name: Validate installed Edge PWA shortcut safely
+        shell: pwsh
+        run: ./scripts/windows-edge-pwa-smoke.ps1
       - name: Build native Image Vault for Windows
         shell: pwsh
         run: go build -o "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe" .
+      - name: Validate browser-free native server mode for future host
+        shell: pwsh
+        run: ./scripts/windows-server-only-smoke.ps1 -ExecutablePath "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe"
       - name: Launch real Windows EXE and verify both views
         shell: pwsh
         run: ./scripts/windows-smoke.ps1 -ExecutablePath "${{ runner.temp }}/Jacks_Image_Vault_smoke.exe"

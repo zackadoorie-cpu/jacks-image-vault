@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+    _ "embed"
 	"fmt"
 	"os"
 	"os/exec"
@@ -63,7 +64,32 @@ func browserPaths() []string {
 	}
 	return paths
 }
+//go:embed scripts/launch-edge-pwa.ps1
+var launchEdgePWAScript string
+
+// Edge's installed PWA uses the Edge profile's existing Google sign-in grant.
+// It is not a WebView, and must be a real shortcut owned by the current user.
+// Unavailable or unusual installations fall back to the known browser launcher.
+func pwaShortcutCandidates(appData string) []string {
+    if appData == "" || !filepath.IsAbs(appData) { return nil }
+    base := filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs")
+    return []string{
+        filepath.Join(base, "Microsoft Edge Apps", "Jack's Image Vault.lnk"),
+        filepath.Join(base, "Edge Apps", "Jack's Image Vault.lnk"),
+    }
+}
+func launchInstalledEdgePWA() bool {
+    for _, path := range pwaShortcutCandidates(os.Getenv("APPDATA")) {
+        if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() { continue }
+        cmd := exec.Command("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", launchEdgePWAScript)
+        cmd.Env = append(os.Environ(), "JACKS_VAULT_EDGE_PWA_SHORTCUT="+path)
+        if err := cmd.Run(); err == nil { return true }
+    }
+    return false
+}
+
 func launchApp() error {
+    if launchInstalledEdgePWA() { return nil }
 	if runtime.GOOS == "windows" {
 		for _, p := range browserPaths() {
 			if _, err := os.Stat(p); err != nil {
