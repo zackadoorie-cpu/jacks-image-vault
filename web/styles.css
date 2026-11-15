@@ -869,3 +869,30 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 #desktopRememberInput{accent-color:var(--accent)}
 #desktopSavedSessionStatus{margin:10px 0}
 @media(max-width:680px){.sheet-write-diff{grid-template-columns:1fr}}
+
+
+/* Phase 9C Vault Pulse uses palette tokens and responsive tiles. */
+.vault-pulse{margin:25px 0 36px}
+.pulse-heading{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:12px}
+.pulse-heading h2{font-size:clamp(23px,3vw,30px);margin:0 0 5px}
+.pulse-heading p:not(.eyebrow){font-size:12px;color:var(--muted);margin:0}
+.pulse-heading>span{color:var(--green);border:1px solid var(--line);border-radius:25px;padding:8px 11px;white-space:nowrap;font-size:10px;font-weight:750}
+.pulse-summary{background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:13px 16px;font-size:12px;line-height:1.6}
+.pulse-summary[data-status="warning"],.pulse-summary[data-status="expired"]{border-color:var(--orange)}
+.pulse-summary[data-status="verified"]{border-color:var(--green)}
+.pulse-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.pulse-grid article,.pulse-lower section{background:var(--surface);border:1px solid var(--line);border-radius:13px;min-width:0;padding:16px}
+.pulse-grid h3{font-size:11px;color:var(--muted);margin:0}
+.pulse-grid strong{display:block;font-size:clamp(22px,2.6vw,31px);line-height:1.3;margin:7px 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.pulse-grid p,.pulse-disclaimer{font-size:11px;line-height:1.6;margin:0;color:var(--muted);overflow-wrap:anywhere}
+.pulse-lower{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.pulse-lower h3{font-size:15px;margin:0 0 10px}
+.pulse-lower ol,.pulse-lower ul{margin:0;padding:0;list-style:none}
+.pulse-lower li{border-top:1px solid var(--line);padding:8px 0;font-size:12px;overflow-wrap:anywhere}
+.pulse-lower li:first-child{border:0}
+.pulse-lower li small{display:block;color:var(--muted);font-size:11px}
+.pulse-lower li strong{display:block}
+.pulse-action{background:transparent;color:var(--text);font-weight:750;text-decoration:underline;text-decoration-color:var(--purple);border:0;text-align:left;min-height:38px;padding:4px 0}
+@media(max-width:1190px){.pulse-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.pulse-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pulse-lower{grid-template-columns:1fr}}
+@media(max-width:450px){.pulse-heading{align-items:flex-start;flex-direction:column}.pulse-grid{grid-template-columns:1fr}}
