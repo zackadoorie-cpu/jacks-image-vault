@@ -37,7 +37,7 @@ test('local reviews can be undone only while the exact resulting note is unchang
  assert.equal(engine.activityCanUndo(journal.items[0],note('Reviewed'),{
   ...ctx,entryAccount:account,entrySheetId:sheetId}).ok,false);
  assert.throws(()=>engine.activityMarkUndone(journal,id,ctx),/Only a completed/);
- assert.throws(()=>engine.activityMarkUndone(journal,id,{account:other,sheetId}),/different account/);
+ assert.throws(()=>engine.activityMarkUndone(journal,id,{account:other,sheetId}),/another account/);
 });
 test('resetting a local note is reversible only while the note is still absent',()=>{
  const prior=note('Original review');
