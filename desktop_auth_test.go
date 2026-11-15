@@ -163,3 +163,61 @@ func TestDesktopBrokerCancelClosesListener(t *testing.T){
   time.Sleep(10*time.Millisecond)
  }
 }
+
+
+func TestDesktopOAuthTokenErrorsAreActionableAndRedacted(t *testing.T) {
+ cases:=[]struct{name string;body string;hadSecret bool;want string}{
+  {"missing secret",`{"error":"invalid_request","error_description":"client_secret is missing"}`,false,"requires the Desktop client secret"},
+  {"bad secret",`{"error":"invalid_request","error_description":"client_secret is invalid"}`,true,"rejected the Desktop client secret"},
+  {"invalid client",`{"error":"invalid_client","error_description":"secret=do-not-reveal"}`,true,"invalid_client"},
+  {"expired code",`{"error":"invalid_grant","error_description":"code=do-not-reveal"}`,false,"invalid_grant"},
+  {"unknown provider message",`{"error":"mystery","error_description":"Bearer do-not-reveal <script>alert(1)</script>"}`,false,"token exchange failed"},
+  {"malformed body","<sensitive>token-do-not-reveal</sensitive>",false,"token exchange failed"},
+ }
+ for _,tc:=range cases {
+  t.Run(tc.name,func(t *testing.T){
+   msg:=oauthTokenFailure(400,[]byte(tc.body),tc.hadSecret).Error()
+   if !strings.Contains(msg,tc.want){t.Fatalf("expected %q in %q",tc.want,msg)}
+   if strings.Contains(msg,"do-not-reveal")||strings.Contains(msg,"<script>")||strings.Contains(msg,"<sensitive>"){
+    t.Fatal("OAuth provider-controlled error text escaped sanitization")
+   }
+  })
+ }
+}
+
+func TestDesktopOAuthMissingClientSecretCallbackAndPoll(t *testing.T){
+ tokenServer:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  if err:=r.ParseForm();err!=nil{t.Error(err)}
+  if r.Form.Get("client_secret")!=""{t.Fatal("missing-secret fixture unexpectedly provided secret")}
+  w.Header().Set("Content-Type","application/json")
+  w.WriteHeader(http.StatusBadRequest)
+  _,_=io.WriteString(w,`{"error":"invalid_request","error_description":"client_secret is missing; private-code-do-not-reveal"}`)
+ }))
+ defer tokenServer.Close()
+ b:=newDesktopAuthBroker();b.tokenEndpoint=tokenServer.URL
+ var authURL *url.URL
+ b.launch=func(raw string)error{authURL,_=url.Parse(raw);return nil}
+ id,err:=b.start(fakeDesktopID,"")
+ if err!=nil{t.Fatal(err)}
+ defer b.cancel("")
+ uri:=authURL.Query().Get("redirect_uri")+
+  "?state="+url.QueryEscape(authURL.Query().Get("state"))+"&code=synthetic-google-code"
+ res,err:=http.Get(uri)
+ if err!=nil{t.Fatal(err)}
+ bytes,_:=io.ReadAll(io.LimitReader(res.Body,4096))
+ _=res.Body.Close()
+ page:=string(bytes)
+ if res.StatusCode!=200 || !strings.Contains(page,"requires the Desktop client secret"){
+  t.Fatalf("missing-secret callback did not explain failure: %d %s",res.StatusCode,page)
+ }
+ if strings.Contains(page,"private-code-do-not-reveal"){t.Fatal("provider error description leaked into callback")}
+ result,err:=b.poll(id)
+ if err!=nil||result["status"]!="error"{
+  t.Fatalf("missing-secret callback did not report safe error to gallery: %v %v",result,err)
+ }
+ message, _:=result["message"].(string)
+ if !strings.Contains(message,"client_secret")||strings.Contains(message,"private-code-do-not-reveal"){
+  t.Fatalf("error message not safe/actionable: %q",message)
+ }
+ if result["accessToken"]!=nil{t.Fatal("failed exchange produced bearer token")}
+}
