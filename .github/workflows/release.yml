@@ -53,6 +53,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Windows DPAPI encrypted session round-trip
+        shell: pwsh
+        run: go test -run '^TestWindowsDPAPISavedSession' -count=1 ./...
       - name: Windows updater, release fallback and security tests
         shell: pwsh
         run: go test ./...
