@@ -19,14 +19,15 @@ import (
  "time"
 )
 
-// Desktop OAuth is strictly opt-in, read-only and system-browser based.
-// No refresh token, code verifier, desktop client secret, or access token
-// is written to disk. This is deliberately separate from the browser GIS flow.
+// Desktop OAuth uses a system browser and PKCE. On user-approved "remember
+// this Windows PC" connections ONLY, a read-only refresh grant is encrypted
+// with Windows DPAPI. The temporary Sheet-write grant is NEVER retained.
 const (
  desktopAuthURL = "https://accounts.google.com/o/oauth2/v2/auth"
  desktopTokenURL = "https://oauth2.googleapis.com/token"
  desktopDriveScope = "https://www.googleapis.com/auth/drive.readonly"
  desktopSheetScope = "https://www.googleapis.com/auth/spreadsheets.readonly"
+ desktopSheetWriteScope = "https://www.googleapis.com/auth/spreadsheets"
  desktopFlowTTL = 3*time.Minute
  desktopTokenClaimTTL = 5*time.Minute
 )
@@ -34,6 +35,9 @@ var desktopClientRE = regexp.MustCompile("^[0-9]+-[a-z0-9-]+[.]apps[.]googleuser
 
 type desktopFlow struct {
  id, state, verifier, clientID, secret, redirectURI string
+ scope, sheetID string
+ remember, sheetWrite, saved bool
+ saveWarning string
  server *http.Server
  listener net.Listener
  timer *time.Timer
@@ -46,11 +50,16 @@ type desktopAuthBroker struct {
  launch func(string)error
  client *http.Client
  authEndpoint, tokenEndpoint string
+ saveSession func(desktopSavedSession)error
+ loadSession func()(desktopSavedSession,error)
+ clearSession func()error
+ resuming bool
 }
 func newDesktopAuthBroker() *desktopAuthBroker {
  return &desktopAuthBroker{
   launch:openBrowser,
   authEndpoint:desktopAuthURL,tokenEndpoint:desktopTokenURL,
+  saveSession:saveDesktopSession,loadSession:loadDesktopSession,clearSession:clearDesktopSession,
   client:&http.Client{Timeout:18*time.Second,
    CheckRedirect:func(_ *http.Request,_ []*http.Request)error{return errors.New("OAuth redirect blocked")}},
  }
@@ -64,14 +73,20 @@ func pkceChallenge(verifier string) string {
  digest:=sha256.Sum256([]byte(verifier))
  return base64.RawURLEncoding.EncodeToString(digest[:])
 }
+type desktopStartOptions struct{
+ Remember bool
+ SheetID string
+ SheetWrite bool
+}
 func desktopURL(base string,f *desktopFlow) (string,error) {
  endpoint,err:=url.Parse(base);if err!=nil{return "",err}
  q:=endpoint.Query()
  for k,v:=range map[string]string{
   "response_type":"code","client_id":f.clientID,"redirect_uri":f.redirectURI,
-  "scope":desktopDriveScope+" "+desktopSheetScope,"state":f.state,
+  "scope":f.scope,"state":f.state,
   "code_challenge_method":"S256","code_challenge":pkceChallenge(f.verifier),
-  "access_type":"online","prompt":"select_account",
+  "access_type":map[bool]string{true:"offline",false:"online"}[f.remember],
+  "prompt":map[bool]string{true:"consent select_account",false:"select_account"}[f.remember],
  }{q.Set(k,v)}
  endpoint.RawQuery=q.Encode()
  return endpoint.String(),nil
@@ -90,7 +105,15 @@ func (b *desktopAuthBroker) abort(f *desktopFlow,message string) {
  f.status="error";f.message=message;f.token=""
  b.closeLocked(f)
 }
-func (b *desktopAuthBroker) start(clientID,secret string) (string,error) {
+func (b *desktopAuthBroker) start(clientID,secret string,options ...desktopStartOptions) (string,error) {
+ opts:=desktopStartOptions{}
+ if len(options)>0{opts=options[0]}
+ if opts.Remember&&(opts.SheetWrite||!desktopSheetIDRE.MatchString(opts.SheetID)){
+  return "",errors.New("A valid inventory Sheet ID is required for a saved read-only desktop connection")
+ }
+ if opts.SheetWrite&&opts.Remember{return "",errors.New("Temporary Sheets write access cannot be saved")}
+ scope:=desktopDriveScope+" "+desktopSheetScope
+ if opts.SheetWrite{scope=desktopSheetWriteScope}
  if len(clientID)>180||!desktopClientRE.MatchString(clientID) {return "",errors.New("Enter a Google OAuth Desktop application client ID")}
  if len(secret)>256||strings.ContainsAny(secret,"\r\n") {return "",errors.New("Invalid desktop client secret")}
  id,err:=randomPKCE();if err!=nil{return "",err}
@@ -100,6 +123,7 @@ func (b *desktopAuthBroker) start(clientID,secret string) (string,error) {
  if err!=nil {return "",fmt.Errorf("Unable to bind a private localhost OAuth callback: %w",err)}
  f:=&desktopFlow{id:id,state:state,verifier:verifier,clientID:clientID,
   secret:secret,listener:listener,redirectURI:"http://"+listener.Addr().String()+"/oauth/callback",
+  scope:scope,sheetID:opts.SheetID,remember:opts.Remember,sheetWrite:opts.SheetWrite,
   status:"pending"}
  f.server=&http.Server{Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){b.callback(f,w,r)}),
   ReadHeaderTimeout:5*time.Second,IdleTimeout:5*time.Second}
@@ -126,6 +150,10 @@ func (b *desktopAuthBroker) start(clientID,secret string) (string,error) {
   return "",errors.New("Cannot open the system browser")
  }
  return id,nil
+}
+func exactWriteScopes(granted string)bool{
+ for _,scope:=range strings.Fields(granted){if scope==desktopSheetWriteScope{return true}}
+ return false
 }
 func exactReadScopes(granted string)bool{
  scopes:=map[string]bool{}
@@ -196,12 +224,26 @@ func (b *desktopAuthBroker) exchange(f *desktopFlow,code string)error{
  kind,_:=payload["token_type"].(string)
  scope,_:=payload["scope"].(string)
  duration,_:=payload["expires_in"].(float64)
+ granted:=exactReadScopes(scope)
+ if f.sheetWrite{granted=exactWriteScopes(scope)}
  if kind!="Bearer"||len(token)<12||len(token)>8192||
-  duration<90||duration>86400||!exactReadScopes(scope){
-  return errors.New("OAuth token lacks required read-only scopes or expiry")
+  duration<90||duration>86400||!granted{
+  return errors.New("OAuth token lacks required requested scopes or expiry")
  }
  b.mu.Lock();defer b.mu.Unlock()
  if b.active!=f||f.status!="exchanging" {return errors.New("Authorization session expired")}
+ if f.remember&&!f.sheetWrite{
+  refresh,_:=payload["refresh_token"].(string)
+  if len(refresh)<12||len(refresh)>8192 {
+   f.saveWarning="Google did not issue a refresh token. You are signed in, but Windows auto-login was not saved."
+  }else{
+   session:=desktopSavedSession{Version:1,ClientID:clientID,ClientSecret:secret,
+     SheetID:f.sheetID,RefreshToken:refresh}
+   if err:=b.saveSession(session);err!=nil{
+    f.saveWarning="Windows could not securely save this read-only session. Sign-in will need confirmation next time."
+   }else{f.saved=true}
+  }
+ }
  f.token=token;f.expires=int(duration);f.status="ready"
  b.closeLocked(f)
  // A completed token cannot sit in memory indefinitely if the UI closes
@@ -261,7 +303,8 @@ func (b *desktopAuthBroker) poll(id string)(map[string]any,error){
  if f==nil||f.id!=id {return nil,errors.New("No matching desktop sign-in")}
  switch f.status{
  case "ready":
-  result:=map[string]any{"status":"ready","accessToken":f.token,"expiresIn":f.expires}
+  result:=map[string]any{"status":"ready","accessToken":f.token,"expiresIn":f.expires,
+    "savedSession":f.saved,"saveWarning":f.saveWarning,"writeScope":f.sheetWrite}
   if f.timer!=nil{f.timer.Stop()}
   f.token="";f.status="claimed";b.active=nil
   return result,nil
