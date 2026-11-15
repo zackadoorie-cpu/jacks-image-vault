@@ -1668,7 +1668,7 @@
     catch(error){$('reviewEditorStatus').textContent=error.message;return false;}
     const logged=logActivity('review-save',{fileId:item.id,count:1,before,after});
     state.reviewDirty=false;
-    $('reviewEditorStatus').textContent=(status==='reviewed'?'Reviewed and saved on this device.':
+    const feedback=(status==='reviewed'?'Reviewed and saved on this device.':
       status==='deferred'?'Moved to Review later.':'Draft saved on this device.')+
       (logged?' Undo is available in Activity & Undo.':' Activity history is unavailable; export a review backup.');
     refreshReviewPresentation();
@@ -1679,6 +1679,7 @@
       // Keep the current image visible with its saved status when the queue is empty.
       populateImageDialog();
     }else populateImageDialog();
+    if(!advance)$('reviewEditorStatus').textContent=feedback;
     return true;
   }
   function nextReviewItem(id){
