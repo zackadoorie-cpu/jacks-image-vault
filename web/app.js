@@ -1660,13 +1660,17 @@
       return false;
     }
     const nextItem=advance?nextReviewItem(item.id):null;
+    const before=state.reviewEdits.get(item.id)||null;
     const next=new Map(state.reviewEdits);
-    next.set(item.id,{description,tags,status,updatedAt:Date.now()});
+    const after={description,tags,status,updatedAt:Date.now()};
+    next.set(item.id,after);
     try{writeReviewNotes(next);}
     catch(error){$('reviewEditorStatus').textContent=error.message;return false;}
+    const logged=logActivity('review-save',{fileId:item.id,count:1,before,after});
     state.reviewDirty=false;
-    $('reviewEditorStatus').textContent=status==='reviewed'?'Reviewed and saved on this device.':
-      status==='deferred'?'Moved to Review later.':'Draft saved on this device.';
+    $('reviewEditorStatus').textContent=(status==='reviewed'?'Reviewed and saved on this device.':
+      status==='deferred'?'Moved to Review later.':'Draft saved on this device.')+
+      (logged?' Undo is available in Activity & Undo.':' Activity history is unavailable; export a review backup.');
     refreshReviewPresentation();
     if(advance&&nextItem){
       const fresh=state.images.find(x=>x.id===nextItem.id);
@@ -1686,13 +1690,16 @@
   function resetCurrentReview(){
     const item=state.activeImage;
     if(!item||!state.reviewEdits.has(item.id))return;
+    const before=state.reviewEdits.get(item.id)||null;
     const next=new Map(state.reviewEdits);next.delete(item.id);
     try{writeReviewNotes(next);}
     catch(error){$('reviewEditorStatus').textContent=error.message;return;}
+    const logged=logActivity('review-reset',{fileId:item.id,count:1,before,after:null});
     state.reviewDirty=false;
     refreshReviewPresentation();
     populateImageDialog();
-    $('reviewEditorStatus').textContent='Local correction cleared. Original inventory data restored.';
+    $('reviewEditorStatus').textContent='Local correction cleared. Original inventory data restored.'+
+      (logged?' Undo is available in Activity & Undo.':' Activity history is unavailable.');
   }
   function exportReviewBackup(){
     if(!state.connected||!reviewStorageKey())return;
@@ -1759,6 +1766,7 @@
     const next=new Map(state.reviewEdits);
     for(const [id,record] of additions)next.set(id,record);
     writeReviewNotes(next);
+    logActivity('review-import',{count:additions.size});
     refreshReviewPresentation();
     alertUser('Merged '+additions.size+' visual reviews from ChatGPT. '+ignored.length+
       ' skipped; previously saved reviews preserved. Originals unchanged.','success');
@@ -1771,6 +1779,7 @@
     if(!confirm('Replace the '+state.reviewEdits.size+' local review records with '+next.size+
         ' records from this backup? Drive and Sheets will not be changed.'))return;
     writeReviewNotes(next);
+    logActivity('review-backup',{count:next.size});
     refreshReviewPresentation();
     alertUser('Imported '+next.size+' review records for this Drive account. Originals unchanged.','success');
   }
@@ -2563,6 +2572,7 @@
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       const reviewLoadWarning=loadReviewNotes();
+      loadActivityHistory();
       loadSavedSearches();
       loadSmartCollections();
       state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};
@@ -2575,6 +2585,7 @@
       saveAutoBinding();
       if(reviewLoadWarning)alertUser('Drive connected, but '+reviewLoadWarning,'error');
       else alertUser(`${format(images.length)} files loaded from your read-only Drive inventory. Originals unchanged.`, 'success');
+      logActivity('inventory',{count:images.length});
       scheduleScans();
     } catch (error) {
       if(authorizationEpoch!==state.authEpoch)return;
@@ -3359,7 +3370,7 @@
     state.snapshotLoadedAt=null;state.lastSyncAttemptAt=null;state.lastSyncSuccessAt=null;state.lastSyncError='';
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
-    clearThumbnailCache(); state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -4036,6 +4047,7 @@
       setTimeout(()=>URL.revokeObjectURL(url),10000);
       $('renameDeskMessage').textContent='Exported '+plan.entries.length+
         ' staged proposals. Nothing has been renamed. Approve exact files before any future Drive update.';
+      logActivity('rename-plan',{count:plan.entries.length});
     }catch(error){
       $('renameDeskMessage').textContent='Cannot export: '+(error.message||'validation failed');
     }
@@ -4987,7 +4999,9 @@
     $('renameDeskNext').onclick=()=>{state.renamePage++;renameDeskRender();};
     $('renameDeskExport').onclick=renameDeskExportSelected;
     $('renameDeskClear').onclick=()=>{
+      const count=state.renameStaged.size;
       renameDeskClear();renameDeskRender();$('renameDeskMessage').textContent='Staging cleared on this device.';
+      if(count)logActivity('rename-clear',{count});
     };
     $('renameDeskList').addEventListener('change',renameDeskEvents);
     $('renameDeskList').addEventListener('click',event=>{
