@@ -851,3 +851,21 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .activity-pages span{color:var(--muted);font-size:12px}
 @media(max-width:800px){.activity-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.activity-entry{align-items:flex-start;flex-direction:column}}
 @media(max-width:520px){.activity-metrics{grid-template-columns:1fr}.activity-export-actions{width:100%}.activity-export-actions .btn{flex:1 1 140px}.activity-entry{padding:13px}}
+
+
+/* Phase 9B-2: verified Sheet approvals and Windows saved-session controls. */
+.sheet-write-panel{margin:18px 0}
+.sheet-write-panel h2{font-size:17px;margin:0 0 8px;color:var(--text)}
+.sheet-write-panel p{font-size:12px;line-height:1.7;color:var(--muted)}
+.sheet-write-diff{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.sheet-write-diff>div{min-width:0;padding:13px;border:1px solid var(--line);background:var(--surface);border-radius:11px}
+.sheet-write-diff strong{display:block;color:var(--text);font-size:12px;margin:0 0 8px}
+.sheet-write-diff pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;max-height:340px;overflow:auto;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--text);margin:0}
+.sheet-write-credentials{padding:12px 14px;margin:14px 0;border:1px solid var(--line);border-radius:11px}
+.sheet-write-credentials summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--text)}
+.sheet-write-credentials .field{width:100%;box-sizing:border-box;margin:7px 0 13px}
+.sheet-write-credentials p{font-size:11px;color:var(--muted)}
+#sheetWriteStaged .activity-entry p{max-width:70ch;white-space:pre-wrap;word-break:break-word}
+#desktopRememberInput{accent-color:var(--accent)}
+#desktopSavedSessionStatus{margin:10px 0}
+@media(max-width:680px){.sheet-write-diff{grid-template-columns:1fr}}

@@ -39,6 +39,7 @@ jobs:
           node scripts/build-rename-desk.cjs --check
           node scripts/build-rename-desk-controller.cjs --check
           node scripts/build-activity-ledger.cjs --check
+          node scripts/build-sheet-approval.cjs --check
           node scripts/build-video-library.cjs --check
           node scripts/build-video-controller.cjs --check
           node scripts/build-similarity-lab.cjs --check
@@ -95,6 +96,9 @@ jobs:
       - name: Windows media, cancellation and similarity regressions
         shell: pwsh
         run: node --test tests/video-library.test.cjs tests/similarity-lab.test.cjs tests/stress.test.cjs
+      - name: Windows DPAPI encrypted session round-trip
+        shell: pwsh
+        run: go test -run '^TestWindowsDPAPISavedSession' -count=1 ./...
       - name: Windows launcher identity and shortcut hardening tests
         shell: pwsh
         run: go test -run 'Test(WindowsInstall|WindowsSetup|ChaosNative|ChaosDecimal|WindowsIntegrationEndpoints|Desktop)' ./...

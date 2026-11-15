@@ -67,7 +67,7 @@
     const ACTIVITY_MAX_EVENTS=120;
     const ACTIVITY_MAX_BYTES=480*1024;
     const ACTIVITY_AGE_MS=90*24*60*60*1000;
-    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review']);
+    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified']);
     function activityReview(value){
       if(value==null)return null;
       if(typeof value!=='object'||Array.isArray(value)||
@@ -153,7 +153,7 @@
       return {ok:true,reason:'Only this device’s local review note will be restored.'};
     }
     function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
-      const categories=['all','review','imports','plans','inventory'];
+      const categories=['all','review','imports','plans','inventory','writes'];
       const chosen=categories.includes(filter)?filter:'all';
       const q=String(query||'').toLocaleLowerCase('en-US').trim().slice(0,120);
       const list=(log?.items||[]).filter(e=>{
@@ -161,6 +161,7 @@
         if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
         if(chosen==='plans'&&!['rename-plan','rename-clear'].includes(e.kind))return false;
         if(chosen==='inventory'&&e.kind!=='inventory')return false;
+        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified'].includes(e.kind))return false;
         return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
       });
       const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
@@ -171,6 +172,77 @@
     return {ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage};
   })();
   /* GENERATED ACTIVITY LEDGER END */
+  /* GENERATED SHEET APPROVAL START */
+  const sheetApproval=(()=>{
+    const SHEET_APPROVAL_LIMIT=10;
+    const SHEET_REVIEW_STATUS='Reviewed by library owner in Image Vault';
+    function sheetApprovalCandidate(item,note){
+     return !!item&&!item.demo&&!item.newInDrive&&
+      /^[A-Za-z0-9_-]{10,}$/.test(String(item.id||''))&&
+      Number.isSafeInteger(item.manifestRow)&&item.manifestRow>=2&&
+      note&&note.status==='reviewed'&&typeof note.description==='string'&&
+      note.description.trim()!==''&&note.description.length<=2000&&
+      typeof note.tags==='string'&&note.tags.length<=400&&
+      Number.isSafeInteger(note.updatedAt)&&note.updatedAt>0;
+    }
+    function sheetApprovalDraft(item,note,before,{account,sheetId}={}){
+     if(!sheetApprovalCandidate(item,note)||!account||!sheetId||
+      !before||before.fileId!==item.id||
+      !['description','tags','review'].every(k=>typeof before[k]==='string'))
+      throw new Error('This local review has no safe matching Manifest row.');
+     if([before.description,before.tags,before.review].some(x=>x.startsWith('=')))
+      throw new Error('A target Manifest cell contains a formula. Refusing to overwrite it.');
+     const after={description:note.description.trim(),tags:note.tags.trim(),review:SHEET_REVIEW_STATUS};
+     if(before.description===after.description&&before.tags===after.tags&&before.review===after.review)
+      throw new Error('This review is already identical to the source spreadsheet.');
+     return {account,sheetId,fileId:item.id,row:item.manifestRow,
+      name:String(item.name||''),before:{...before},after,
+      noteUpdatedAt:note.updatedAt};
+    }
+    function sheetApprovalCheck(plan,live,note,{account,sheetId}={}){
+     if(!plan||plan.account!==account||plan.sheetId!==sheetId)
+      return {ok:false,reason:'Account or inventory Sheet changed since approval.'};
+     if(!Number.isSafeInteger(plan.row)||plan.row<2||!plan.fileId)
+      return {ok:false,reason:'Missing verified Manifest identity.'};
+     if(!live||plan.fileId!==live.fileId)
+      return {ok:false,reason:'Manifest Drive file ID changed. Refusing the update.'};
+     for(const key of ['description','tags','review']){
+      if(plan.before[key]!==live[key])return {ok:false,reason:'Manifest '+key+' changed since the preview. Re-stage this review.'};
+     }
+     if(!note||note.status!=='reviewed'||note.updatedAt!==plan.noteUpdatedAt||
+      note.description.trim()!==plan.after.description||
+      note.tags.trim()!==plan.after.tags)
+      return {ok:false,reason:'Your local review changed after staging. Re-stage this review.'};
+     return {ok:true,reason:'Exact source ID, baseline values and local review match.'};
+    }
+    function sheetApprovalRequests(plans,tabID){
+     if(!Number.isSafeInteger(tabID)||tabID<0||!Array.isArray(plans)||
+      plans.length<1||plans.length>SHEET_APPROVAL_LIMIT)
+      throw new Error('Choose 1–10 verified reviews and a valid Manifest tab.');
+     const seen=new Set(),requests=[];
+     for(const plan of plans){
+      if(!plan||!Number.isSafeInteger(plan.row)||plan.row<2||
+        !/^[A-Za-z0-9_-]{10,}$/.test(String(plan.fileId||''))||seen.has(plan.fileId))
+        throw new Error('A duplicate or invalid Drive ID was staged.');
+      seen.add(plan.fileId);
+      if(typeof plan.after?.description!=='string'||!plan.after.description.trim()||
+       plan.after.description.length>2000||
+       typeof plan.after?.tags!=='string'||plan.after.tags.length>400||
+       plan.after.review!==SHEET_REVIEW_STATUS)
+       throw new Error('Staged review values are invalid.');
+      for(const [columnIndex,value] of [[12,plan.after.description],[13,plan.after.tags],[19,plan.after.review]]){
+       requests.push({updateCells:{
+        start:{sheetId:tabID,rowIndex:plan.row-1,columnIndex},
+        rows:[{values:[{userEnteredValue:{stringValue:value}}]}],
+        fields:'userEnteredValue'
+       }});
+      }
+     }
+     return {requests,includeSpreadsheetInResponse:false};
+    }
+    return {SHEET_APPROVAL_LIMIT,SHEET_REVIEW_STATUS,sheetApprovalCandidate,sheetApprovalDraft,sheetApprovalCheck,sheetApprovalRequests};
+  })();
+  /* GENERATED SHEET APPROVAL END */
   const startingPrefs = readPreferences();
   const state = {
     config: readSettings(),
@@ -239,6 +311,11 @@
     observer: null,
     favorites: new Set(readFavorites()),
     reviewEdits: new Map(),
+    sheetWriteStaged: new Map(),
+    sheetWritePreview: null,
+    sheetWritePage: 1,
+    sheetWriteMessage: '',
+    sheetWriteBusy: false,
     activityHistory: null,
     activityError: '',
     activityFilter: 'all',
@@ -1388,8 +1465,11 @@
     $('prefBatchSize').value=String(state.pageSize);
     $('prefDensity').value=state.density;
     $('prefRememberBrowsing').checked=state.rememberBrowsing;
-    $('prefAutoReconnect').checked=state.autoReconnect;
-    $('prefReconnectStatus').textContent=state.connected&&safeId(state.driveIdentity)?
+    $('prefAutoReconnect').checked=!IN_NATIVE_DESKTOP&&state.autoReconnect;
+    $('prefAutoReconnect').disabled=IN_NATIVE_DESKTOP;
+    $('prefReconnectStatus').textContent=IN_NATIVE_DESKTOP?
+      'Windows auto-login is managed under Drive connection → Stay signed in. It uses a Windows-encrypted read-only session and is separate from browser reconnect.':
+      state.connected&&safeId(state.driveIdentity)?
       'Current Google account verified. This remembers only its account ID, the OAuth client ID and Sheet ID.':
       'Automatic reconnect starts after your next successful manual connection to a verified Google account.';
     $('prefTheme').value=state.theme;
@@ -1406,7 +1486,7 @@
     const batchSize=Number($('prefBatchSize').value);
     const density=$('prefDensity').value;
     const rememberBrowsing=$('prefRememberBrowsing').checked;
-    const autoReconnect=$('prefAutoReconnect').checked;
+    const autoReconnect=!IN_NATIVE_DESKTOP&&$('prefAutoReconnect').checked;
     const theme=$('prefTheme').value;
     if(![16,32,48].includes(batchSize)||!['compact','comfortable','large'].includes(density)||
       !VAULT_THEMES.includes(theme))return;
@@ -2239,7 +2319,9 @@
   // Desktop OAuth is independent of the existing Google Identity Services
   // browser token flow. Every Desktop sign-in explicitly opens the system
   // browser; no refresh token or client secret is persisted in web storage.
-  let desktopFlowId='',desktopNonce='';
+  let desktopFlowId='',desktopNonce='',desktopResumePromise=null;
+  let sheetWriteFlowId='';
+  const SHEET_WRITE_SCOPE='https://www.googleapis.com/auth/spreadsheets';
   const desktopAuthPause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   async function checkDesktopOAuthCapability(){
     try{
@@ -2247,6 +2329,11 @@
       if(!res.ok)throw new Error('Native desktop authorization not installed');
       const data=await res.json();
       if($('settingsDialog').open)$('desktopAuthSection').hidden=!data.available;
+      if(data.available){
+        $('desktopSavedSessionStatus').textContent=data.savedReadOnlySession?
+          'Encrypted Windows sign-in found. It will reconnect automatically for the saved inventory.':
+          'No saved Windows sign-in yet. Enable Stay signed in during your next connection.';
+      }
     }catch{$('desktopAuthSection').hidden=true;}
   }
   function saveDesktopSheetId(){
@@ -2319,7 +2406,8 @@
     try{
       // The client secret is forwarded only once to the in-memory native broker.
       // Never store this string in localStorage, sessionStorage or logs.
-      const start=await desktopAuthPost('start',{clientId,clientSecret});
+      const start=await desktopAuthPost('start',{clientId,clientSecret,
+        sheetId:state.config.sheetId,remember:String($('desktopRememberInput').checked)});
       $('desktopClientSecretInput').value='';
       flow=String(start.flowId||'');
       if(!flow)throw new Error('Native broker did not provide an authorization session.');
@@ -2344,8 +2432,10 @@
         state.authProvider='desktop';
         state.accessToken=progress.accessToken;
         state.expiry=Date.now()+Math.max(60,Number(progress.expiresIn||3600)-60)*1000;
+        const warning=progress.saveWarning||'';
         if($('settingsDialog').open)$('settingsDialog').close();
         await loadLiveIndex();
+        if(warning)alertUser(warning,'error');
         return;
       }
       if(desktopFlowId===flow)throw new Error('Desktop authorization timed out. Please try again.');
@@ -2361,6 +2451,44 @@
       $('desktopAuthCancelButton').disabled=true;
       $('desktopAuthConnectButton').disabled=false;
     }
+  }
+  async function resumeDesktopSession({silent=false,load=true}={}){
+    if(!IN_NATIVE_DESKTOP||!safeId(state.config.sheetId))return false;
+    if(desktopResumePromise)return desktopResumePromise;
+    const epoch=state.authEpoch;
+    const attempt=(async()=>{
+      try{
+        if(!silent){
+          state.autoReconnectStatus='Restoring encrypted Windows Google session…';
+          updateStatus();
+        }
+        const data=await desktopAuthPost('resume',{sheetId:state.config.sheetId});
+        if(epoch!==state.authEpoch)return false;
+        if(data.status!=='ready'||typeof data.accessToken!=='string')return false;
+        state.authProvider='desktop';
+        state.accessToken=data.accessToken;
+        state.expiry=Date.now()+Math.max(60,Number(data.expiresIn||3600)-60)*1000;
+        state.autoReconnectStatus='';
+        if(load)await loadLiveIndex();
+        return !load||state.connected;
+      }catch(error){
+        if(!silent){
+          state.autoReconnectStatus='Windows saved sign-in unavailable. Connect via system browser.';
+          updateStatus();
+        }
+        return false;
+      }
+    })();
+    desktopResumePromise=attempt;
+    try{return await attempt;}finally{desktopResumePromise=null;}
+  }
+  async function forgetDesktopSavedSession(){
+    if(!IN_NATIVE_DESKTOP)return;
+    if(!confirm('Forget the encrypted Google sign-in on this Windows account? This does not change Google permissions or any Drive files. You will need to authorize again next time.'))return;
+    try{
+      await desktopAuthPost('forget',{});
+      $('desktopSavedSessionStatus').textContent='Saved Windows session cleared. Browser and gallery data are unchanged until you disconnect.';
+    }catch(error){$('desktopSavedSessionStatus').textContent='Could not forget Windows sign-in: '+error.message;}
   }
   async function connect({automatic=false}={}) {
     if(IN_NATIVE_DESKTOP){
@@ -2453,7 +2581,12 @@
     }
   }
   function tryAutoReconnect(){
-    if(IN_NATIVE_DESKTOP)return;
+    if(IN_NATIVE_DESKTOP){
+      // New Windows host starts with a private DPAPI read-only session. The
+      // separate Sheets-write grant is never refreshed or remembered.
+      if(state.config.sheetId)void resumeDesktopSession();
+      return;
+    }
     if(!state.autoReconnect||!readAutoBinding()||!state.config.clientId||!state.config.sheetId)return;
     if(location.protocol==='file:')return;
     let attempts=0;
@@ -2469,6 +2602,8 @@
     check();
   }
     async function googleGet(url, {blob = false, maxBytes = null, signal = undefined} = {}) {
+    if(IN_NATIVE_DESKTOP&&state.authProvider==='desktop'&&state.accessToken&&Date.now()>state.expiry-15000)
+      await resumeDesktopSession({silent:true,load:false});
     if (!state.accessToken || Date.now() > state.expiry) { updateStatus(); throw new Error('Your Google session expired. Choose Connect Drive to authorize again.'); }
     // Never send a Google access token to a thumbnail URL or any non-API host.
     const host = new URL(url).hostname;
@@ -2573,6 +2708,7 @@
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       const reviewLoadWarning=loadReviewNotes();
+      state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWriteMessage='';
       loadActivityHistory();
       loadSavedSearches();
       loadSmartCollections();
@@ -3359,6 +3495,10 @@
     const token = state.accessToken;
     const wasDesktop=state.authProvider==='desktop';
     if(desktopFlowId)void cancelDesktopAuth();
+    if(sheetWriteFlowId){
+      const flow=sheetWriteFlowId;sheetWriteFlowId='';
+      void desktopAuthPost('cancel',{flowId:flow}).catch(()=>{});
+    }
     state.authEpoch++;
     state.authMode='idle';
     state.autoReconnect=false;
@@ -3371,7 +3511,8 @@
     state.snapshotLoadedAt=null;state.lastSyncAttemptAt=null;state.lastSyncSuccessAt=null;state.lastSyncError='';
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
-    clearThumbnailCache(); state.reviewEdits.clear();state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
+    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -4089,7 +4230,7 @@
   }
   function displayPage(view,{reset=true,scroll=true}={}) {
     if(state.connected&&browsingView())saveBrowsingPosition();
-    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'){
+    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'||view==='sheet-write'){
       state.autoLoadObserver?.disconnect();
       state.autoLoadObserver=null;
       state.galleryRevision++;
@@ -4102,10 +4243,11 @@
       if($('folderSearch'))$('folderSearch').value='';
     }
     $('homeView').classList.toggle('hidden',view!=='home');
-    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity');
+    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'||view==='sheet-write');
     $('reviewInboxView').classList.toggle('hidden',view!=='review-inbox');
     $('renameDeskView').classList.toggle('hidden',view!=='rename-desk');
     $('activityView').classList.toggle('hidden',view!=='activity');
+    $('sheetWriteView').classList.toggle('hidden',view!=='sheet-write');
     $('videoLibraryView').classList.toggle('hidden',view!=='video-library');
     $('similarityView').classList.toggle('hidden',view!=='similarity');
     $('memoryView').classList.toggle('hidden',view!=='memory');
@@ -4116,6 +4258,273 @@
     if(scroll)window.scrollTo({top:0,behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth'});
     updateScrollControls();
   }
+  // Phase 9B-2 approval desk: the only Google write route in this UI.
+  // All other browsing, thumbnail and sync code remains GET-only.
+  function sheetWriteCandidates(){
+    if(!state.connected||!state.driveIdentity)return [];
+    return state.images.filter(item=>
+      sheetApproval.sheetApprovalCandidate(item,state.reviewEdits.get(item.id)));
+  }
+  function renderSheetWrite(){
+    const connected=state.connected&&!!state.driveIdentity;
+    const candidates=sheetWriteCandidates();
+    const pages=Math.max(1,Math.ceil(candidates.length/12));
+    state.sheetWritePage=Math.min(pages,Math.max(1,state.sheetWritePage));
+    $('sheetWritePage').textContent=connected?state.sheetWritePage+' / '+pages:'—';
+    $('sheetWritePrev').disabled=!connected||state.sheetWriteBusy||state.sheetWritePage<=1;
+    $('sheetWriteNext').disabled=!connected||state.sheetWriteBusy||state.sheetWritePage>=pages;
+    $('sheetWriteStatus').textContent=!connected?
+      'Connect a verified Drive account to prepare locally reviewed items.':
+      candidates.length+' eligible local reviews · '+state.sheetWriteStaged.size+
+      ' staged. Google Drive files and original Sheet values are still unchanged.';
+    $('sheetWriteApplyStatus').textContent=state.sheetWriteMessage;
+    $('sheetWriteClear').disabled=state.sheetWriteBusy||!state.sheetWriteStaged.size;
+    $('sheetWriteApply').disabled=state.sheetWriteBusy||!connected||!state.sheetWriteStaged.size;
+    const shown=candidates.slice((state.sheetWritePage-1)*12,state.sheetWritePage*12);
+    $('sheetWriteList').innerHTML=!shown.length?
+      '<p class="activity-empty">'+(connected?
+        'No eligible local reviews on this page. Open Needs review and approve an item locally first.':
+        'Connect your Google account before preparing a Sheet approval.')+'</p>':
+      shown.map(item=>{
+        const staged=state.sheetWriteStaged.has(item.id);
+        return '<article class="activity-entry"><div class="activity-entry-main">'+
+          '<span class="activity-entry-type">LOCAL REVIEW · MANIFEST ROW '+escapeHTML(String(item.manifestRow))+'</span>'+
+          '<h3>'+escapeHTML(item.name)+'</h3><p>'+escapeHTML(item.folder||'')+'</p>'+
+          '<p>'+escapeHTML(item.id)+'</p></div>'+
+          '<button class="btn outline" type="button" data-sheet-preview="'+escapeHTML(item.id)+'" '+
+          (state.sheetWriteBusy?'disabled':'')+'>'+(staged?'Refresh preview':'Preview Sheet change')+'</button></article>';
+      }).join('');
+    $('sheetWriteCurrentPreview').hidden=!state.sheetWritePreview;
+    if(state.sheetWritePreview){
+      const plan=state.sheetWritePreview;
+      $('sheetWriteBefore').textContent=JSON.stringify({
+        fileId:plan.fileId,row:plan.row,description:plan.before.description,
+        tags:plan.before.tags,review:plan.before.review
+      },null,2);
+      $('sheetWriteAfter').textContent=JSON.stringify({
+        fileId:plan.fileId,row:plan.row,description:plan.after.description,
+        tags:plan.after.tags,review:plan.after.review
+      },null,2);
+      $('sheetWriteStage').disabled=state.sheetWriteBusy;
+    }
+    $('sheetWriteStaged').innerHTML=!state.sheetWriteStaged.size?
+      '<p class="activity-empty">No staged changes. Preview a local review to prepare one.</p>':
+      [...state.sheetWriteStaged.values()].map(plan=>
+        '<article class="activity-entry"><div class="activity-entry-main">'+
+        '<span class="activity-entry-type">EXPLICITLY STAGED · SHEET ROW '+escapeHTML(String(plan.row))+'</span>'+
+        '<h3>'+escapeHTML(plan.name)+'</h3><p>Before: '+escapeHTML(plan.before.description)+' / '+escapeHTML(plan.before.tags)+'</p>'+
+        '<p>After: '+escapeHTML(plan.after.description)+' / '+escapeHTML(plan.after.tags)+'</p></div>'+
+        '<button class="btn quiet" type="button" data-sheet-remove="'+escapeHTML(plan.fileId)+'" '+
+        (state.sheetWriteBusy?'disabled':'')+'>Unstage</button></article>'
+      ).join('');
+  }
+  async function sheetWriteFetch(url,token,{method='GET',payload}={}){
+    if(!token||!url.startsWith('https://sheets.googleapis.com/v4/spreadsheets/'))
+      throw new Error('Invalid Sheet request or missing separate authorization.');
+    const response=await fetch(url,{
+      method,mode:'cors',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',
+      headers:{Authorization:'Bearer '+token,...(payload?{'Content-Type':'application/json'}:{})},
+      ...(payload?{body:JSON.stringify(payload)}:{})
+    });
+    if(!response.ok)throw new Error('Google Sheets API returned HTTP '+response.status+'. Refresh and check permissions before retrying.');
+    return response.json();
+  }
+  async function sheetWriteReadRow(row,token){
+    if(!Number.isSafeInteger(row)||row<2||row>100000)
+      throw new Error('Invalid Manifest row.');
+    const ranges=['Manifest!D'+row,'Manifest!M'+row,'Manifest!N'+row,'Manifest!T'+row];
+    const params=new URLSearchParams({valueRenderOption:'FORMULA'});
+    ranges.forEach(range=>params.append('ranges',range));
+    const url='https://sheets.googleapis.com/v4/spreadsheets/'+
+      encodeURIComponent(state.config.sheetId)+'/values:batchGet?'+params;
+    const data=await sheetWriteFetch(url,token);
+    if(!Array.isArray(data.valueRanges)||data.valueRanges.length!==4)
+      throw new Error('Manifest fields could not be read for this review.');
+    const values=data.valueRanges.map(range=>String(range.values?.[0]?.[0]??''));
+    return {fileId:values[0],description:values[1],tags:values[2],review:values[3]};
+  }
+  async function sheetWriteManifestID(token){
+    const url='https://sheets.googleapis.com/v4/spreadsheets/'+
+      encodeURIComponent(state.config.sheetId)+'?fields=sheets(properties(sheetId,title))';
+    const data=await sheetWriteFetch(url,token);
+    const matches=(data.sheets||[]).filter(x=>x.properties?.title==='Manifest');
+    if(matches.length!==1||!Number.isSafeInteger(matches[0].properties.sheetId))
+      throw new Error('The configured spreadsheet lacks one unambiguous Manifest tab.');
+    return matches[0].properties.sheetId;
+  }
+  async function sheetWritePreviewItem(id){
+    if(state.sheetWriteBusy||!state.connected)return;
+    const item=state.images.find(x=>x.id===id);
+    const note=state.reviewEdits.get(id);
+    if(!sheetApproval.sheetApprovalCandidate(item,note))return;
+    const ctx={account:state.driveIdentity,sheetId:state.config.sheetId};
+    const epoch=state.authEpoch;
+    state.sheetWritePreview=null;
+    state.sheetWriteMessage='Reading the exact live Manifest cells for this file…';
+    renderSheetWrite();
+    try{
+      const live=await sheetWriteReadRow(item.manifestRow,state.accessToken);
+      if(epoch!==state.authEpoch||!state.connected||state.config.sheetId!==ctx.sheetId||
+        state.driveIdentity!==ctx.account)return;
+      const plan=sheetApproval.sheetApprovalDraft(item,note,live,ctx);
+      state.sheetWritePreview=plan;
+      state.sheetWriteMessage='Live row confirmed. Inspect the full before-and-after values before staging.';
+    }catch(error){state.sheetWriteMessage='Cannot prepare review: '+error.message;}
+    renderSheetWrite();
+  }
+  function sheetWriteStagePreview(){
+    const plan=state.sheetWritePreview;
+    if(!plan||!state.connected||state.sheetWriteBusy)return;
+    const note=state.reviewEdits.get(plan.fileId);
+    const guard=sheetApproval.sheetApprovalCheck(plan,plan.before,note,{
+      account:state.driveIdentity,sheetId:state.config.sheetId});
+    if(!guard.ok){state.sheetWriteMessage=guard.reason;state.sheetWritePreview=null;renderSheetWrite();return;}
+    if(state.sheetWriteStaged.size>=sheetApproval.SHEET_APPROVAL_LIMIT&&!state.sheetWriteStaged.has(plan.fileId)){
+      state.sheetWriteMessage='At most 10 reviews per approval batch.';renderSheetWrite();return;
+    }
+    state.sheetWriteStaged.set(plan.fileId,plan);
+    state.sheetWritePreview=null;
+    state.sheetWriteMessage='Staged locally. No Google Sheet cells changed.';
+    renderSheetWrite();
+  }
+  async function sheetWriteAuthorize(){
+    if(IN_NATIVE_DESKTOP){
+      const clientId=$('sheetWriteDesktopClient').value.trim();
+      const clientSecret=$('sheetWriteDesktopSecret').value;
+      $('sheetWriteDesktopSecret').value='';
+      const start=await desktopAuthPost('write-start',{
+        sheetId:state.config.sheetId,clientId,clientSecret
+      });
+      const flow=String(start.flowId||'');
+      if(!flow)throw new Error('Desktop Google consent session could not start.');
+      sheetWriteFlowId=flow;
+      const epoch=state.authEpoch;
+      try{
+        for(let i=0;i<150;i++){
+          if(epoch!==state.authEpoch)throw new Error('Connection changed during authorization.');
+          await desktopAuthPause(1100);
+          const result=await desktopAuthPost('poll',{flowId:flow});
+          if(result.status==='pending'||result.status==='exchanging')continue;
+          if(result.status==='error')throw new Error(result.message||'Sheet authorization was declined.');
+          if(result.status==='ready'&&result.writeScope===true&&typeof result.accessToken==='string')
+            return result.accessToken;
+          throw new Error('Google did not return an approved Sheet-write grant.');
+        }
+        throw new Error('Sheet write authorization timed out.');
+      }finally{
+        if(sheetWriteFlowId===flow)sheetWriteFlowId='';
+        await desktopAuthPost('cancel',{flowId:flow}).catch(()=>{});
+      }
+    }
+    if(!window.google?.accounts?.oauth2||!state.config.clientId)
+      throw new Error('Connect your browser Google OAuth client before requesting Sheet write permission.');
+    return new Promise((resolve,reject)=>{
+      try{
+        const client=google.accounts.oauth2.initTokenClient({
+          client_id:state.config.clientId,
+          scope:SHEET_WRITE_SCOPE+' https://www.googleapis.com/auth/drive.readonly',
+          callback:result=>{
+            if(!result?.access_token){reject(new Error('Google denied Sheet write permission.'));return;}
+            const scopes=String(result.scope||'').split(/\s+/);
+            if(!scopes.includes(SHEET_WRITE_SCOPE)||!scopes.includes('https://www.googleapis.com/auth/drive.readonly')){
+              reject(new Error('Required temporary write and identity scopes were not granted.'));return;
+            }
+            resolve(result.access_token);
+          },
+          error_callback:()=>reject(new Error('Google Sheet write authorization was cancelled.'))
+        });
+        client.requestAccessToken({prompt:'consent'});
+      }catch(error){reject(error);}
+    });
+  }
+  async function sheetWriteApply(){
+    const plans=[...state.sheetWriteStaged.values()];
+    if(state.sheetWriteBusy||!state.connected||!state.driveIdentity||
+      !plans.length||plans.length>sheetApproval.SHEET_APPROVAL_LIMIT)return;
+    const ctx={account:state.driveIdentity,sheetId:state.config.sheetId};
+    if(!confirm('Authorize a TEMPORARY Google Sheets edit grant for '+plans.length+
+      ' explicitly staged review(s)? Google grants access to Sheets broadly, but Image Vault will write ONLY Manifest columns M, N and T in the configured inventory after another confirmation.'))return;
+    const epoch=state.authEpoch;
+    state.sheetWriteBusy=true;
+    state.sheetWriteMessage='Waiting for separate Google Sheets edit authorization…';
+    renderSheetWrite();
+    let submitted=false;
+    try{
+      const writeToken=await sheetWriteAuthorize();
+      if(epoch!==state.authEpoch||!state.connected||state.driveIdentity!==ctx.account||
+        state.config.sheetId!==ctx.sheetId||state.view!=='sheet-write')
+        throw new Error('Connection or workspace changed before approval. No write was sent.');
+      const identityResponse=await fetch('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',{
+        method:'GET',mode:'cors',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',
+        headers:{Authorization:'Bearer '+writeToken}
+      });
+      if(!identityResponse.ok)throw new Error('Could not verify the Google account holding the temporary write token.');
+      const identity=await identityResponse.json();
+      if(identity.user?.permissionId!==ctx.account)
+        throw new Error('Write authorization belongs to a different Google account. No changes were sent.');
+      const tabID=await sheetWriteManifestID(writeToken);
+      state.sheetWriteMessage='Checking exact Drive IDs and live Sheet values before writing…';
+      renderSheetWrite();
+      for(const plan of plans){
+        const item=state.images.find(x=>x.id===plan.fileId);
+        if(!item||item.manifestRow!==plan.row)
+          throw new Error('Manifest row mapping changed for '+plan.name+'. Re-stage from the live inventory.');
+        const live=await sheetWriteReadRow(plan.row,writeToken);
+        const result=sheetApproval.sheetApprovalCheck(plan,live,state.reviewEdits.get(plan.fileId),ctx);
+        if(!result.ok)throw new Error(plan.name+': '+result.reason);
+      }
+      if(epoch!==state.authEpoch||!state.connected||state.view!=='sheet-write')
+        throw new Error('Approval context changed. No write was sent.');
+      if(!confirm('Final confirmation: write '+plans.length+' exact review(s) into Manifest M/N/T of Sheet '+
+        ctx.sheetId+'? These Google Sheet edits are NOT reversed by app rollback.'))throw new Error('Final approval cancelled. Nothing was written.');
+      // Confirmation can remain open while another collaborator edits. Re-read
+      // once more immediately before submitting. Sheets has no atomic CAS.
+      for(const plan of plans){
+        const live=await sheetWriteReadRow(plan.row,writeToken);
+        const check=sheetApproval.sheetApprovalCheck(plan,live,state.reviewEdits.get(plan.fileId),ctx);
+        if(!check.ok)throw new Error('Changed during confirmation: '+plan.name+' · '+check.reason);
+      }
+      if(epoch!==state.authEpoch||!state.connected||state.driveIdentity!==ctx.account||
+         state.config.sheetId!==ctx.sheetId)throw new Error('Connection changed after confirmation.');
+      const update=sheetApproval.sheetApprovalRequests(plans,tabID);
+      const url='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(ctx.sheetId)+':batchUpdate';
+      // Once a request leaves this app, even a network error cannot prove the
+      // server did not commit. Never automatically retry an uncertain batch.
+      submitted=true;
+      const result=await sheetWriteFetch(url,writeToken,{method:'POST',payload:update});
+      if(!Array.isArray(result.replies)||result.replies.length!==update.requests.length)
+        throw new Error('Google did not confirm all update requests; inspect the Sheet before retrying.');
+      for(const plan of plans){
+        const live=await sheetWriteReadRow(plan.row,writeToken);
+        if(live.fileId!==plan.fileId||
+          live.description!==plan.after.description||
+          live.tags!==plan.after.tags||live.review!==plan.after.review)
+          throw new Error('Read-back verification differed for '+plan.name+'. Inspect the live Manifest before retrying.');
+      }
+      if(epoch!==state.authEpoch||!state.connected)return;
+      for(const plan of plans){
+        for(const arr of [state.images,state.inventory]){
+          const item=arr.find(x=>x.id===plan.fileId);
+          if(item){item.description=plan.after.description;item.tags=plan.after.tags;item.review=plan.after.review;}
+        }
+        state.sheetWriteStaged.delete(plan.fileId);
+      }
+      logActivity('sheet-write',{count:plans.length});
+      state.sheetWritePreview=null;
+      state.sheetWriteMessage='Verified '+plans.length+' approved review(s) in the live Manifest. Drive files and filenames were untouched.';
+      updateReviewCounts();
+    }catch(error){
+      if(epoch===state.authEpoch){
+        state.sheetWriteMessage=(submitted?
+          'WRITE MAY HAVE OCCURRED; verification incomplete. Inspect the live Manifest before attempting any retry: ':
+          'Nothing was submitted by this attempt: ')+(error.message||'Unexpected error');
+        if(submitted)logActivity('sheet-write-unverified',{count:plans.length});
+      }
+    }finally{
+      state.sheetWriteBusy=false;
+      if(state.view==='sheet-write')renderSheetWrite();
+    }
+  }
   function activityTitle(kind){
     return {
       'inventory':'Read-only inventory loaded',
@@ -4125,7 +4534,9 @@
       'review-backup':'Private review backup imported',
       'rename-plan':'Unapplied rename plan exported',
       'rename-clear':'Rename staging cleared',
-      'undo-review':'Local review change reversed'
+      'undo-review':'Local review change reversed',
+      'sheet-write':'Approved Sheet reviews verified',
+      'sheet-write-unverified':'Sheet write requires manual verification'
     }[kind]||'Local activity';
   }
   function renderActivity(){
@@ -4153,7 +4564,10 @@
       'Connect Drive to see private activity on this device.':
       state.activityError?state.activityError:
       !active?'History is not available for this account.':
-      page.count+' matching activities · '+history.items.length+' recorded locally. Nothing has been written to Google Drive or Sheets.';
+      page.count+' matching activities · '+history.items.length+' recorded locally. '+
+        (history.items.some(e=>['sheet-write','sheet-write-unverified'].includes(e.kind))?
+          'Approved Sheets edits are recorded here. Drive originals remain unchanged.':
+          'Nothing has been written to Google Drive or Sheets.');
     if(!active){
       $('activityList').innerHTML='<p class="activity-empty">No account-specific activity available. Your local review notes remain untouched.</p>';
       return;
@@ -4172,7 +4586,8 @@
       const label=media?media.name:(entry.fileId?'Media not in current inventory':'');
       const type=['review-save','review-reset','undo-review'].includes(entry.kind)?'LOCAL REVIEW':
         ['review-import','review-backup'].includes(entry.kind)?'REVIEW IMPORT':
-        ['rename-plan','rename-clear'].includes(entry.kind)?'FILENAME PLANNING':'INVENTORY READ';
+        ['rename-plan','rename-clear'].includes(entry.kind)?'FILENAME PLANNING':
+        ['sheet-write','sheet-write-unverified'].includes(entry.kind)?'SHEET APPROVAL':'INVENTORY READ';
       const count=entry.count>1?' · '+entry.count+' records':'';
       const date=new Date(entry.at).toLocaleString();
       const status=entry.status==='undone'?' · already undone':
@@ -4240,7 +4655,7 @@
       state.activityError='';state.activityPage=1;renderActivity();
     }catch(err){$('activityStatus').textContent='Could not clear local activity: '+err.message;}
   }
-  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else if(state.view==='rename-desk')renameDeskRender();else if(state.view==='activity')renderActivity();else renderGallery();}
+  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else if(state.view==='rename-desk')renameDeskRender();else if(state.view==='activity')renderActivity();else if(state.view==='sheet-write')renderSheetWrite();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
     $('statImages').textContent=count(state.inventory.length);
@@ -5114,6 +5529,29 @@
   function initEvents() {
     setupSidebarGroups();
     document.querySelectorAll('[data-view]').forEach(btn=>btn.onclick=()=>displayPage(btn.dataset.view));
+    $('sheetWriteList').onclick=event=>{
+      const button=event.target.closest('button[data-sheet-preview]');
+      if(button&&$('sheetWriteList').contains(button))void sheetWritePreviewItem(button.dataset.sheetPreview);
+    };
+    $('sheetWriteStage').onclick=sheetWriteStagePreview;
+    $('sheetWriteStaged').onclick=event=>{
+      const button=event.target.closest('button[data-sheet-remove]');
+      if(!button||state.sheetWriteBusy)return;
+      state.sheetWriteStaged.delete(button.dataset.sheetRemove);
+      state.sheetWriteMessage='Review unstaged. No Google Sheet changes made.';
+      renderSheetWrite();
+    };
+    $('sheetWritePrev').onclick=()=>{state.sheetWritePage=Math.max(1,state.sheetWritePage-1);renderSheetWrite();};
+    $('sheetWriteNext').onclick=()=>{state.sheetWritePage++;renderSheetWrite();};
+    $('sheetWriteClear').onclick=()=>{
+      if(state.sheetWriteBusy)return;
+      state.sheetWriteStaged.clear();state.sheetWritePreview=null;
+      state.sheetWriteMessage='Staged changes cleared without writing to Google Sheets.';
+      renderSheetWrite();
+    };
+    $('sheetWriteApply').onclick=()=>void sheetWriteApply();
+    $('sheetWriteOpenReview').onclick=()=>displayPage('review');
+    $('sheetWriteOpenActivity').onclick=()=>displayPage('activity');
     $('activityFilter').onchange=event=>{
       state.activityFilter=event.target.value;state.activityPage=1;renderActivity();
     };
@@ -5187,6 +5625,7 @@
     $('sheetIdInput').oninput=()=>$('sheetIdInput').setCustomValidity('');
     $('settingsForm').onsubmit=saveSettings;
     $('desktopAuthConnectButton').onclick=connectDesktopOAuth;
+    $('desktopForgetSavedButton').onclick=forgetDesktopSavedSession;
     $('desktopSaveSheetButton').onclick=saveDesktopSheetId;
     $('desktopAuthCancelButton').onclick=()=>void cancelDesktopAuth();
     $('settingsDialog').addEventListener('close',()=>{if(desktopFlowId)void cancelDesktopAuth();});

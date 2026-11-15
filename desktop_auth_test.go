@@ -221,3 +221,91 @@ func TestDesktopOAuthMissingClientSecretCallbackAndPoll(t *testing.T){
  }
  if result["accessToken"]!=nil{t.Fatal("failed exchange produced bearer token")}
 }
+
+
+func TestDesktopSavedReadOnlyRefreshAndOptIn(t *testing.T){
+ var saved desktopSavedSession
+ writes:=0
+ var authURL *url.URL
+ tokenServer:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  if err:=r.ParseForm();err!=nil{t.Error(err)}
+  w.Header().Set("Content-Type","application/json")
+  switch r.Form.Get("grant_type"){
+  case "authorization_code":
+   if r.Form.Get("client_id")!=fakeDesktopID||r.Form.Get("client_secret")!="matching-secret"{
+    t.Error("initial code exchange did not preserve matching Desktop credentials")
+   }
+   _,_=io.WriteString(w,`{"access_token":"initial-read-only-token","refresh_token":"refresh-private-test-token","expires_in":3600,"token_type":"Bearer","scope":"https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets.readonly"}`)
+  case "refresh_token":
+   if r.Form.Get("refresh_token")!="refresh-private-test-token"||r.Form.Get("client_secret")!="matching-secret"{
+    t.Error("refresh used wrong credentials")
+   }
+   _,_=io.WriteString(w,`{"access_token":"refreshed-read-only-token","expires_in":3600,"token_type":"Bearer","scope":"https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets.readonly"}`)
+  default:t.Errorf("unexpected grant_type %q",r.Form.Get("grant_type"))
+  }
+ }))
+ defer tokenServer.Close()
+ b:=newDesktopAuthBroker()
+ b.tokenEndpoint=tokenServer.URL
+ b.launch=func(raw string)error{var err error;authURL,err=url.Parse(raw);return err}
+ b.saveSession=func(s desktopSavedSession)error{writes++;saved=s;return nil}
+ b.loadSession=func()(desktopSavedSession,error){
+  if writes==0{return desktopSavedSession{},fmt.Errorf("no saved session")}
+  return saved,nil
+ }
+ b.clearSession=func()error{writes=0;saved=desktopSavedSession{};return nil}
+ sheetID:="fixtureSheet012345"
+ id,err:=b.start(fakeDesktopID,"matching-secret",desktopStartOptions{Remember:true,SheetID:sheetID})
+ if err!=nil{t.Fatal(err)}
+ if authURL.Query().Get("access_type")!="offline"||
+    !strings.Contains(authURL.Query().Get("prompt"),"consent")||
+    !exactReadScopes(authURL.Query().Get("scope")){
+  t.Fatal("remember request did not request explicit offline read-only authorization")
+ }
+ callback:=authURL.Query().Get("redirect_uri")+"?state="+url.QueryEscape(authURL.Query().Get("state"))+"&code=synthetic-google-code"
+ response,err:=http.Get(callback);if err!=nil{t.Fatal(err)}
+ _=response.Body.Close()
+ result,err:=b.poll(id)
+ if err!=nil||result["status"]!="ready"||result["savedSession"]!=true{t.Fatalf("initial authorization: %v %v",result,err)}
+ if writes!=1||saved.SheetID!=sheetID||saved.RefreshToken!="refresh-private-test-token"{
+  t.Fatal("read-only credential store was not written exactly once")
+ }
+ if strings.Contains(fmt.Sprint(result),"refresh-private-test-token"){
+  t.Fatal("refresh token leaked into browser polling result")
+ }
+ resumed,err:=b.resume(sheetID)
+ if err!=nil||resumed["accessToken"]!="refreshed-read-only-token"{t.Fatalf("refresh failed: %v %v",resumed,err)}
+ if _,err:=b.resume("anotherSheet012345");err==nil{t.Fatal("wrong Sheet restored saved session")}
+}
+
+func TestDesktopWriteAuthorizationCannotBeRemembered(t *testing.T){
+ var authURL *url.URL
+ saves:=0
+ tokenServer:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  _=r.ParseForm()
+  if r.Form.Get("grant_type")!="authorization_code"{t.Error("unexpected OAuth grant")}
+  _,_=io.WriteString(w,`{"access_token":"temporary-sheet-write-token","refresh_token":"never-persist-write-grant","expires_in":3600,"token_type":"Bearer","scope":"https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly"}`)
+ }))
+ defer tokenServer.Close()
+ b:=newDesktopAuthBroker();b.tokenEndpoint=tokenServer.URL
+ b.launch=func(raw string)error{var err error;authURL,err=url.Parse(raw);return err}
+ b.saveSession=func(desktopSavedSession)error{saves++;return nil}
+ if _,err:=b.start(fakeDesktopID,"",desktopStartOptions{Remember:true,SheetWrite:true,SheetID:"fixtureSheet012345"});err==nil{
+  t.Fatal("Sheet edit grant was allowed into the saved session")
+ }
+ id,err:=b.start(fakeDesktopID,"",desktopStartOptions{SheetID:"fixtureSheet012345",SheetWrite:true})
+ if err!=nil{t.Fatal(err)}
+ if authURL.Query().Get("access_type")!="online"||
+  !exactWriteScopes(authURL.Query().Get("scope"))||
+  !strings.Contains(authURL.Query().Get("prompt"),"consent") {
+  t.Fatal("temporary Sheet consent was not explicitly scoped")
+ }
+ response,err:=http.Get(authURL.Query().Get("redirect_uri")+"?state="+
+  url.QueryEscape(authURL.Query().Get("state"))+"&code=synthetic-google-code")
+ if err!=nil{t.Fatal(err)};_ =response.Body.Close()
+ result,err:=b.poll(id)
+ if err!=nil||result["writeScope"]!=true||result["savedSession"]!=false{
+  t.Fatalf("temporary write OAuth was not isolated: %v %v",result,err)
+ }
+ if saves!=0{t.Fatal("temporary Sheets edit refresh token was persisted")}
+}

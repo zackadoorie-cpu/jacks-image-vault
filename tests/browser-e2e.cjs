@@ -32,11 +32,13 @@ async function server(){
 async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,turbo=false}={}){
  const ctx=await browser.newContext({viewport:mobile?{width:narrow?320:375,height:812}:{width:1366,height:860},reducedMotion:mobile?'reduce':'no-preference'});
  let fail=false;const requests=[];let activeAccount='fixture_permission_123456789';
+ let sheetRow={fileId:id,description:'Fabricated orange cat',tags:'orange cat, reaction meme',review:'Original Drive still image visually verified, fixture only'};
+ const sheetWrites=[];
  await ctx.addInitScript(native=>{
    if(native)window.__JACKS_VAULT_DESKTOP_HOST=true;
    localStorage.setItem('jack-vault-settings-v2',JSON.stringify({clientId:'123456789-fixture.apps.googleusercontent.com',sheetId:'fixture_sheet_123456789'}));
    window.google={accounts:{oauth2:{
-     initTokenClient(opts){return {requestAccessToken(options){(window.__authPrompts??=[]).push(options?.prompt);opts.callback({access_token:'fake-e2e-token',expires_in:3600});}};},
+     initTokenClient(opts){return {requestAccessToken(options){(window.__authPrompts??=[]).push(options?.prompt);opts.callback({access_token:'fake-e2e-token',expires_in:3600,scope:opts.scope});}};},
      revoke(_,fn){fn();}
    }}};
  },native);
@@ -51,7 +53,33 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,t
  }
  await ctx.route('https://accounts.google.com/**',r=>r.abort());
  await ctx.route('https://drive.google.com/**',r=>r.abort());
- await ctx.route('https://sheets.googleapis.com/**',r=>{requests.push(r.request().method());return r.fulfill(fail?{status:503,body:'{"error":{"message":"fixture failure"}}'}:reply(batch));});
+ await ctx.route('https://sheets.googleapis.com/**',r=>{
+   const request=r.request();requests.push(request.method());
+   if(fail)return r.fulfill({status:503,body:'{"error":{"message":"fixture failure"}}'});
+   const u=new URL(request.url());
+   if(u.pathname.endsWith('/values:batchGet')&&u.searchParams.getAll('ranges').some(x=>x.startsWith('Manifest!D'))){
+     return r.fulfill(reply({valueRanges:[
+       {values:[[sheetRow.fileId]]},{values:[[sheetRow.description]]},
+       {values:[[sheetRow.tags]]},{values:[[sheetRow.review]]}
+     ]}));
+   }
+   if(u.pathname.endsWith(':batchUpdate')&&request.method()==='POST'){
+     const body=request.postDataJSON();
+     sheetWrites.push(body);
+     for(const item of body.requests||[]){
+       const column=item.updateCells?.start?.columnIndex;
+       const value=item.updateCells?.rows?.[0]?.values?.[0]?.userEnteredValue?.stringValue;
+       if(column===12)sheetRow.description=value;
+       if(column===13)sheetRow.tags=value;
+       if(column===19)sheetRow.review=value;
+     }
+     return r.fulfill(reply({replies:body.requests.map(()=>({}))}));
+   }
+   if(u.searchParams.has('fields')){
+     return r.fulfill(reply({sheets:[{properties:{title:'Manifest',sheetId:1888160209}}]}));
+   }
+   return r.fulfill(reply(batch));
+ });
  await ctx.route('https://www.googleapis.com/**',r=>{
    requests.push(r.request().method());
    const u=new URL(r.request().url());
@@ -62,7 +90,7 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,t
    return r.fulfill({status:403,body:'Fixture-only access'});
  });
  const page=await ctx.newPage();await page.goto(url,{waitUntil:'domcontentloaded'});
- return {ctx,page,requests,failSheet(){fail=true;},setAccount(id){activeAccount=id;}};
+ return {ctx,page,requests,failSheet(){fail=true;},setAccount(id){activeAccount=id;},getSheetWrites(){return sheetWrites;},getSheetRow(){return sheetRow;}};
 }
 async function main(){
  const {server:host,url}=await server();let browser;
@@ -415,6 +443,54 @@ async function main(){
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     assert.equal((await p.evaluate(()=>JSON.stringify(localStorage))).includes('fake-e2e-token'),false);
   }finally{await connected.ctx.close();}
+  // Sheets approval smoke: explicit preview and staging never POST.
+  // Separate transient consent, two confirmations and exact M/N/T updates
+  // are exercised only against fabricated Google API routes.
+  const approvals=await fixturePage(browser,url);
+  try{
+    const p=approvals.page;
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    await p.locator('[data-view="all"]').click();
+    await p.locator('#galleryGrid [data-open-image="'+id+'"]').click();
+    await p.locator('#reviewDescription').fill('Reviewed local cat photo, approved for Sheet.');
+    await p.locator('#reviewTags').fill('local cat, tagged');
+    await p.locator('#reviewSaveDraft').click();
+    await p.locator('#reviewApprove').click();
+    await p.mouse.click(5,5);
+    await p.locator('#navigation details[data-nav-group="manage"] summary').click();
+    await p.locator('[data-view="sheet-write"]').click();
+    assert.equal(await p.locator('#sheetWriteView').isVisible(),true);
+    await p.locator('[data-sheet-preview]').click();
+    await p.waitForFunction(()=>!document.querySelector('#sheetWriteCurrentPreview')?.hidden);
+    assert.match(await p.locator('#sheetWriteBefore').innerText(),/Fabricated orange cat/);
+    assert.match(await p.locator('#sheetWriteAfter').innerText(),/Reviewed local cat photo/);
+    assert.equal(approvals.getSheetWrites().length,0,'preview performed a Sheets write');
+    await p.locator('#sheetWriteStage').click();
+    assert.equal(await p.locator('[data-sheet-remove]').count(),1);
+    assert.equal(approvals.getSheetWrites().length,0,'staging performed a Sheets write');
+    p.once('dialog',dialog=>dialog.dismiss());
+    await p.locator('#sheetWriteApply').click();
+    assert.equal(approvals.getSheetWrites().length,0,'declined authorization still wrote');
+    const acceptApprovals=dialog=>void dialog.accept();
+    p.on('dialog',acceptApprovals);
+    await p.locator('#sheetWriteApply').click();
+    await p.waitForFunction(()=>document.querySelector('#sheetWriteApplyStatus')?.textContent.includes('Verified 1 approved'),null,{timeout:18000})
+      .catch(async error=>{
+        const message=await p.locator('#sheetWriteApplyStatus').innerText();
+        throw new Error('Sheet approval smoke did not finish: '+message+'; '+error.message);
+      });
+    p.off('dialog',acceptApprovals);
+    assert.equal(approvals.getSheetWrites().length,1);
+    const payload=approvals.getSheetWrites()[0];
+    assert.deepEqual(payload.requests.map(x=>x.updateCells.start.columnIndex),[12,13,19]);
+    assert.equal(approvals.getSheetRow().description,'Reviewed local cat photo, approved for Sheet.');
+    assert.equal(approvals.getSheetRow().tags,'local cat, tagged');
+    assert.equal(approvals.requests.filter(x=>x==='POST').length,1,'only explicit confirmed update can POST to Sheets');
+    await p.locator('[data-view="activity"]').click();
+    await p.locator('#activityFilter').selectOption('writes');
+    assert.match(await p.locator('#activityList').innerText(),/Approved Sheet reviews verified/);
+  }finally{await approvals.ctx.close();}
   // Theme persistence, token-free opt-in reconnect and wrong-account fail closed.
   const auto=await fixturePage(browser,url);
   try{

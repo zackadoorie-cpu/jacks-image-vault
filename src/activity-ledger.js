@@ -6,7 +6,7 @@ const ACTIVITY_SCHEMA=1;
 const ACTIVITY_MAX_EVENTS=120;
 const ACTIVITY_MAX_BYTES=480*1024;
 const ACTIVITY_AGE_MS=90*24*60*60*1000;
-const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review']);
+const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified']);
 function activityReview(value){
   if(value==null)return null;
   if(typeof value!=='object'||Array.isArray(value)||
@@ -92,7 +92,7 @@ function activityCanUndo(entry,current,{account,sheetId,entryAccount,entrySheetI
   return {ok:true,reason:'Only this device’s local review note will be restored.'};
 }
 function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
-  const categories=['all','review','imports','plans','inventory'];
+  const categories=['all','review','imports','plans','inventory','writes'];
   const chosen=categories.includes(filter)?filter:'all';
   const q=String(query||'').toLocaleLowerCase('en-US').trim().slice(0,120);
   const list=(log?.items||[]).filter(e=>{
@@ -100,6 +100,7 @@ function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
     if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
     if(chosen==='plans'&&!['rename-plan','rename-clear'].includes(e.kind))return false;
     if(chosen==='inventory'&&e.kind!=='inventory')return false;
+    if(chosen==='writes'&&!['sheet-write','sheet-write-unverified'].includes(e.kind))return false;
     return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
   });
   const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
