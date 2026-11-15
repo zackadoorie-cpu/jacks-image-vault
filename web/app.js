@@ -4474,6 +4474,15 @@
         throw new Error('Approval context changed. No write was sent.');
       if(!confirm('Final confirmation: write '+plans.length+' exact review(s) into Manifest M/N/T of Sheet '+
         ctx.sheetId+'? These Google Sheet edits are NOT reversed by app rollback.'))throw new Error('Final approval cancelled. Nothing was written.');
+      // Confirmation can remain open while another collaborator edits. Re-read
+      // once more immediately before submitting. Sheets has no atomic CAS.
+      for(const plan of plans){
+        const live=await sheetWriteReadRow(plan.row,writeToken);
+        const check=sheetApproval.sheetApprovalCheck(plan,live,state.reviewEdits.get(plan.fileId),ctx);
+        if(!check.ok)throw new Error('Changed during confirmation: '+plan.name+' · '+check.reason);
+      }
+      if(epoch!==state.authEpoch||!state.connected||state.driveIdentity!==ctx.account||
+         state.config.sheetId!==ctx.sheetId)throw new Error('Connection changed after confirmation.');
       const update=sheetApproval.sheetApprovalRequests(plans,tabID);
       const url='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(ctx.sheetId)+':batchUpdate';
       // Once a request leaves this app, even a network error cannot prove the
