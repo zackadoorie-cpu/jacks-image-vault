@@ -535,9 +535,9 @@
       <button class="btn outline" id="desktopSaveSheetButton" type="button">Save spreadsheet ID</button>
       <label class="field-label" for="desktopClientIdInput">Google OAuth Desktop client ID</label>
       <input class="field" id="desktopClientIdInput" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="180" placeholder="Desktop client ID from Google Cloud">
-      <label class="field-label" for="desktopClientSecretInput">Desktop client secret (only if listed in your downloaded Desktop client credentials)</label>
-      <input class="field" id="desktopClientSecretInput" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Optional Desktop client secret">
-      <p class="field-help">Neither value is saved by this beta feature. Never enter your Google account password. Read-only Drive and Sheets access is requested, and refresh tokens are never retained.</p>
+      <label class="field-label" for="desktopClientSecretInput">Desktop client secret (from the SAME Desktop OAuth client)</label>
+      <input class="field" id="desktopClientSecretInput" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Paste client_secret from Desktop OAuth credentials JSON, if provided">
+      <p class="field-help">Some Google Desktop OAuth token exchanges require this field even when documentation marks it optional. If you see “client_secret is missing”, use the <code>client_secret</code> in the downloaded <strong>Desktop app</strong> credentials JSON. Do not use your Web client secret, and never enter your Google account password. Neither credential is saved by the Vault.</p>
       <div class="dialog-actions">
         <button class="btn outline" id="desktopAuthCancelButton" type="button" disabled>Cancel authorization</button>
         <button class="btn primary" id="desktopAuthConnectButton" type="button">Connect via system browser</button>
