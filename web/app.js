@@ -67,7 +67,7 @@
     const ACTIVITY_MAX_EVENTS=120;
     const ACTIVITY_MAX_BYTES=480*1024;
     const ACTIVITY_AGE_MS=90*24*60*60*1000;
-    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review']);
+    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified']);
     function activityReview(value){
       if(value==null)return null;
       if(typeof value!=='object'||Array.isArray(value)||
@@ -153,7 +153,7 @@
       return {ok:true,reason:'Only this device’s local review note will be restored.'};
     }
     function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
-      const categories=['all','review','imports','plans','inventory'];
+      const categories=['all','review','imports','plans','inventory','writes'];
       const chosen=categories.includes(filter)?filter:'all';
       const q=String(query||'').toLocaleLowerCase('en-US').trim().slice(0,120);
       const list=(log?.items||[]).filter(e=>{
@@ -161,6 +161,7 @@
         if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
         if(chosen==='plans'&&!['rename-plan','rename-clear'].includes(e.kind))return false;
         if(chosen==='inventory'&&e.kind!=='inventory')return false;
+    if(chosen==='writes'&&!['sheet-write','sheet-write-unverified'].includes(e.kind))return false;
         return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
       });
       const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
@@ -4521,7 +4522,9 @@
       'review-backup':'Private review backup imported',
       'rename-plan':'Unapplied rename plan exported',
       'rename-clear':'Rename staging cleared',
-      'undo-review':'Local review change reversed'
+      'undo-review':'Local review change reversed',
+      'sheet-write':'Approved Sheet reviews verified',
+      'sheet-write-unverified':'Sheet write requires manual verification'
     }[kind]||'Local activity';
   }
   function renderActivity(){
@@ -4549,7 +4552,10 @@
       'Connect Drive to see private activity on this device.':
       state.activityError?state.activityError:
       !active?'History is not available for this account.':
-      page.count+' matching activities · '+history.items.length+' recorded locally. Nothing has been written to Google Drive or Sheets.';
+      page.count+' matching activities · '+history.items.length+' recorded locally. '+
+        (history.items.some(e=>['sheet-write','sheet-write-unverified'].includes(e.kind))?
+          'Approved Sheets edits are recorded here. Drive originals remain unchanged.':
+          'Nothing has been written to Google Drive or Sheets.');
     if(!active){
       $('activityList').innerHTML='<p class="activity-empty">No account-specific activity available. Your local review notes remain untouched.</p>';
       return;
@@ -4568,7 +4574,8 @@
       const label=media?media.name:(entry.fileId?'Media not in current inventory':'');
       const type=['review-save','review-reset','undo-review'].includes(entry.kind)?'LOCAL REVIEW':
         ['review-import','review-backup'].includes(entry.kind)?'REVIEW IMPORT':
-        ['rename-plan','rename-clear'].includes(entry.kind)?'FILENAME PLANNING':'INVENTORY READ';
+        ['rename-plan','rename-clear'].includes(entry.kind)?'FILENAME PLANNING':
+        ['sheet-write','sheet-write-unverified'].includes(entry.kind)?'SHEET APPROVAL':'INVENTORY READ';
       const count=entry.count>1?' · '+entry.count+' records':'';
       const date=new Date(entry.at).toLocaleString();
       const status=entry.status==='undone'?' · already undone':
