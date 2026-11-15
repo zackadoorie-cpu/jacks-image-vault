@@ -452,7 +452,7 @@ async function main(){
     await p.locator('#connectButton').click();
     await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
     await p.locator('[data-view="all"]').click();
-    await p.locator('#galleryGrid [data-open-image]').first().click();
+    await p.locator('#galleryGrid [data-open-image="'+id+'"]').click();
     await p.locator('#reviewDescription').fill('Reviewed local cat photo, approved for Sheet.');
     await p.locator('#reviewTags').fill('local cat, tagged');
     await p.locator('#reviewSaveDraft').click();
