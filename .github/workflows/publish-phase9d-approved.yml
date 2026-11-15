@@ -1,0 +1,31 @@
+# One-time approved Phase 9D Windows desktop feature release.
+# Only the unchanged full release pipeline publishes verified artifacts.
+name: Publish approved Phase 9D Windows Power Tools
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Phase 9D Windows Power Tools v2.1.25 (#65)')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch full tested v2.1.25 release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.25 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.25 already exists; no duplicate release."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.25
+          echo "Dispatched complete release.yml pipeline for v2.1.25."

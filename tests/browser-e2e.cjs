@@ -166,6 +166,24 @@ async function main(){
     await p.keyboard.press('Alt+1');
     await p.keyboard.press('Alt+3');assert.equal(await p.locator('#videoLibraryView').isVisible(),true);
     await p.keyboard.press('Alt+1');assert.equal(await p.locator('#homeView').isVisible(),true);
+    await p.keyboard.press('Control+k');
+    assert.equal(await p.locator('#powerPaletteDialog').evaluate(d=>d.open),true);
+    assert.equal(await p.evaluate(()=>document.activeElement.id),'powerPaletteQuery');
+    await p.locator('#powerPaletteQuery').fill('Library Health');
+    assert.equal(await p.locator('#powerPaletteResults [role="option"]').count(),1);
+    await p.keyboard.press('Enter');
+    assert.equal(await p.locator('#healthView').isVisible(),true);
+    assert.equal(await p.locator('#powerPaletteDialog').evaluate(d=>d.open),false);
+    await p.keyboard.press('Control+k');
+    await p.keyboard.press('Escape');
+    assert.equal(await p.locator('#powerPaletteDialog').evaluate(d=>d.open),false);
+    const resize=p.locator('#sidebarResizer');
+    await resize.focus();await p.keyboard.press('ArrowRight');
+    assert.equal(await resize.getAttribute('aria-valuenow'),'260');
+    assert.equal(await p.evaluate(()=>localStorage.getItem('jack-vault-sidebar-width-v1')),'260');
+    await p.reload({waitUntil:'domcontentloaded'});
+    assert.equal(await resize.getAttribute('aria-valuenow'),'260');
+    await p.keyboard.press('Alt+1');
   }finally{await preview.ctx.close();}
   // A native lifecycle is opt-in by capability: mock exactly the local
   // session API, never launch/stop a real Windows process from this test.
@@ -371,6 +389,22 @@ async function main(){
     assert.equal(await p.evaluate(()=>window.__vaultXss||0),0);
     assert.deepEqual(browserErrors,[],'Saved search created uncaught browser errors');
     await p.locator('#searchInput').fill('');
+    await p.locator('#galleryGrid [data-open-image="'+id+'"]').click({button:'right'});
+    assert.equal(await p.locator('#tileContextMenu').isVisible(),true);
+    assert.equal(await p.locator('#tileContextMenu [role="menuitem"]').count(),4);
+    await p.locator('[data-context-action="favorite"]').click();
+    assert.equal(await p.locator('#galleryGrid [data-favorite="'+id+'"]').getAttribute('class').then(x=>x.includes('on')),true);
+    await p.locator('#galleryGrid [data-tile-actions="'+id+'"]').click();
+    assert.equal(await p.locator('#tileContextMenu').isVisible(),true);
+    await p.locator('[data-context-action="open"]').click();
+    assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),true);
+    await p.locator('#closeImage').click();
+    await p.keyboard.press('Control+k');
+    await p.locator('#powerPaletteQuery').fill(fake.name);
+    assert.equal(await p.locator('#powerPaletteResults [role="option"]').count(),1);
+    await p.keyboard.press('Escape');
+    assert.equal(await p.locator('#powerPaletteDialog').evaluate(d=>d.open),false);
+    assert.equal(connected.requests.every(x=>x==='GET'),true);
     await p.keyboard.press('Alt+1');
     assert.match(await p.locator('#commandLiveNote').innerText(),/Not verified/);
     await p.locator('#navigation details[data-nav-group="manage"] summary').click();

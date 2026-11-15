@@ -60,6 +60,7 @@
       <button class="side-settings" id="sidebarPreferences" type="button">⚙ &nbsp; App preferences</button>
       <button class="side-settings" id="sidebarSettings" type="button">🔗 &nbsp; Drive connection</button>
       <button class="side-settings" id="sidebarUpdates" type="button">↻ &nbsp; App updates</button>
+      <div class="sidebar-resizer" id="sidebarResizer" role="separator" tabindex="0" aria-label="Resize sidebar" aria-orientation="vertical" aria-valuemin="200" aria-valuemax="360" aria-valuenow="244" title="Drag or use Left/Right arrow keys to resize"></div>
     </aside>
 
     <div class="workspace">
@@ -68,6 +69,7 @@
         <div class="top-actions">
           <span class="connection-status" id="connectionStatus"><i></i> Preview mode</span>
           <button class="btn quiet hidden" id="syncButton" type="button" title="Reload visual reviews from Google Sheets, then check Drive changes (read-only)">↻ <span>Sync Sheet + Drive</span></button>
+          <button class="btn quiet power-trigger" id="powerPaletteTrigger" type="button" title="Search commands and media (Ctrl+K)" aria-haspopup="dialog" aria-controls="powerPaletteDialog">⌕ <span>Commands</span> <kbd>Ctrl K</kbd></button>
           <button class="btn quiet" id="updatesButton" type="button" title="Check updates and install local patch files">↻ <span>Updates</span></button>
           <button class="btn quiet install-top" id="installButton" type="button" title="Install this gallery as a Windows or Android app">↓ <span>Install app</span></button>
           <button class="btn quiet" id="settingsButton" type="button" title="App preferences" aria-label="App preferences">⚙</button>
@@ -557,11 +559,28 @@
     <div class="dialog-actions"><button id="reviewInboxDraftCheck" class="btn outline" type="button">Validate draft</button>
       <span class="review-inbox-preview-hint">Preview only · no changes are saved</span></div>
   </dialog>
+  <dialog id="powerPaletteDialog" class="dialog power-palette-dialog" aria-labelledby="powerPaletteTitle">
+    <div class="dialog-header"><div><p class="eyebrow">PHASE 9D · WINDOWS POWER TOOLS</p><h2 id="powerPaletteTitle">Find a command</h2></div>
+      <button id="powerPaletteClose" class="icon-button" type="button" aria-label="Close command palette">×</button></div>
+    <label class="field-label" for="powerPaletteQuery">Search app views, actions or media by filename</label>
+    <input id="powerPaletteQuery" class="field power-query" type="search" role="combobox" aria-autocomplete="list" aria-controls="powerPaletteResults" aria-expanded="true" aria-activedescendant="" autocomplete="off" spellcheck="false" placeholder="Try: review, photos, health, filename…">
+    <div id="powerPaletteResults" class="power-results" role="listbox" aria-label="Matching commands"></div>
+    <p id="powerPaletteCount" class="power-count" role="status">Type to find commands</p>
+    <p class="power-footnote">Ctrl+K opens this palette. No command deletes, renames or edits media without separate authorization.</p>
+  </dialog>
+  <div id="tileContextMenu" class="tile-context-menu" role="menu" aria-label="Media actions" hidden>
+    <button type="button" role="menuitem" data-context-action="open">Open media details</button>
+    <button type="button" role="menuitem" data-context-action="favorite">Add local favorite</button>
+    <button type="button" role="menuitem" data-context-action="copy">Copy filename</button>
+    <button type="button" role="menuitem" data-context-action="drive">Open original in Drive ↗</button>
+  </div>
   <dialog id="shortcutsDialog" class="dialog shortcut-dialog" aria-labelledby="shortcutsTitle">
     <div class="dialog-header"><div><p class="eyebrow">NAVIGATE WITHOUT A MOUSE</p><h2 id="shortcutsTitle">Keyboard shortcuts</h2></div>
       <button id="shortcutsClose" class="icon-button" type="button" aria-label="Close keyboard shortcuts">×</button></div>
     <p class="dialog-copy">Shortcuts work outside of text inputs and dialogs. Native dialog focus remains trapped until the dialog closes.</p>
     <dl class="shortcut-list">
+      <div><dt><kbd>Ctrl</kbd> + <kbd>K</kbd></dt><dd>Search app commands and media</dd></div>
+      <div><dt><kbd>Shift</kbd> + <kbd>F10</kbd></dt><dd>Open media actions via focused gallery tile</dd></div>
       <div><dt><kbd>Alt</kbd> + <kbd>1</kbd></dt><dd>Command Center</dd></div>
       <div><dt><kbd>Alt</kbd> + <kbd>2</kbd></dt><dd>Needs review</dd></div>
       <div><dt><kbd>Alt</kbd> + <kbd>3</kbd></dt><dd>Video Library</dd></div>

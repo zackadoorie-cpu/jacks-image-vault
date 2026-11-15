@@ -1,5 +1,10 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 9D — Windows Power Tools (v2.1.25)
+
+Ctrl+K opens a searchable keyboard command palette with bounded private filename matches, safe navigation and explicit read-only verification. Gallery tiles offer right-click and keyboard-accessible actions (Open, local Favorite, Copy filename, Open in Drive); nothing silently renames, deletes or edits Google content. The sidebar can be resized with pointer or arrow keys; only its width is persisted in browser profile storage. Native WebView2 remembers window size and maximized state in a separate local non-secret settings record. All Google sign-in/DPAPI storage paths are unchanged. See docs/phase9d-windows-power-tools.md.
+
+
 ## Phase 9C — Vault Pulse (v2.1.23)
 
 The homepage gains read-only description and visual-review coverage, verified
