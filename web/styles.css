@@ -800,3 +800,24 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .vault-desktop-host #settingsTitle::after{
   content:" · Native Windows";color:var(--purple);font-size:.7em;font-weight:600
 }
+
+
+/* Phase 9A Turbo Gallery. Fixed virtual row sizes make offscreen spacers
+   deterministic; only a handful of overscanned rows stay in the DOM. */
+.image-grid.turbo{--turbo-row-height:315px;align-content:start}
+.image-grid.turbo[data-density="compact"]{--turbo-row-height:260px}
+.image-grid.turbo[data-density="large"]{--turbo-row-height:405px}
+.image-grid.turbo.list{--turbo-row-height:112px}
+.image-grid.turbo .image-tile{
+  height:var(--turbo-row-height);box-sizing:border-box;min-height:0;
+}
+.image-grid.turbo:not(.list) .image-tile{display:flex;flex-direction:column}
+.image-grid.turbo:not(.list) .tile-preview{flex:none}
+.image-grid.turbo:not(.list) .tile-info{
+  display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;
+}
+.image-grid.turbo:not(.list) .tile-footer{margin-top:auto}
+.image-grid.turbo.list .tile-info{min-height:0;overflow:hidden}
+.gallery-virtual-spacer{grid-column:1 / -1;width:100%;flex:none;pointer-events:none}
+.image-grid.list .gallery-virtual-spacer{width:100%}
+@media(prefers-reduced-motion:reduce){.image-grid.turbo .image-tile{scroll-behavior:auto}}

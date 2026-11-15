@@ -29,7 +29,7 @@ async function server(){
  await new Promise(done=>s.listen(0,'127.0.0.1',done));
  return {server:s,url:'http://127.0.0.1:'+s.address().port+'/'};
 }
-async function fixturePage(browser,url,{mobile=false,narrow=false,native=false}={}){
+async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,turbo=false}={}){
  const ctx=await browser.newContext({viewport:mobile?{width:narrow?320:375,height:812}:{width:1366,height:860},reducedMotion:mobile?'reduce':'no-preference'});
  let fail=false;const requests=[];let activeAccount='fixture_permission_123456789';
  await ctx.addInitScript(native=>{
@@ -40,6 +40,15 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false}=
      revoke(_,fn){fn();}
    }}};
  },native);
+ if(turbo){
+   await ctx.route('**/app.js',route=>{
+     const source=fs.readFileSync(path.join(root,'app.js'),'utf8');
+     const suffix='  init();\n})();';
+     if(!source.includes(suffix))throw new Error('Turbo E2E app bootstrap changed');
+     const patched=source.replace(suffix,'  globalThis.__turboBench={state,renderGallery,appendGalleryBatch};\n'+suffix);
+     return route.fulfill({status:200,contentType:'text/javascript',body:patched});
+   });
+ }
  await ctx.route('https://accounts.google.com/**',r=>r.abort());
  await ctx.route('https://drive.google.com/**',r=>r.abort());
  await ctx.route('https://sheets.googleapis.com/**',r=>{requests.push(r.request().method());return r.fulfill(fail?{status:503,body:'{"error":{"message":"fixture failure"}}'}:reply(batch));});
@@ -213,6 +222,73 @@ async function main(){
       'Embedded WebView2 must never launch the browser GIS OAuth popup');
     await p.locator('#settingsClose').click();
   }finally{await nativeHost.ctx.close();}
+  // Synthetic 10,000-item page: no Google media downloads, all operations
+  // isolated to this Playwright context. Deep scroll must not create 10k nodes.
+  const turbo=await fixturePage(browser,url,{turbo:true});
+  try{
+    const p=turbo.page;
+    const initial=await p.evaluate(()=>{
+      const h=window.__turboBench;
+      h.state.images=Array.from({length:10000},(_,i)=>({
+        id:'synthetic_gallery_'+String(i).padStart(12,'0'),
+        name:'Synthetic media '+String(i).padStart(6,'0'),
+        folder:'Memes/Synthetic',collection:'Memes',mime:'image/gif',
+        size:200,description:'Fake fixture for virtualization only',
+        tags:'',captureDate:'',review:''
+      }));
+      h.state.folders=[{path:'Memes/Synthetic',name:'Synthetic',kind:'memes',count:10000}];
+      h.state.pageSize=48;
+      h.state.page=Math.ceil(10000/48);
+      h.state.connected=false;
+      h.state.view='all';h.state.search='';
+      document.querySelector('#homeView').classList.add('hidden');
+      document.querySelector('#galleryView').classList.remove('hidden');
+      const start=performance.now();h.renderGallery();
+      return {ms:performance.now()-start,total:h.state.filtered.length,
+        mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length,
+        windowStart:h.state.turboStart,virtual:h.state.turboEnabled,
+        page:h.state.page,cache:h.state.thumbCache.size};
+    });
+    assert.equal(initial.total,10000);
+    assert.equal(initial.virtual,true);
+    assert.ok(initial.mounted<=180,'10k-media initial DOM must stay bounded: '+initial.mounted);
+    assert.equal(initial.windowStart,0);
+    await p.evaluate(()=>{
+      const grid=document.querySelector('#galleryGrid');
+      window.scrollTo({top:grid.getBoundingClientRect().top+window.scrollY+grid.scrollHeight,behavior:'instant'});
+    });
+    await p.waitForTimeout(350);
+    const deep=await p.evaluate(()=>({
+      start:window.__turboBench.state.turboStart,
+      mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length,
+      scroll:window.scrollY,
+      cache:window.__turboBench.state.thumbCache.size
+    }));
+    assert.ok(deep.scroll>0,'large synthetic gallery should scroll');
+    assert.ok(deep.start>0,'deep scroll must recycle earlier tiles');
+    assert.ok(deep.mounted<=180,'deep scroll DOM must stay bounded');
+    assert.ok(deep.cache<=96,'thumbnail cache must remain bounded');
+    await p.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));
+    await p.waitForTimeout(350);
+    const up=await p.evaluate(()=>({
+      start:window.__turboBench.state.turboStart,
+      mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length
+    }));
+    assert.equal(up.start,0,'scrolling back must restore the first media tiles');
+    assert.ok(up.mounted<=180);
+    const changed=await p.evaluate(()=>{
+      const h=window.__turboBench;
+      h.state.search='Synthetic media 009999';h.state.page=1;h.renderGallery();
+      return {total:h.state.filtered.length,virtual:h.state.turboEnabled,
+        mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length,
+        label:document.querySelector('#galleryGrid [data-open-image]')?.getAttribute('aria-label')};
+    });
+    assert.equal(changed.total,1);
+    assert.equal(changed.virtual,false,'small filtered results use normal gallery DOM');
+    assert.equal(changed.mounted,1);
+    assert.match(changed.label,/009999/);
+    console.log('PASS: Turbo Gallery 10,000 synthetic files, bounded DOM, deep reverse scroll, cache and filter reset.');
+  }finally{await turbo.ctx.close();}
   const connected=await fixturePage(browser,url);
   try{
     const p=connected.page;

@@ -8,7 +8,7 @@ const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'..','web','app.js'),'utf8');
 const suffix='  init();\n})();';
 assert.ok(source.includes(suffix),'app bootstrap changed');
-const code=source.replace(suffix,'  globalThis.__galleryTests={state,renderGallery,appendGalleryBatch,savePreferences,displayPage,saveBrowsingPosition,restoreBrowsingPosition,clearBrowsingPosition,updateScrollControls};\n})();');
+const code=source.replace(suffix,'  globalThis.__galleryTests={state,renderGallery,appendGalleryBatch,savePreferences,displayPage,saveBrowsingPosition,restoreBrowsingPosition,clearBrowsingPosition,updateScrollControls,turboGallery,putThumb,evictThumb};\n})();');
 
 function harness({withObserver=true}={}){
   const elements=new Map(),storage=new Map(),observers=[];
@@ -217,4 +217,68 @@ test('opted-out resume creates no saved local browsing record',()=>{
   h.state.rememberBrowsing=false;
   h.saveBrowsingPosition();
   assert.equal(storage.has('jack-vault-resume-position-v1'),false);
+});
+
+test('Turbo Gallery calculates bounded, row-aligned windows for 10,000 synthetic records',()=>{
+  const {h}=harness();
+  const engine=h.turboGallery;
+  const loaded=10000;
+  for(const columns of [1,2,3,4,5]){
+    const height=engine.rowHeight(columns===1?'list':'grid','comfortable');
+    const gap=15;
+    const head=engine.plan({loaded,columns,offset:0,viewport:900,rowHeight:height,gap});
+    assert.equal(head.start,0);
+    assert.ok(head.end<=engine.maxRows*columns,'initial DOM window exceeds cap');
+    const middle=engine.plan({loaded,columns,offset:100000,viewport:900,rowHeight:height,gap});
+    assert.equal(middle.start%columns,0,'virtual start must align to complete rows');
+    assert.ok(middle.end-middle.start<=engine.maxRows*columns);
+    assert.ok(middle.top>0);
+    assert.ok(middle.bottom>0);
+    const tail=engine.plan({loaded,columns,offset:9999999,viewport:900,rowHeight:height,gap});
+    assert.equal(tail.end,loaded,'last virtual window must include the collection end');
+    assert.equal(tail.bottom,0);
+  }
+});
+
+test('Turbo Gallery row spacers preserve exact logical height and never have negative sizes',()=>{
+  const {h}=harness();
+  const engine=h.turboGallery;
+  for(const columns of [1,2,4,5]){
+    for(const density of ['compact','comfortable','large']){
+      const rowHeight=engine.rowHeight(columns===1?'list':'grid',density);
+      const gap=columns===1?8:15;
+      const stride=rowHeight+gap;
+      const loaded=10000;
+      for(const offset of [0,1000,25000,100000,1000000]){
+        const plan=engine.plan({loaded,columns,offset,viewport:850,rowHeight,gap});
+        const rows=Math.ceil((plan.end-plan.start)/columns);
+        const spacerCount=Number(plan.top>0)+Number(plan.bottom>0);
+        const renderedHeight=plan.top+plan.bottom+rows*rowHeight+
+          (rows-1+spacerCount)*gap;
+        const logicalRows=Math.ceil(loaded/columns);
+        const expected=logicalRows*rowHeight+(logicalRows-1)*gap;
+        assert.equal(renderedHeight,expected,
+          'logical scroll geometry changed: '+JSON.stringify({columns,density,offset,plan}));
+      }
+    }
+  }
+});
+
+test('thumbnail LRU caps both entries and in-memory blob byte budget',()=>{
+  const {h,storage}=harness();
+  for(let i=0;i<110;i++){
+    h.putThumb('signed-'+i,{src:'https://drive.google.com/fake/'+i,objectUrl:false,kind:'signed'});
+  }
+  assert.equal(h.state.thumbCache.size,96);
+  assert.equal(h.state.thumbCache.has('signed-0'),false);
+  assert.equal(h.state.thumbCache.has('signed-109'),true);
+  const chunk=10*1024*1024;
+  for(let i=0;i<8;i++){
+    h.putThumb('blob-'+i,{src:'blob:fixture-'+i,objectUrl:false,kind:'media',bytes:chunk});
+  }
+  assert.ok(h.state.thumbCacheBytes<=48*1024*1024);
+  assert.ok(h.state.thumbCache.size<=96);
+  h.evictThumb('blob-7');
+  assert.equal(h.state.thumbCacheBytes,30*1024*1024);
+  assert.equal(storage.size,0,'never persist signed URLs, image bytes or tokens');
 });

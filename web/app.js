@@ -32,6 +32,35 @@
     captureDate: '', review: 'Illustration only', confidence: '', category: '', mime: 'image/png',
     size: 0, url: '', demo: true, total
   })));
+  // Turbo Gallery keeps only a small, overscanned set of tiles in the DOM.
+  // Counts, filtering, search and paging still refer to the full logical list.
+  // Fixed-size rows make spacer heights deterministic and avoid scroll jumps.
+  const turboGallery=Object.freeze({
+    threshold:320,
+    overscanRows:5,
+    maxRows:32,
+    rowHeight(layout,density){
+      if(layout==='list')return 112;
+      if(density==='compact')return 260;
+      if(density==='large')return 405;
+      return 315;
+    },
+    plan({loaded,columns,offset,viewport,rowHeight,gap}){
+      const cols=Math.max(1,Math.floor(Number(columns)||1));
+      const count=Math.max(0,Math.floor(Number(loaded)||0));
+      const totalRows=Math.ceil(count/cols);
+      const stride=Math.max(1,rowHeight+gap);
+      const wanted=Math.min(this.maxRows,Math.max(1,Math.ceil(Math.max(1,viewport)/stride)+2*this.overscanRows));
+      const firstRow=Math.min(Math.max(0,totalRows-wanted),Math.max(0,Math.floor(Math.max(0,offset)/stride)-this.overscanRows));
+      const endRow=Math.min(totalRows,firstRow+wanted);
+      const start=firstRow*cols;
+      const end=Math.min(count,endRow*cols);
+      const top=Math.max(0,firstRow*stride-(firstRow?gap:0));
+      const bottomRows=totalRows-endRow;
+      const bottom=Math.max(0,bottomRows*stride-(bottomRows?gap:0));
+      return {start,end,top,bottom,columns:cols,totalRows};
+    }
+  });
   const startingPrefs = readPreferences();
   const state = {
     config: readSettings(),
@@ -80,9 +109,16 @@
     autoLoadPending: false,
     galleryRevision: 0,
     filtered: [],
+    filteredById: new Map(),
+    turboEnabled: false,
+    turboStart: -1,
+    turboEnd: -1,
+    turboScrollScheduled: false,
     activeImage: null,
     returnFocus: null,
     thumbCache: new Map(),
+    thumbCacheBytes: 0,
+    maxThumbCacheBytes: 48*1024*1024,
     loadingThumbs: new Map(),
     thumbJobs: [],
     thumbErrors: new Map(),
@@ -3136,7 +3172,7 @@
     for (const controller of state.activeControllers) controller.abort();
     state.activeControllers.clear(); state.loadingThumbs.clear();
     for (const entry of state.thumbCache.values()) if (entry?.objectUrl) URL.revokeObjectURL(entry.src);
-    state.thumbCache.clear(); state.thumbErrors.clear();state.posterError.clear();
+    state.thumbCache.clear();state.thumbCacheBytes=0;state.thumbErrors.clear();state.posterError.clear();
     videoClearStoryboard();
     if (state.observer) {state.observer.disconnect();state.observer=null;}
   }
@@ -3157,7 +3193,7 @@
     state.snapshotLoadedAt=null;state.lastSyncAttemptAt=null;state.lastSyncSuccessAt=null;state.lastSyncError='';
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
-    clearThumbnailCache(); state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -3984,6 +4020,70 @@
     return scored.map(x=>x.image);
   }
   function galleryTitle() {if(state.view==='memory-results')return memoryTitle();if(state.view==='smart-results')return currentSmartCollection()?.name||'Smart Collection';return ({all:'All media',memes:'Meme gallery',photos:'Photo archive',favorites:'Your favorites',review:'Needs review'})[state.view]||'Gallery';}
+  function virtualGalleryAvailable(){
+    const grid=$('galleryGrid');
+    return state.filtered.length>turboGallery.threshold &&
+      typeof grid?.getBoundingClientRect==='function' &&
+      typeof window.innerHeight==='number' &&
+      typeof getComputedStyle==='function';
+  }
+  function pruneThumbnailQueue(items){
+    const ids=new Set(items.map(item=>item.id));
+    if(state.activeImage)ids.add(state.activeImage.id);
+    state.thumbJobs=state.thumbJobs.filter(job=>{
+      if(ids.has(job.id))return true;
+      if(state.loadingThumbs.get(job.id)===job)state.loadingThumbs.delete(job.id);
+      return false;
+    });
+  }
+  function renderTurboWindow(force=false){
+    if(!state.turboEnabled)return false;
+    const grid=$('galleryGrid');
+    const layout=getComputedStyle(grid);
+    const columns=state.layout==='list'?1:
+      Math.max(1,String(layout.gridTemplateColumns||'').split(/\s+/).filter(Boolean).length);
+    const gap=Number.parseFloat(layout.rowGap)||0;
+    const rowHeight=turboGallery.rowHeight(state.layout,state.density);
+    const plan=turboGallery.plan({
+      loaded:state.renderedCount,columns,
+      offset:Math.max(0,-grid.getBoundingClientRect().top),
+      viewport:window.innerHeight,rowHeight,gap
+    });
+    if(!force&&plan.start===state.turboStart&&plan.end===state.turboEnd)return true;
+    // Move focus to a stable landmark if virtualizing would remove the
+    // currently focused tile. No interactive tile is left dangling in the DOM.
+    const focused=document.activeElement;
+    const focusTile=focused?.closest?.('.image-tile');
+    if(focusTile&&grid.contains(focusTile)){
+      const id=focusTile.querySelector('[data-open-image]')?.dataset.openImage;
+      const index=id==null?-1:state.filtered.findIndex(item=>item.id===id);
+      if(index>=0&&(index<plan.start||index>=plan.end)){
+        grid.setAttribute('tabindex','-1');
+        grid.focus({preventScroll:true});
+      }
+    }
+    state.observer?.disconnect();
+    const top=plan.top?'<div class="gallery-virtual-spacer" aria-hidden="true" style="height:'+plan.top+'px"></div>':'';
+    const bottom=plan.bottom?'<div class="gallery-virtual-spacer" aria-hidden="true" style="height:'+plan.bottom+'px"></div>':'';
+    const mounted=state.filtered.slice(plan.start,plan.end);
+    grid.innerHTML=top+mounted.map(tileHTML).join('')+bottom;
+    state.turboStart=plan.start;state.turboEnd=plan.end;
+    bindGalleryTileEvents(grid.querySelectorAll('[data-open-image]'),grid.querySelectorAll('[data-favorite]'));
+    pruneThumbnailQueue(mounted);
+    observeThumbs();
+    updatePreviewStats();
+    return true;
+  }
+  function scheduleTurboWindow(){
+    if(!state.turboEnabled||state.turboScrollScheduled||!['all','memes','photos','favorites','review','smart-results','memory-results'].includes(state.view))return;
+    state.turboScrollScheduled=true;
+    const schedule=typeof window.requestAnimationFrame==='function'?window.requestAnimationFrame.bind(window):
+      callback=>setTimeout(callback,16);
+    schedule(()=>{
+      state.turboScrollScheduled=false;
+      if(state.turboEnabled)renderTurboWindow();
+    });
+  }
   function bindGalleryTileEvents(previews,hearts){
     for(const btn of previews)btn.addEventListener('click',()=>openImage(btn.dataset.openImage,btn));
     for(const btn of hearts)btn.addEventListener('click',e=>{
@@ -4024,9 +4124,16 @@
     const previous=state.renderedCount;
     const next=Math.min(previous+state.pageSize,state.filtered.length);
     const added=state.filtered.slice(previous,next);
-    $('galleryGrid').insertAdjacentHTML('beforeend',added.map(tileHTML).join(''));
     state.renderedCount=next;
     state.page=Math.max(1,Math.ceil(next/state.pageSize));
+    if(state.turboEnabled){
+      renderTurboWindow(true);
+      $('browseProgress').textContent=`Showing ${format(next)} of ${format(state.filtered.length)}`;
+      scheduleBrowseSave();
+      updateLoadMoreArea();
+      return true;
+    }
+    $('galleryGrid').insertAdjacentHTML('beforeend',added.map(tileHTML).join(''));
     $('browseProgress').textContent=`Showing ${format(next)} of ${format(state.filtered.length)}`;
     scheduleBrowseSave();
     const previews=[...$('galleryGrid').querySelectorAll('[data-open-image]')].slice(previous);
@@ -4036,7 +4143,7 @@
       for(const btn of previews)state.observer.observe(btn);
     }else if(state.connected&&!('IntersectionObserver' in window)){
       for(const btn of previews.slice(0,12)){
-        const item=state.filtered.find(x=>x.id===btn.dataset.openImage);
+        const item=state.filteredById.get(btn.dataset.openImage);
         if(item)requestThumb(item);
       }
     }
@@ -4081,30 +4188,35 @@
     $('folderSelect').value=state.folder;
     $('folderPickerCount').textContent=query?`${matched.length} collections found`:`${available.length} collections`;
     state.filtered=filterImages();const items=state.filtered.slice(0,state.page*state.pageSize);
+    state.filteredById=new Map(state.filtered.map(item=>[item.id,item]));
     state.renderedCount=items.length;
+    state.turboEnabled=virtualGalleryAvailable();
+    state.turboStart=-1;state.turboEnd=-1;
+    $('galleryGrid').classList.toggle('turbo',state.turboEnabled);
     $('resultCount').textContent=`${format(state.filtered.length)} ${state.connected?'files':'samples'}`;
     $('browseProgress').textContent=`Showing ${format(items.length)} of ${format(state.filtered.length)}`;
     const notice=$('galleryNotice');notice.classList.toggle('hidden',state.connected);
     if(!state.connected) notice.textContent='Preview mode only. No private photo or file IDs are bundled with this application.';
     // Cancel queued work for images no longer on screen instead of wasting API quota.
-    const visibleIds=new Set(items.map(i=>i.id));if(state.activeImage)visibleIds.add(state.activeImage.id);
-    state.thumbJobs=state.thumbJobs.filter(job=>{
-      if (visibleIds.has(job.id)) return true;
-      state.loadingThumbs.delete(job.id);return false;
-    });
+    if(!state.turboEnabled)pruneThumbnailQueue(items);
     if(!items.length){$('galleryGrid').innerHTML=`<div class="empty-state"><span>⌕</span><strong>${state.view==='review'&&state.reviewFilter==='pending'?'All caught up!':'No media found'}</strong><p>${state.view==='favorites'?'Favorite an image in its detail view to collect it here.':state.view==='review'?'Try another review status, or narrow the search.':'Try another search or collection, or connect your Drive.'}</p></div>`;}
+    else if(state.turboEnabled)renderTurboWindow(true);
     else $('galleryGrid').innerHTML=items.map(tileHTML).join('');
-    bindGalleryTileEvents(
-      $('galleryGrid').querySelectorAll('[data-open-image]'),
-      $('galleryGrid').querySelectorAll('[data-favorite]')
-    );
-    observeThumbs();
+    if(!state.turboEnabled){
+      bindGalleryTileEvents(
+        $('galleryGrid').querySelectorAll('[data-open-image]'),
+        $('galleryGrid').querySelectorAll('[data-favorite]')
+      );
+      observeThumbs();
+    }
     updateLoadMoreArea();
     updatePreviewStats();
     scheduleBrowseSave();
   }
   function updatePreviewStats() {
-    const visible=state.filtered.slice(0,state.page*state.pageSize).filter(x=>mediaKind(x)!=='pdf');
+    const visible=(state.turboEnabled?
+      state.filtered.slice(state.turboStart,state.turboEnd):
+      state.filtered.slice(0,state.page*state.pageSize)).filter(x=>mediaKind(x)!=='pdf');
     const cached=visible.filter(x=>state.thumbCache.has(x.id)).length;
     const failed=visible.filter(x=>state.thumbErrors.has(x.id)).length;
     $('previewStatus').textContent=state.connected ? `${cached} of ${visible.length} previews ready${failed?` · ${failed} unavailable`:''}` : '';
@@ -4130,7 +4242,7 @@
     const all=[...$('galleryGrid').querySelectorAll('[data-open-image]')];
     for(const btn of all){const entry=state.thumbCache.get(btn.dataset.openImage);if(entry)paintThumb(btn.dataset.openImage,entry);}
     if(!('IntersectionObserver' in window)){
-      for(const btn of all.slice(0,12)){const item=state.filtered.find(x=>x.id===btn.dataset.openImage);if(item)requestThumb(item);}
+      for(const btn of all.slice(0,12)){const item=state.filteredById.get(btn.dataset.openImage);if(item)requestThumb(item);}
       return;
     }
     state.observer = new IntersectionObserver(entries=>{
@@ -4139,16 +4251,27 @@
         const id=entry.target.dataset.openImage;
         state.observer.unobserve(entry.target);
         if(state.thumbErrors.has(id))continue;
-        const item=state.filtered.find(x=>x.id===id);
+        const item=state.filteredById.get(id);
         if(item)requestThumb(item);
       }
     },{rootMargin:'200px'});
     for(const btn of all)state.observer.observe(btn);
   }
+  function evictThumb(id){
+    const existing=state.thumbCache.get(id);
+    if(!existing)return;
+    state.thumbCache.delete(id);
+    state.thumbCacheBytes=Math.max(0,state.thumbCacheBytes-(Number(existing.bytes)||0));
+    if(existing.objectUrl)URL.revokeObjectURL(existing.src);
+  }
   function requestThumb(item,{priority=false,mediaOnly=false,force=false}={}) {
     if(!state.connected || item.demo || !state.accessToken || mediaKind(item)==='pdf')return;
-    if(force){state.thumbErrors.delete(item.id);const old=state.thumbCache.get(item.id);if(old?.objectUrl)URL.revokeObjectURL(old.src);state.thumbCache.delete(item.id);}
-    if(!mediaOnly&&state.thumbCache.has(item.id)){paintThumb(item.id,state.thumbCache.get(item.id));return;}
+    if(force){state.thumbErrors.delete(item.id);evictThumb(item.id);}
+    if(!mediaOnly&&state.thumbCache.has(item.id)){
+      const cached=state.thumbCache.get(item.id);
+      state.thumbCache.delete(item.id);state.thumbCache.set(item.id,cached);
+      paintThumb(item.id,cached);return;
+    }
     const existing=state.loadingThumbs.get(item.id);
     if(existing){if(priority){const i=state.thumbJobs.indexOf(existing);if(i>=0){state.thumbJobs.splice(i,1);state.thumbJobs.unshift(existing);}}return;}
     if(!force&&state.thumbErrors.has(item.id))return;
@@ -4158,13 +4281,16 @@
     pumpThumbJobs();
   }
   function putThumb(id,entry){
-    const old=state.thumbCache.get(id);if(old?.objectUrl)URL.revokeObjectURL(old.src);
-    state.thumbCache.delete(id);state.thumbCache.set(id,entry);
-    while(state.thumbCache.size>96){
-      const [first,firstEntry]=state.thumbCache.entries().next().value;
-      state.thumbCache.delete(first);if(firstEntry?.objectUrl)URL.revokeObjectURL(firstEntry.src);
+    evictThumb(id);
+    const bytes=Math.max(0,Number(entry.bytes)||0);
+    state.thumbCache.set(id,entry);
+    state.thumbCacheBytes+=bytes;
+    while(state.thumbCache.size>96||state.thumbCacheBytes>state.maxThumbCacheBytes){
+      const first=state.thumbCache.keys().next().value;
+      if(first===undefined)break;
+      evictThumb(first);
     }
-    paintThumb(id,entry);updatePreviewStats();
+    paintThumb(id,state.thumbCache.get(id)||null);updatePreviewStats();
   }
   function pumpThumbJobs() {
     while(state.runningThumbJobs<state.maxConcurrentThumbs && state.thumbJobs.length){
@@ -4217,20 +4343,21 @@
     const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
     const blob=await googleGet(url,{blob:true,maxBytes:7*1024*1024,signal});
     if(!blob.type.startsWith('image/')&&!item.mime.startsWith('image/'))throw new Error('Not an image');
-    if(item.mime==='image/gif')return {src:URL.createObjectURL(blob),objectUrl:true,kind:'media'};
+    if(item.mime==='image/gif')return {src:URL.createObjectURL(blob),objectUrl:true,kind:'media',bytes:blob.size};
     try {
       const bitmap=await createImageBitmap(blob);
       const scale=Math.min(1,440/bitmap.width,440/bitmap.height);
       const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
       canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();
       const output=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',.77));
-      return {src:URL.createObjectURL(output||blob),objectUrl:true,kind:'media'};
-    } catch {return {src:URL.createObjectURL(blob),objectUrl:true,kind:'media'};}
+      const preview=output||blob;
+      return {src:URL.createObjectURL(preview),objectUrl:true,kind:'media',bytes:preview.size};
+    } catch {return {src:URL.createObjectURL(blob),objectUrl:true,kind:'media',bytes:blob.size};}
   }
   function handleSignedImageFailure(id) {
     const item=state.images.find(x=>x.id===id), entry=state.thumbCache.get(id);
     if(!item||entry?.kind!=='signed')return;
-    state.thumbCache.delete(id);
+    evictThumb(id);
     const text='Google thumbnail unavailable. Trying a small authenticated preview…';
     for(const btn of document.querySelectorAll('[data-open-image]'))if(btn.dataset.openImage===id){const small=btn.querySelector('.tile-placeholder small');if(small)small.textContent=text;}
     if(mediaKind(item)==='image')requestThumb(item,{priority:state.activeImage?.id===id,mediaOnly:true});
@@ -4242,7 +4369,7 @@
       const small=btn.querySelector('.tile-placeholder small');
       if(!entry){if(small)small.textContent=mediaKind(state.images.find(x=>x.id===id)||{})==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry';const old=btn.querySelector('img');old?.remove();continue;}
       let img=btn.querySelector('img');
-      if(!img){img=document.createElement('img');img.alt='';img.loading='eager';img.decoding='async';btn.appendChild(img);}
+      if(!img){img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';btn.appendChild(img);}
       const timer=setTimeout(()=>{if(img.isConnected&&!img.classList.contains('ready')) {if(entry.kind==='signed')handleSignedImageFailure(id);else {state.thumbErrors.set(id,'Preview timed out');paintThumb(id,null);}}},12000);
       img.onload=()=>{clearTimeout(timer);img.classList.add('ready');if(small)small.textContent='';};
       img.onerror=()=>{clearTimeout(timer);img.classList.remove('ready');if(entry.kind==='signed')handleSignedImageFailure(id);else {state.thumbErrors.set(id,'Browser could not display image');paintThumb(id,null);}};
@@ -4391,7 +4518,7 @@
       if(controller.signal.aborted||state.posterController!==controller||state.activeImage?.id!==item.id)return;
       const src=URL.createObjectURL(jpeg);
       state.thumbErrors.delete(item.id);state.posterError.delete(item.id);
-      putThumb(item.id,{src,objectUrl:true,kind:'generated'});
+      putThumb(item.id,{src,objectUrl:true,kind:'generated',bytes:jpeg.size});
       const previous=videoSession(item);
       state.videoSessionEvidence.set(item.id,{...previous,poster:true});
       videoUpdateEvidence(item);
@@ -4889,7 +5016,7 @@
     $('generatePosterButton').onclick=generateVideoThumbnail;
     $('favoriteImage').onclick=()=>{if(!state.activeImage?.demo){toggleFavorite(state.activeImage.id);renderGallery();}};
     $('retryPreview').onclick=()=>{if(state.activeImage){requestThumb(state.activeImage,{priority:true,force:true});renderModalPicture();}};
-    $('retryFailedButton').onclick=()=>{for(const item of state.filtered.slice(0,state.page*state.pageSize)){if(state.thumbErrors.has(item.id))requestThumb(item,{force:true});}updatePreviewStats();};
+    $('retryFailedButton').onclick=()=>{const visible=state.turboEnabled?state.filtered.slice(state.turboStart,state.turboEnd):state.filtered.slice(0,state.page*state.pageSize);for(const item of visible){if(state.thumbErrors.has(item.id))requestThumb(item,{force:true});}updatePreviewStats();};
     $('imageDialog').addEventListener('cancel',event=>{
       if(state.reviewDirty&&!confirm('Discard unsaved review changes?'))event.preventDefault();
       else state.reviewDirty=false;
@@ -4899,6 +5026,10 @@
     window.addEventListener('scroll',()=>{
       updateScrollControls();
       scheduleBrowseSave();
+      scheduleTurboWindow();
+    },{passive:true});
+    window.addEventListener('resize',()=>{
+      if(state.turboEnabled)renderTurboWindow(true);
     },{passive:true});
     window.addEventListener('pagehide',saveBrowsingPosition);
     window.addEventListener('keydown',event=>{
