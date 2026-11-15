@@ -1,0 +1,29 @@
+name: Publish approved Phase 9B Activity and Local Undo
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Phase 9B Activity and Undo v2.1.21')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch full checked release only for approved merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.21 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.21 already published; nothing to dispatch."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.21
+          echo "Dispatched the normal verified v2.1.21 release pipeline."
