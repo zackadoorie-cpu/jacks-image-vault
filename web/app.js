@@ -4122,9 +4122,16 @@
     const previous=state.renderedCount;
     const next=Math.min(previous+state.pageSize,state.filtered.length);
     const added=state.filtered.slice(previous,next);
-    $('galleryGrid').insertAdjacentHTML('beforeend',added.map(tileHTML).join(''));
     state.renderedCount=next;
     state.page=Math.max(1,Math.ceil(next/state.pageSize));
+    if(state.turboEnabled){
+      renderTurboWindow(true);
+      $('browseProgress').textContent=`Showing ${format(next)} of ${format(state.filtered.length)}`;
+      scheduleBrowseSave();
+      updateLoadMoreArea();
+      return true;
+    }
+    $('galleryGrid').insertAdjacentHTML('beforeend',added.map(tileHTML).join(''));
     $('browseProgress').textContent=`Showing ${format(next)} of ${format(state.filtered.length)}`;
     scheduleBrowseSave();
     const previews=[...$('galleryGrid').querySelectorAll('[data-open-image]')].slice(previous);
@@ -4134,7 +4141,7 @@
       for(const btn of previews)state.observer.observe(btn);
     }else if(state.connected&&!('IntersectionObserver' in window)){
       for(const btn of previews.slice(0,12)){
-        const item=state.filtered.find(x=>x.id===btn.dataset.openImage);
+        const item=state.filteredById.get(btn.dataset.openImage);
         if(item)requestThumb(item);
       }
     }
@@ -4179,30 +4186,35 @@
     $('folderSelect').value=state.folder;
     $('folderPickerCount').textContent=query?`${matched.length} collections found`:`${available.length} collections`;
     state.filtered=filterImages();const items=state.filtered.slice(0,state.page*state.pageSize);
+    state.filteredById=new Map(state.filtered.map(item=>[item.id,item]));
     state.renderedCount=items.length;
+    state.turboEnabled=virtualGalleryAvailable();
+    state.turboStart=-1;state.turboEnd=-1;
+    $('galleryGrid').classList.toggle('turbo',state.turboEnabled);
     $('resultCount').textContent=`${format(state.filtered.length)} ${state.connected?'files':'samples'}`;
     $('browseProgress').textContent=`Showing ${format(items.length)} of ${format(state.filtered.length)}`;
     const notice=$('galleryNotice');notice.classList.toggle('hidden',state.connected);
     if(!state.connected) notice.textContent='Preview mode only. No private photo or file IDs are bundled with this application.';
     // Cancel queued work for images no longer on screen instead of wasting API quota.
-    const visibleIds=new Set(items.map(i=>i.id));if(state.activeImage)visibleIds.add(state.activeImage.id);
-    state.thumbJobs=state.thumbJobs.filter(job=>{
-      if (visibleIds.has(job.id)) return true;
-      state.loadingThumbs.delete(job.id);return false;
-    });
+    if(!state.turboEnabled)pruneThumbnailQueue(items);
     if(!items.length){$('galleryGrid').innerHTML=`<div class="empty-state"><span>⌕</span><strong>${state.view==='review'&&state.reviewFilter==='pending'?'All caught up!':'No media found'}</strong><p>${state.view==='favorites'?'Favorite an image in its detail view to collect it here.':state.view==='review'?'Try another review status, or narrow the search.':'Try another search or collection, or connect your Drive.'}</p></div>`;}
+    else if(state.turboEnabled)renderTurboWindow(true);
     else $('galleryGrid').innerHTML=items.map(tileHTML).join('');
-    bindGalleryTileEvents(
-      $('galleryGrid').querySelectorAll('[data-open-image]'),
-      $('galleryGrid').querySelectorAll('[data-favorite]')
-    );
-    observeThumbs();
+    if(!state.turboEnabled){
+      bindGalleryTileEvents(
+        $('galleryGrid').querySelectorAll('[data-open-image]'),
+        $('galleryGrid').querySelectorAll('[data-favorite]')
+      );
+      observeThumbs();
+    }
     updateLoadMoreArea();
     updatePreviewStats();
     scheduleBrowseSave();
   }
   function updatePreviewStats() {
-    const visible=state.filtered.slice(0,state.page*state.pageSize).filter(x=>mediaKind(x)!=='pdf');
+    const visible=(state.turboEnabled?
+      state.filtered.slice(state.turboStart,state.turboEnd):
+      state.filtered.slice(0,state.page*state.pageSize)).filter(x=>mediaKind(x)!=='pdf');
     const cached=visible.filter(x=>state.thumbCache.has(x.id)).length;
     const failed=visible.filter(x=>state.thumbErrors.has(x.id)).length;
     $('previewStatus').textContent=state.connected ? `${cached} of ${visible.length} previews ready${failed?` · ${failed} unavailable`:''}` : '';
@@ -4228,7 +4240,7 @@
     const all=[...$('galleryGrid').querySelectorAll('[data-open-image]')];
     for(const btn of all){const entry=state.thumbCache.get(btn.dataset.openImage);if(entry)paintThumb(btn.dataset.openImage,entry);}
     if(!('IntersectionObserver' in window)){
-      for(const btn of all.slice(0,12)){const item=state.filtered.find(x=>x.id===btn.dataset.openImage);if(item)requestThumb(item);}
+      for(const btn of all.slice(0,12)){const item=state.filteredById.get(btn.dataset.openImage);if(item)requestThumb(item);}
       return;
     }
     state.observer = new IntersectionObserver(entries=>{
@@ -4237,7 +4249,7 @@
         const id=entry.target.dataset.openImage;
         state.observer.unobserve(entry.target);
         if(state.thumbErrors.has(id))continue;
-        const item=state.filtered.find(x=>x.id===id);
+        const item=state.filteredById.get(id);
         if(item)requestThumb(item);
       }
     },{rootMargin:'200px'});
@@ -4340,7 +4352,7 @@
       const small=btn.querySelector('.tile-placeholder small');
       if(!entry){if(small)small.textContent=mediaKind(state.images.find(x=>x.id===id)||{})==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry';const old=btn.querySelector('img');old?.remove();continue;}
       let img=btn.querySelector('img');
-      if(!img){img=document.createElement('img');img.alt='';img.loading='eager';img.decoding='async';btn.appendChild(img);}
+      if(!img){img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';btn.appendChild(img);}
       const timer=setTimeout(()=>{if(img.isConnected&&!img.classList.contains('ready')) {if(entry.kind==='signed')handleSignedImageFailure(id);else {state.thumbErrors.set(id,'Preview timed out');paintThumb(id,null);}}},12000);
       img.onload=()=>{clearTimeout(timer);img.classList.add('ready');if(small)small.textContent='';};
       img.onerror=()=>{clearTimeout(timer);img.classList.remove('ready');if(entry.kind==='signed')handleSignedImageFailure(id);else {state.thumbErrors.set(id,'Browser could not display image');paintThumb(id,null);}};
@@ -4987,7 +4999,7 @@
     $('generatePosterButton').onclick=generateVideoThumbnail;
     $('favoriteImage').onclick=()=>{if(!state.activeImage?.demo){toggleFavorite(state.activeImage.id);renderGallery();}};
     $('retryPreview').onclick=()=>{if(state.activeImage){requestThumb(state.activeImage,{priority:true,force:true});renderModalPicture();}};
-    $('retryFailedButton').onclick=()=>{for(const item of state.filtered.slice(0,state.page*state.pageSize)){if(state.thumbErrors.has(item.id))requestThumb(item,{force:true});}updatePreviewStats();};
+    $('retryFailedButton').onclick=()=>{const visible=state.turboEnabled?state.filtered.slice(state.turboStart,state.turboEnd):state.filtered.slice(0,state.page*state.pageSize);for(const item of visible){if(state.thumbErrors.has(item.id))requestThumb(item,{force:true});}updatePreviewStats();};
     $('imageDialog').addEventListener('cancel',event=>{
       if(state.reviewDirty&&!confirm('Discard unsaved review changes?'))event.preventDefault();
       else state.reviewDirty=false;
@@ -4997,6 +5009,10 @@
     window.addEventListener('scroll',()=>{
       updateScrollControls();
       scheduleBrowseSave();
+      scheduleTurboWindow();
+    },{passive:true});
+    window.addEventListener('resize',()=>{
+      if(state.turboEnabled)renderTurboWindow(true);
     },{passive:true});
     window.addEventListener('pagehide',saveBrowsingPosition);
     window.addEventListener('keydown',event=>{
