@@ -86,7 +86,7 @@ func desktopURL(base string,f *desktopFlow) (string,error) {
   "scope":f.scope,"state":f.state,
   "code_challenge_method":"S256","code_challenge":pkceChallenge(f.verifier),
   "access_type":map[bool]string{true:"offline",false:"online"}[f.remember],
-  "prompt":map[bool]string{true:"consent select_account",false:"select_account"}[f.remember],
+  "prompt":map[bool]string{true:"consent select_account",false:"select_account"}[f.remember||f.sheetWrite],
  }{q.Set(k,v)}
  endpoint.RawQuery=q.Encode()
  return endpoint.String(),nil
@@ -321,13 +321,77 @@ func (b *desktopAuthBroker) cancel(id string){
  f:=b.active
  f.token="";f.status="cancelled";b.closeLocked(f);b.active=nil
 }
+// resume exchanges a DPAPI-protected READ-ONLY refresh grant for a short-lived
+// access token. Only the access token reaches the UI. Concurrent refreshes
+// are serialized; an invalid_grant clears the obsolete encrypted session.
+func (b *desktopAuthBroker) resume(sheetID string)(map[string]any,error){
+ if !desktopSheetIDRE.MatchString(sheetID){return nil,errors.New("Enter the original inventory Sheet ID first")}
+ b.mu.Lock()
+ if b.resuming {b.mu.Unlock();return nil,errors.New("Desktop reconnect is already in progress")}
+ b.resuming=true
+ b.mu.Unlock()
+ defer func(){b.mu.Lock();b.resuming=false;b.mu.Unlock()}()
+ saved,err:=b.loadSession()
+ if err!=nil{return nil,errors.New("No saved Windows read-only session. Connect via system browser and enable Stay signed in.")}
+ if err=validateDesktopSavedSession(saved);err!=nil{return nil,errors.New("Saved Windows authorization needs a new sign-in.")}
+ if saved.SheetID!=sheetID{return nil,errors.New("Saved Windows session belongs to a different inventory Sheet. Reconnect manually.")}
+ form:=url.Values{"grant_type":{"refresh_token"},"client_id":{saved.ClientID},"refresh_token":{saved.RefreshToken}}
+ if saved.ClientSecret!=""{form.Set("client_secret",saved.ClientSecret)}
+ req,err:=http.NewRequest("POST",b.tokenEndpoint,strings.NewReader(form.Encode()))
+ if err!=nil{return nil,errors.New("Could not prepare Windows reconnect request")}
+ req.Header.Set("Content-Type","application/x-www-form-urlencoded")
+ res,err:=b.client.Do(req)
+ if err!=nil{return nil,errors.New("Google reconnect is temporarily unavailable. Try again.")}
+ defer res.Body.Close()
+ if res.StatusCode!=200{
+  body,_:=io.ReadAll(io.LimitReader(res.Body,4096))
+  var payload struct{Error string `json:"error"`}
+  _=json.Unmarshal(body,&payload)
+  if payload.Error=="invalid_grant"||payload.Error=="invalid_client"{
+   _=b.clearSession()
+   return nil,errors.New("Saved Google authorization expired or was revoked. Reconnect via system browser.")
+  }
+  return nil,errors.New("Google could not refresh the saved desktop session. Reconnect manually if the problem continues.")
+ }
+ var token struct{
+  AccessToken string `json:"access_token"`
+  TokenType string `json:"token_type"`
+  Scope string `json:"scope"`
+  ExpiresIn int `json:"expires_in"`
+ }
+ if err=json.NewDecoder(io.LimitReader(res.Body,32768)).Decode(&token);err!=nil{
+  return nil,errors.New("Google returned an unreadable refresh response")
+ }
+ if token.TokenType!="Bearer"||len(token.AccessToken)<12||len(token.AccessToken)>8192||
+  token.ExpiresIn<90||token.ExpiresIn>86400||
+  (token.Scope!=""&&!exactReadScopes(token.Scope)){
+  _=b.clearSession()
+  return nil,errors.New("Saved Google token did not contain the expected read-only permissions. Reconnect.")
+ }
+ return map[string]any{"status":"ready","accessToken":token.AccessToken,
+  "expiresIn":token.ExpiresIn,"savedSession":true},nil
+}
+func (b *desktopAuthBroker) startSheetWrite(sheetID,clientID,secret string)(string,error){
+ if !desktopSheetIDRE.MatchString(sheetID){return "",errors.New("Invalid inventory Sheet ID")}
+ if clientID==""{
+  saved,err:=b.loadSession()
+  if err!=nil{return "",errors.New("Enter the Desktop OAuth credentials or save a Windows read-only session first.")}
+  if saved.SheetID!=sheetID{return "",errors.New("Saved desktop credentials belong to another Sheet")}
+  clientID=saved.ClientID;secret=saved.ClientSecret
+ }
+ return b.start(clientID,secret,desktopStartOptions{SheetID:sheetID,SheetWrite:true})
+}
 func (v *vault) handleDesktopAuthStatus(w http.ResponseWriter,r *http.Request){
  if !v.guard(w,r,false){return}
  if r.Method!="GET"{http.Error(w,"GET required",405);return}
  response(w,200,map[string]any{
   "available":desktopAuthSupported(),
   "scopes":[]string{desktopDriveScope,desktopSheetScope},
-  "storesRefreshTokens":false,
+  "storesRefreshTokens":desktopSessionSupported(),
+  "savedReadOnlySession":func()bool{
+    saved,err:=v.desktopAuth.loadSession()
+    return err==nil&&validateDesktopSavedSession(saved)==nil
+  }(),
  })
 }
 func (v *vault) handleDesktopAuth(w http.ResponseWriter,r *http.Request){
@@ -342,9 +406,22 @@ func (v *vault) handleDesktopAuth(w http.ResponseWriter,r *http.Request){
  }
  switch r.URL.Path{
  case "/__vault_desktop_auth/start":
-  id,err:=v.desktopAuth.start(strings.TrimSpace(data["clientId"]),data["clientSecret"])
+  id,err:=v.desktopAuth.start(strings.TrimSpace(data["clientId"]),data["clientSecret"],
+   desktopStartOptions{SheetID:data["sheetId"],Remember:data["remember"]=="true"})
   if err!=nil{fail(w,400,err.Error());return}
   response(w,200,map[string]any{"status":"pending","flowId":id})
+ case "/__vault_desktop_auth/write-start":
+  id,err:=v.desktopAuth.startSheetWrite(data["sheetId"],strings.TrimSpace(data["clientId"]),data["clientSecret"])
+  if err!=nil{fail(w,400,err.Error());return}
+  response(w,200,map[string]any{"status":"pending","flowId":id})
+ case "/__vault_desktop_auth/resume":
+  result,err:=v.desktopAuth.resume(data["sheetId"])
+  if err!=nil{fail(w,400,err.Error());return}
+  w.Header().Set("Cache-Control","no-store")
+  response(w,200,result)
+ case "/__vault_desktop_auth/forget":
+  if err:=v.desktopAuth.clearSession();err!=nil{fail(w,500,"Windows could not clear the saved session");return}
+  response(w,200,map[string]any{"forgotten":true})
  case "/__vault_desktop_auth/poll":
   result,err:=v.desktopAuth.poll(data["flowId"])
   if err!=nil{fail(w,404,err.Error());return}
