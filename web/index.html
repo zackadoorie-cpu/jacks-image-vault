@@ -480,6 +480,15 @@
             <span id="sheetWritePage" aria-live="polite">—</span>
             <button class="btn outline" id="sheetWriteNext" type="button">Next</button>
           </div>
+          <div class="activity-boundary sheet-write-panel" id="sheetWriteCurrentPreview" hidden>
+            <h2>Exact Sheet review preview</h2>
+            <p>Inspect the original Manifest values and proposed replacement below. All fields are shown as plain text.</p>
+            <div class="sheet-write-diff">
+              <div><strong>Live Sheet values</strong><pre id="sheetWriteBefore"></pre></div>
+              <div><strong>Proposed review</strong><pre id="sheetWriteAfter"></pre></div>
+            </div>
+            <button type="button" id="sheetWriteStage" class="btn primary">Stage this reviewed record</button>
+          </div>
           <div class="activity-boundary sheet-write-panel" id="sheetWritePlan">
             <h2>Approved batch preview</h2>
             <p>Open a review, inspect the live Sheet values, and stage it. At most 10 verified file IDs can be staged. Staging does not change Google Sheets.</p>
