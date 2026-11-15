@@ -310,6 +310,11 @@
     observer: null,
     favorites: new Set(readFavorites()),
     reviewEdits: new Map(),
+    sheetWriteStaged: new Map(),
+    sheetWritePreview: null,
+    sheetWritePage: 1,
+    sheetWriteMessage: '',
+    sheetWriteBusy: false,
     activityHistory: null,
     activityError: '',
     activityFilter: 'all',
@@ -2699,6 +2704,7 @@
       state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.lastFullScanAt=null;state.changeToken=null;
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       const reviewLoadWarning=loadReviewNotes();
+      state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWriteMessage='';
       loadActivityHistory();
       loadSavedSearches();
       loadSmartCollections();
@@ -3498,7 +3504,7 @@
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
-    clearThumbnailCache(); state.reviewEdits.clear();state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -4216,7 +4222,7 @@
   }
   function displayPage(view,{reset=true,scroll=true}={}) {
     if(state.connected&&browsingView())saveBrowsingPosition();
-    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'){
+    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'||view==='sheet-write'){
       state.autoLoadObserver?.disconnect();
       state.autoLoadObserver=null;
       state.galleryRevision++;
@@ -4229,10 +4235,11 @@
       if($('folderSearch'))$('folderSearch').value='';
     }
     $('homeView').classList.toggle('hidden',view!=='home');
-    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity');
+    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'||view==='sheet-write');
     $('reviewInboxView').classList.toggle('hidden',view!=='review-inbox');
     $('renameDeskView').classList.toggle('hidden',view!=='rename-desk');
     $('activityView').classList.toggle('hidden',view!=='activity');
+    $('sheetWriteView').classList.toggle('hidden',view!=='sheet-write');
     $('videoLibraryView').classList.toggle('hidden',view!=='video-library');
     $('similarityView').classList.toggle('hidden',view!=='similarity');
     $('memoryView').classList.toggle('hidden',view!=='memory');
@@ -4367,7 +4374,7 @@
       state.activityError='';state.activityPage=1;renderActivity();
     }catch(err){$('activityStatus').textContent='Could not clear local activity: '+err.message;}
   }
-  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else if(state.view==='rename-desk')renameDeskRender();else if(state.view==='activity')renderActivity();else renderGallery();}
+  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else if(state.view==='rename-desk')renameDeskRender();else if(state.view==='activity')renderActivity();else if(state.view==='sheet-write')renderSheetWrite();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
     $('statImages').textContent=count(state.inventory.length);
