@@ -424,7 +424,7 @@
               <p>One private timeline for local review edits, imported review batches, filename plans and inventory refreshes. This history is stored on this device for the connected Google account and Sheet.</p>
             </div>
           </div>
-          <p class="activity-boundary" role="note"><strong>Two different recoveries:</strong> Undo here restores only a local review note when it has not changed since the recorded edit. To roll back an app update, use <strong>Updates → Recovery</strong>. This page cannot undo Drive renames or Google Sheet edits because it never makes them.</p>
+          <p class="activity-boundary" role="note"><strong>Three separate histories:</strong> Undo here restores only a local review note when it has not changed since the recorded edit. App-update rollback remains under <strong>Updates → Recovery</strong>. Approved Sheet changes are recorded here, but this version cannot automatically undo them. Drive renames are never performed.</p>
           <div class="activity-quicklinks" aria-label="Related manager tools">
             <button type="button" id="activityOpenInbox" class="btn outline">Review Inbox</button>
             <button type="button" id="activityOpenRenames" class="btn outline">Rename Desk</button>
@@ -433,7 +433,7 @@
           <div class="activity-metrics" aria-label="Private activity counts">
             <div><span>History entries</span><strong id="activityTotal">—</strong><small>At most 120 retained</small></div>
             <div><span>Local edits eligible for undo</span><strong id="activityUndoable">—</strong><small>Checked again before restoring</small></div>
-            <div><span>Google files modified by this tool</span><strong>0</strong><small>Read-only access remains in force</small></div>
+            <div><span>Drive originals renamed</span><strong>0</strong><small>Sheet reviews require separate authorization</small></div>
           </div>
           <div class="activity-toolbar">
             <label for="activityFilter">Activity type
@@ -443,6 +443,7 @@
                 <option value="imports">Review imports &amp; backups</option>
                 <option value="plans">Rename plans</option>
                 <option value="inventory">Inventory refreshes</option>
+                <option value="writes">Approved Sheet changes</option>
               </select>
             </label>
             <label for="activityQuery">Search ID or action
@@ -460,7 +461,7 @@
             <span id="activityPage" aria-live="polite">—</span>
             <button id="activityNext" class="btn outline" type="button">Next</button>
           </div>
-          <p class="privacy-note">The history contains local review-note snapshots needed for undo. Exports can contain private descriptions, tags and Drive file IDs. Store exported JSON securely. No access token, passwords, photos or Google API writes are included. Clearing this history removes undo records, but never deletes review notes or changes Google files.</p>
+          <p class="privacy-note">History includes local review-note snapshots and records verified or uncertain Sheet approval outcomes. Exports can contain descriptions, tags and Drive file IDs, so store them securely. No access token, client secret, password or photo bytes are included. Clearing history removes only local undo records, never changes Sheet or Drive data.</p>
         </section>
         <section id="sheetWriteView" class="view hidden" aria-labelledby="sheetWriteTitle">
           <div class="gallery-heading"><div>
