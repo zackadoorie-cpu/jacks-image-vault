@@ -166,6 +166,10 @@ function powerPaletteKeys(e){
     }
   }else if(e.key==='Enter'){
     e.preventDefault();powerPaletteExecute(powerPaletteActive);
+  }else if(e.key==='Escape'){
+    // Search inputs commonly consume Escape to clear their value first.
+    // Dismiss the palette regardless of whether the query is empty.
+    e.preventDefault();e.stopPropagation();powerPaletteClose();
   }
 }
 function powerContextClose(restore=false){

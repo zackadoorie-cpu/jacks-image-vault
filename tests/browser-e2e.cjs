@@ -403,6 +403,7 @@ async function main(){
     await p.locator('#powerPaletteQuery').fill(fake.name);
     assert.equal(await p.locator('#powerPaletteResults [role="option"]').count(),1);
     await p.keyboard.press('Escape');
+    assert.equal(await p.locator('#powerPaletteDialog').evaluate(d=>d.open),false);
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     await p.keyboard.press('Alt+1');
     assert.match(await p.locator('#commandLiveNote').innerText(),/Not verified/);
