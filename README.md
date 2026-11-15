@@ -1,6 +1,6 @@
 # Jack's Image Vault — Windows image and media library
 
-## Phase 9C — Vault Pulse (development branch)
+## Phase 9C — Vault Pulse (v2.1.23)
 
 The homepage gains read-only description and visual-review coverage, verified
 Sheet-to-Drive differences, folder failures, priority recommendations, and
