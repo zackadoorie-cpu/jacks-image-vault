@@ -928,4 +928,4 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .tile-more{border:0;background:transparent;color:var(--muted);font-weight:800;font-size:18px;line-height:1;min-width:32px;min-height:30px;border-radius:6px}
 .tile-more:hover,.tile-more:focus-visible{color:var(--purple);background:var(--surface2)}
 @media(max-width:1050px){.power-trigger span{display:none}}
-@media(max-width:680px){.power-trigger kbd{display:none}.power-palette-dialog{padding:14px}}
+@media(max-width:680px){.topbar #powerPaletteTrigger{display:none}.power-trigger kbd{display:none}.power-palette-dialog{padding:14px}}
