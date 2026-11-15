@@ -8,6 +8,7 @@ import (
  "encoding/json"
  "errors"
  "fmt"
+ "html"
  "io"
  "net"
  "net/http"
@@ -131,6 +132,44 @@ func exactReadScopes(granted string)bool{
  for _,s:=range strings.Fields(granted){scopes[s]=true}
  return scopes[desktopDriveScope]&&scopes[desktopSheetScope]
 }
+// oauthTokenFailure translates Google error codes into actionable, fixed
+// messages. Never display provider-controlled descriptions verbatim: they can
+// contain authorization codes, URLs, other credentials or arbitrary HTML.
+func oauthTokenFailure(status int, body []byte, hadSecret bool) error {
+ var payload struct {
+  Error string `json:"error"`
+  Description string `json:"error_description"`
+ }
+ if err:=json.Unmarshal(body,&payload);err!=nil {
+  return errors.New("Google's token exchange failed. Check Desktop OAuth credentials and retry.")
+ }
+ code:=strings.ToLower(strings.TrimSpace(payload.Error))
+ description:=strings.ToLower(payload.Description)
+ switch code {
+ case "invalid_request":
+  if strings.Contains(description,"client_secret") {
+   if !hadSecret {
+    return errors.New("Google requires the Desktop client secret for this sign-in. Download the Desktop app OAuth JSON from Google Cloud, paste its client_secret into the Desktop client secret field, and retry. Never use your Web client secret.")
+   }
+   return errors.New("Google rejected the Desktop client secret parameter. Confirm the secret belongs to the SAME Desktop OAuth client ID.")
+  }
+  return errors.New("Google rejected the desktop token request (invalid_request). Check the Desktop client ID, secret and OAuth configuration.")
+ case "invalid_client":
+  return errors.New("Google rejected this OAuth client (invalid_client). Confirm the ID is for a Desktop app and that its client secret matches.")
+ case "invalid_grant":
+  return errors.New("Google rejected the authorization code (invalid_grant). Close old sign-in tabs and start a fresh attempt; codes expire and cannot be reused.")
+ case "unauthorized_client":
+  return errors.New("Google does not permit this Desktop OAuth client to exchange codes (unauthorized_client). Check the Google Cloud client type and project.")
+ case "invalid_scope":
+  return errors.New("Google rejected requested permissions (invalid_scope). Confirm Drive and Sheets APIs and read-only scopes are configured.")
+ case "access_denied":
+  return errors.New("Google denied the authorization. Check your consent screen and permitted test users.")
+ default:
+  _ = status
+  return errors.New("Google token exchange failed. Check the Desktop OAuth client configuration and try again.")
+ }
+}
+
 func (b *desktopAuthBroker) exchange(f *desktopFlow,code string)error{
  b.mu.Lock()
  verifier,clientID,secret,redirect:=f.verifier,f.clientID,f.secret,f.redirectURI
@@ -145,7 +184,12 @@ func (b *desktopAuthBroker) exchange(f *desktopFlow,code string)error{
  req.Header.Set("Content-Type","application/x-www-form-urlencoded")
  res,err:=b.client.Do(req);if err!=nil{return err}
  defer res.Body.Close()
- if res.StatusCode!=200{return errors.New("Token exchange refused")}
+ if res.StatusCode!=200{
+  // Cap the response and parse only the documented error code. Never log
+  // or surface Google's raw error body or a returned credential.
+  payload,_:=io.ReadAll(io.LimitReader(res.Body,4096))
+  return oauthTokenFailure(res.StatusCode,payload,secret!="")
+ }
  var payload map[string]any
  if err:=json.NewDecoder(io.LimitReader(res.Body,32768)).Decode(&payload);err!=nil{return err}
  token,_:=payload["access_token"].(string)
@@ -199,8 +243,14 @@ func (b *desktopAuthBroker) callback(f *desktopFlow,w http.ResponseWriter,r *htt
   http.Error(w,"Invalid authorization code",400);return
  }
  if err:=b.exchange(f,code);err!=nil{
-  b.abort(f,"Desktop authorization failed. Check the OAuth Desktop client and approved scopes.")
-  _,_=io.WriteString(w,"<!doctype html><title>Image Vault</title><p>Authorization failed. Return to Image Vault.</p>")
+  // Only error messages from our fixed code-mapping reach the browser.
+  // No access token, client secret or PKCE verifier is returned here.
+  message:=err.Error()
+  if !strings.HasPrefix(message,"Google ") && !strings.HasPrefix(message,"OAuth ") {
+   message="Desktop authorization could not be completed. Return to Image Vault."
+  }
+  b.abort(f,message)
+  _,_=io.WriteString(w,"<!doctype html><title>Image Vault authorization</title><p>Authorization failed. Return to Image Vault.</p><p>Reason: "+html.EscapeString(message)+"</p>")
   return
  }
  _,_=io.WriteString(w,"<!doctype html><title>Image Vault</title><p>Read-only access approved. Return to Jack's Image Vault. You may close this tab.</p>")
