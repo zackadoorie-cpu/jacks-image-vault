@@ -1,0 +1,31 @@
+# One-time release gate for the approved Windows saved-login repair.
+# The full release.yml still runs all platform tests before publishing.
+name: Publish approved Windows sign-in recovery v2.1.24
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Windows saved sign-in recovery v2.1.24 (#64)')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch complete release pipeline once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.24 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.24 already exists; skipping duplicate dispatch."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.24
+          echo "Dispatched full v2.1.24 Windows release pipeline."

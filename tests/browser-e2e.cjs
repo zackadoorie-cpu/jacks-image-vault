@@ -228,6 +228,39 @@ async function main(){
     assert.equal(await p.evaluate(()=>localStorage.getItem('jack-vault-autoconnect-binding-v1')),null,
       'Desktop access must not accidentally authorize browser auto reconnect');
   }finally{await desktop.ctx.close()}
+  // The Windows browser launcher must reuse the already-consented, encrypted
+  // desktop read-only grant after a UI-only patch reload. Never persist a
+  // Google token or secret in the browser profile.
+  const savedBrowser=await fixturePage(browser,url);
+  try{
+    const p=savedBrowser.page;let resumes=0;
+    await p.route('**/__vault_desktop_auth/status',route=>route.fulfill(reply({
+      available:true,storesRefreshTokens:true,savedReadOnlySession:true
+    })));
+    await p.route('**/__vault_update/status',route=>route.fulfill(reply({
+      version:'2.1.24',source:'patched',nonce:'fixture-native-nonce'
+    })));
+    await p.route('**/__vault_desktop_auth/resume',route=>{
+      const args=route.request().postDataJSON();
+      assert.equal(args.sheetId,'fixture_sheet_123456789');
+      resumes++;
+      return route.fulfill(reply({
+        status:'ready',accessToken:'fixture-refreshed-token',expiresIn:3600,
+        savedSession:true,sheetId:'fixture_sheet_123456789'
+      }));
+    });
+    await p.reload({waitUntil:'domcontentloaded'});
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    assert.equal(resumes,1,'Browser launcher must use one saved Windows refresh on restart');
+    await p.locator('#sidebarSettings').click();
+    await p.locator('#desktopResumeSavedButton').waitFor({state:'visible'});
+    assert.equal(await p.locator('#desktopResumeSavedButton').isDisabled(),true);
+    await p.locator('#settingsClose').click();
+    await p.reload({waitUntil:'domcontentloaded'});
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    assert.equal(resumes,2,'UI patch reload must not discard the Windows saved grant');
+    assert.equal(await p.evaluate(()=>JSON.stringify(localStorage).includes('fixture-refreshed-token')),false);
+  }finally{await savedBrowser.ctx.close();}
   // Embedded WebView2 may not invoke the Google GIS widget. Test first-run
   // Sheet-ID setup and the redirect to the external-browser PKCE panel.
   const nativeHost=await fixturePage(browser,url,{native:true});

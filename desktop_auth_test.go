@@ -276,6 +276,17 @@ func TestDesktopSavedReadOnlyRefreshAndOptIn(t *testing.T){
  resumed,err:=b.resume(sheetID)
  if err!=nil||resumed["accessToken"]!="refreshed-read-only-token"{t.Fatalf("refresh failed: %v %v",resumed,err)}
  if _,err:=b.resume("anotherSheet012345");err==nil{t.Fatal("wrong Sheet restored saved session")}
+ // Native WebView2's localStorage may be missing after a launcher/profile
+ // transition. Successful encrypted-session resume can recover the bound ID.
+ recovered,err:=b.resume("")
+ if err!=nil||recovered["sheetId"]!=sheetID||recovered["accessToken"]!="refreshed-read-only-token"{
+  t.Fatalf("missing-profile-sheet recovery failed: %v %v",recovered,err)
+ }
+ if strings.Contains(fmt.Sprint(recovered),"refresh-private-test-token")||
+    strings.Contains(fmt.Sprint(recovered),"matching-secret"){
+  t.Fatal("saved credential was exposed to the recovered browser session")
+ }
+ if _,err:=b.resume("INVALID!");err==nil{t.Fatal("invalid Sheet ID was accepted")}
 }
 
 func TestDesktopWriteAuthorizationCannotBeRemembered(t *testing.T){

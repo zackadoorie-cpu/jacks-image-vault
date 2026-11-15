@@ -702,3 +702,22 @@ Use **Updates → Install a local patch** for the result, or attach it to a **ne
 - `go test -v ./...` verifies valid/invalid patches, corrupted checksums, ZIP traversal, version comparison, persistence, rollback, reset, local HTTP host/origin guards, and the app shell being served from the installed patch.
 - An actual local HTTP smoke test successfully applied `v2.0.1`, served its patched HTML, and rolled back to bundled `v2.0.0`.
 - `node --check web/app.js` passed. A full Windows-run test and a live authenticated Drive thumbnail test still need to be done on the user's PC.
+
+## Windows saved sign-in across UI patches
+
+In the browser-based Windows launcher, a previously consented, encrypted
+read-only Desktop OAuth grant is now retried on startup, just as in the
+native WebView2 host. WebView2 can also recover the inventory Sheet ID
+from a successfully refreshed DPAPI record when its private web profile
+does not contain that ID. A separate manual **Reconnect using saved
+Windows sign-in** control is shown when the backend reports a stored
+grant. Only a Sheet identifier is restored to profile settings; refresh
+tokens and Desktop client credentials remain protected by Windows DPAPI.
+The browser-mode restore is restricted to the private loopback application
+and a previously configured inventory. Sheet-edit OAuth is not saved.
+Explicit Disconnect / Forget still removes the encrypted session.
+
+An invalid or revoked grant requires new consent. In Google OAuth's external
+Testing publishing status, refresh tokens for Drive/Sheets scopes typically
+expire after seven days even without installing an update. See
+`docs/windows-signin-patch-recovery.md` for troubleshooting.

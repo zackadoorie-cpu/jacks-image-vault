@@ -650,6 +650,8 @@
       <input class="field" id="desktopClientSecretInput" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Paste client_secret from Desktop OAuth credentials JSON, if provided">
       <p class="field-help">If Google requires a client secret, use the one from the <strong>same Desktop app</strong> credentials JSON. Never enter your Google account password or share the OAuth secret.</p>
       <label class="pref-toggle" for="desktopRememberInput"><span><strong>Stay signed in on this Windows account</strong><small>Recommended. On your approval, Image Vault will encrypt a read-only refresh token and matching Desktop credentials using Windows user protection. It can then reconnect when you reopen the app. Sheet-edit permission is never saved.</small></span><input id="desktopRememberInput" type="checkbox" checked></label>
+      <p class="field-help">The Windows-encrypted session is stored outside UI patch folders. If a saved grant exists, reconnect without re-entering your client ID or secret. Google OAuth projects left in <strong>Testing</strong> may still require renewed consent after seven days.</p>
+      <button class="btn outline hidden" id="desktopResumeSavedButton" type="button">Reconnect using saved Windows sign-in</button>
       <button class="btn quiet" id="desktopForgetSavedButton" type="button">Forget saved Windows sign-in</button>
       <p class="field-help" id="desktopSavedSessionStatus" role="status">Checking saved Windows sign-in…</p>
       <div class="dialog-actions">

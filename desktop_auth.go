@@ -326,7 +326,7 @@ func (b *desktopAuthBroker) cancel(id string){
 // access token. Only the access token reaches the UI. Concurrent refreshes
 // are serialized; an invalid_grant clears the obsolete encrypted session.
 func (b *desktopAuthBroker) resume(sheetID string)(map[string]any,error){
- if !desktopSheetIDRE.MatchString(sheetID){return nil,errors.New("Enter the original inventory Sheet ID first")}
+ if sheetID!=""&&!desktopSheetIDRE.MatchString(sheetID){return nil,errors.New("Enter a valid inventory Sheet ID")}
  b.mu.Lock()
  if b.resuming {b.mu.Unlock();return nil,errors.New("Desktop reconnect is already in progress")}
  b.resuming=true
@@ -335,7 +335,7 @@ func (b *desktopAuthBroker) resume(sheetID string)(map[string]any,error){
  saved,err:=b.loadSession()
  if err!=nil{return nil,errors.New("No saved Windows read-only session. Connect via system browser and enable Stay signed in.")}
  if err=validateDesktopSavedSession(saved);err!=nil{return nil,errors.New("Saved Windows authorization needs a new sign-in.")}
- if saved.SheetID!=sheetID{return nil,errors.New("Saved Windows session belongs to a different inventory Sheet. Reconnect manually.")}
+ if sheetID!=""&&saved.SheetID!=sheetID{return nil,errors.New("Saved Windows session belongs to a different inventory Sheet. Reconnect manually.")}
  form:=url.Values{"grant_type":{"refresh_token"},"client_id":{saved.ClientID},"refresh_token":{saved.RefreshToken}}
  if saved.ClientSecret!=""{form.Set("client_secret",saved.ClientSecret)}
  req,err:=http.NewRequest("POST",b.tokenEndpoint,strings.NewReader(form.Encode()))
@@ -348,9 +348,13 @@ func (b *desktopAuthBroker) resume(sheetID string)(map[string]any,error){
   body,_:=io.ReadAll(io.LimitReader(res.Body,4096))
   var payload struct{Error string `json:"error"`}
   _=json.Unmarshal(body,&payload)
-  if payload.Error=="invalid_grant"||payload.Error=="invalid_client"{
+  if payload.Error=="invalid_grant"{
    _=b.clearSession()
-   return nil,errors.New("Saved Google authorization expired or was revoked. Reconnect via system browser.")
+   return nil,errors.New("Saved Google authorization expired or was revoked. Reconnect via system browser. If your Google OAuth app is in Testing mode, its refresh tokens can expire after seven days.")
+  }
+  if payload.Error=="invalid_client"{
+   _=b.clearSession()
+   return nil,errors.New("Google rejected the saved Desktop OAuth client credentials. Reconnect using credentials from the same client.")
   }
   return nil,errors.New("Google could not refresh the saved desktop session. Reconnect manually if the problem continues.")
  }
@@ -369,8 +373,11 @@ func (b *desktopAuthBroker) resume(sheetID string)(map[string]any,error){
   _=b.clearSession()
   return nil,errors.New("Saved Google token did not contain the expected read-only permissions. Reconnect.")
  }
+ // A browser profile can lose its saved Sheet ID when a user changes launcher or
+ // installs a UI patch. Only return the inventory identifier on a nonce-guarded
+ // successful refresh; never return Desktop secrets or refresh grants.
  return map[string]any{"status":"ready","accessToken":token.AccessToken,
-  "expiresIn":token.ExpiresIn,"savedSession":true},nil
+  "expiresIn":token.ExpiresIn,"savedSession":true,"sheetId":saved.SheetID},nil
 }
 func (b *desktopAuthBroker) startSheetWrite(sheetID,clientID,secret string)(string,error){
  if !desktopSheetIDRE.MatchString(sheetID){return "",errors.New("Invalid inventory Sheet ID")}
