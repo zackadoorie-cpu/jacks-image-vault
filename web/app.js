@@ -2239,7 +2239,9 @@
   // Desktop OAuth is independent of the existing Google Identity Services
   // browser token flow. Every Desktop sign-in explicitly opens the system
   // browser; no refresh token or client secret is persisted in web storage.
-  let desktopFlowId='',desktopNonce='';
+  let desktopFlowId='',desktopNonce='',desktopResumePromise=null;
+  let sheetWriteFlowId='';
+  const SHEET_WRITE_SCOPE='https://www.googleapis.com/auth/spreadsheets';
   const desktopAuthPause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   async function checkDesktopOAuthCapability(){
     try{
@@ -2247,6 +2249,11 @@
       if(!res.ok)throw new Error('Native desktop authorization not installed');
       const data=await res.json();
       if($('settingsDialog').open)$('desktopAuthSection').hidden=!data.available;
+      if(data.available){
+        $('desktopSavedSessionStatus').textContent=data.savedReadOnlySession?
+          'Encrypted Windows sign-in found. It will reconnect automatically for the saved inventory.':
+          'No saved Windows sign-in yet. Enable Stay signed in during your next connection.';
+      }
     }catch{$('desktopAuthSection').hidden=true;}
   }
   function saveDesktopSheetId(){
@@ -2319,7 +2326,8 @@
     try{
       // The client secret is forwarded only once to the in-memory native broker.
       // Never store this string in localStorage, sessionStorage or logs.
-      const start=await desktopAuthPost('start',{clientId,clientSecret});
+      const start=await desktopAuthPost('start',{clientId,clientSecret,
+        sheetId:state.config.sheetId,remember:String($('desktopRememberInput').checked)});
       $('desktopClientSecretInput').value='';
       flow=String(start.flowId||'');
       if(!flow)throw new Error('Native broker did not provide an authorization session.');
@@ -2344,8 +2352,10 @@
         state.authProvider='desktop';
         state.accessToken=progress.accessToken;
         state.expiry=Date.now()+Math.max(60,Number(progress.expiresIn||3600)-60)*1000;
+        const warning=progress.saveWarning||'';
         if($('settingsDialog').open)$('settingsDialog').close();
         await loadLiveIndex();
+        if(warning)alertUser(warning,'error');
         return;
       }
       if(desktopFlowId===flow)throw new Error('Desktop authorization timed out. Please try again.');
@@ -2361,6 +2371,44 @@
       $('desktopAuthCancelButton').disabled=true;
       $('desktopAuthConnectButton').disabled=false;
     }
+  }
+  async function resumeDesktopSession({silent=false,load=true}={}){
+    if(!IN_NATIVE_DESKTOP||!safeId(state.config.sheetId))return false;
+    if(desktopResumePromise)return desktopResumePromise;
+    const epoch=state.authEpoch;
+    const attempt=(async()=>{
+      try{
+        if(!silent){
+          state.autoReconnectStatus='Restoring encrypted Windows Google session…';
+          updateStatus();
+        }
+        const data=await desktopAuthPost('resume',{sheetId:state.config.sheetId});
+        if(epoch!==state.authEpoch)return false;
+        if(data.status!=='ready'||typeof data.accessToken!=='string')return false;
+        state.authProvider='desktop';
+        state.accessToken=data.accessToken;
+        state.expiry=Date.now()+Math.max(60,Number(data.expiresIn||3600)-60)*1000;
+        state.autoReconnectStatus='';
+        if(load)await loadLiveIndex();
+        return !load||state.connected;
+      }catch(error){
+        if(!silent){
+          state.autoReconnectStatus='Windows saved sign-in unavailable. Connect via system browser.';
+          updateStatus();
+        }
+        return false;
+      }
+    })();
+    desktopResumePromise=attempt;
+    try{return await attempt;}finally{desktopResumePromise=null;}
+  }
+  async function forgetDesktopSavedSession(){
+    if(!IN_NATIVE_DESKTOP)return;
+    if(!confirm('Forget the encrypted Google sign-in on this Windows account? This does not change Google permissions or any Drive files. You will need to authorize again next time.'))return;
+    try{
+      await desktopAuthPost('forget',{});
+      $('desktopSavedSessionStatus').textContent='Saved Windows session cleared. Browser and gallery data are unchanged until you disconnect.';
+    }catch(error){$('desktopSavedSessionStatus').textContent='Could not forget Windows sign-in: '+error.message;}
   }
   async function connect({automatic=false}={}) {
     if(IN_NATIVE_DESKTOP){
@@ -2453,7 +2501,12 @@
     }
   }
   function tryAutoReconnect(){
-    if(IN_NATIVE_DESKTOP)return;
+    if(IN_NATIVE_DESKTOP){
+      // New Windows host starts with a private DPAPI read-only session. The
+      // separate Sheets-write grant is never refreshed or remembered.
+      if(state.config.sheetId)void resumeDesktopSession();
+      return;
+    }
     if(!state.autoReconnect||!readAutoBinding()||!state.config.clientId||!state.config.sheetId)return;
     if(location.protocol==='file:')return;
     let attempts=0;
@@ -2469,6 +2522,8 @@
     check();
   }
     async function googleGet(url, {blob = false, maxBytes = null, signal = undefined} = {}) {
+    if(IN_NATIVE_DESKTOP&&state.authProvider==='desktop'&&state.accessToken&&Date.now()>state.expiry-15000)
+      await resumeDesktopSession({silent:true,load:false});
     if (!state.accessToken || Date.now() > state.expiry) { updateStatus(); throw new Error('Your Google session expired. Choose Connect Drive to authorize again.'); }
     // Never send a Google access token to a thumbnail URL or any non-API host.
     const host = new URL(url).hostname;
@@ -3371,6 +3426,7 @@
     state.snapshotLoadedAt=null;state.lastSyncAttemptAt=null;state.lastSyncSuccessAt=null;state.lastSyncError='';
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
+    if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
     clearThumbnailCache(); state.reviewEdits.clear();state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
@@ -5187,6 +5243,7 @@
     $('sheetIdInput').oninput=()=>$('sheetIdInput').setCustomValidity('');
     $('settingsForm').onsubmit=saveSettings;
     $('desktopAuthConnectButton').onclick=connectDesktopOAuth;
+    $('desktopForgetSavedButton').onclick=forgetDesktopSavedSession;
     $('desktopSaveSheetButton').onclick=saveDesktopSheetId;
     $('desktopAuthCancelButton').onclick=()=>void cancelDesktopAuth();
     $('settingsDialog').addEventListener('close',()=>{if(desktopFlowId)void cancelDesktopAuth();});
