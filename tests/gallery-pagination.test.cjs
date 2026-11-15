@@ -8,7 +8,7 @@ const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'..','web','app.js'),'utf8');
 const suffix='  init();\n})();';
 assert.ok(source.includes(suffix),'app bootstrap changed');
-const code=source.replace(suffix,'  globalThis.__galleryTests={state,renderGallery,appendGalleryBatch,savePreferences,displayPage,saveBrowsingPosition,restoreBrowsingPosition,clearBrowsingPosition,updateScrollControls,turboGallery};\n})();');
+const code=source.replace(suffix,'  globalThis.__galleryTests={state,renderGallery,appendGalleryBatch,savePreferences,displayPage,saveBrowsingPosition,restoreBrowsingPosition,clearBrowsingPosition,updateScrollControls,turboGallery,putThumb,evictThumb};\n})();');
 
 function harness({withObserver=true}={}){
   const elements=new Map(),storage=new Map(),observers=[];
@@ -262,4 +262,23 @@ test('Turbo Gallery row spacers preserve exact logical height and never have neg
       }
     }
   }
+});
+
+test('thumbnail LRU caps both entries and in-memory blob byte budget',()=>{
+  const {h,storage}=harness();
+  for(let i=0;i<110;i++){
+    h.putThumb('signed-'+i,{src:'https://drive.google.com/fake/'+i,objectUrl:false,kind:'signed'});
+  }
+  assert.equal(h.state.thumbCache.size,96);
+  assert.equal(h.state.thumbCache.has('signed-0'),false);
+  assert.equal(h.state.thumbCache.has('signed-109'),true);
+  const chunk=10*1024*1024;
+  for(let i=0;i<8;i++){
+    h.putThumb('blob-'+i,{src:'blob:fixture-'+i,objectUrl:false,kind:'media',bytes:chunk});
+  }
+  assert.ok(h.state.thumbCacheBytes<=48*1024*1024);
+  assert.ok(h.state.thumbCache.size<=96);
+  h.evictThumb('blob-7');
+  assert.equal(h.state.thumbCacheBytes,30*1024*1024);
+  assert.equal(storage.size,0,'never persist signed URLs, image bytes or tokens');
 });
