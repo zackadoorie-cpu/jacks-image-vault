@@ -56,3 +56,16 @@ test('manual release contains two separate ZIPs and enforces server/host integri
  assert.match(verify,/bundle backend differs from standalone EXE/);
  assert.match(verify,/unexpectedly large/);
 });
+
+test('native window stores only safe local dimensions outside release folders',()=>{
+ const host=read('windows-host/Program.cs');
+ const layout=read('windows-host/WindowLayout.cs');
+ assert.match(host,/WindowLayoutStorage\.Load\(\)/);
+ assert.match(host,/WindowLayoutStorage\.Save\(/);
+ assert.match(layout,/Environment\.SpecialFolder\.LocalApplicationData/);
+ assert.match(layout,/window-layout-v1\.json/);
+ assert.match(layout,/JsonSerializer\.Serialize/);
+ assert.match(layout,/DesktopWindowLayout\.Valid\(/);
+ assert.match(layout,/File\.Move\(temp,file,true\)/);
+ assert.doesNotMatch(layout,/accessToken|refreshToken|clientSecret|sheetId|oauth/i);
+});

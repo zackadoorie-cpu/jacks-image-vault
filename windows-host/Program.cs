@@ -45,6 +45,8 @@ internal static class Program
                     && localBlocked.All(v => !DesktopNavigation.IsLocalDocument(v))
                     && externalAllowed.All(DesktopNavigation.CanOpenExternally)
                     && externalBlocked.All(v => !DesktopNavigation.CanOpenExternally(v))
+                    && DesktopWindowLayout.Valid(900, 620)
+                    && !DesktopWindowLayout.Valid(100, 100)
                     ? 0 : 2;
             }
             using var backend = BackendConnection.StartAsync().GetAwaiter().GetResult();
@@ -229,8 +231,15 @@ internal sealed class VaultWindow : Form
         Text = "Jack's Image Vault";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         MinimumSize = new Size(900, 620);
-        Size = new Size(1390, 900);
+        // Persist only window geometry outside release folders, not OAuth state.
+        var saved = WindowLayoutStorage.Load();
+        Size = new Size(saved.Width, saved.Height);
         StartPosition = FormStartPosition.CenterScreen;
+        if (saved.Maximized) WindowState = FormWindowState.Maximized;
+        FormClosed += (_, _) => {
+            var size = WindowState == FormWindowState.Normal ? Size : RestoreBounds.Size;
+            WindowLayoutStorage.Save(size, WindowState == FormWindowState.Maximized);
+        };
         BackColor = Color.FromArgb(17, 22, 39);
         Controls.Add(_web);
         Controls.Add(_status);
