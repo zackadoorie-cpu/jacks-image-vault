@@ -1,5 +1,23 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 9B-2 — Sheet Approvals and Windows saved sign-in
+
+**Windows auto-login:** An explicitly approved Desktop OAuth login can save a
+read-only refresh grant encrypted for the current Windows user; subsequent
+launches can reconnect without another Google browser round-trip. A saved
+grant is forgotten on Disconnect or via the connection settings. A first
+login after upgrading is required because previous builds never requested
+offline access.
+
+**Sheet Approvals:** Stage locally reviewed records with exact Manifest
+before/after previews and a final approval. A temporary, separately granted
+Sheets editing token is used only to write Manifest descriptions, tags and
+review statuses after live Drive-ID and row checks. No Drive file renames,
+moves or deletions. No spreadsheet auto-write on startup; Sheet-edit grants
+are never stored. An uncertain write is not retried automatically.
+
+[Security and verification details](docs/phase9b2-sheet-approval-and-windows-login.md).
+
 ## Phase 9B-1 — Activity & Local Undo
 
 A new **Activity & Undo** section under **Review & Health** records recent
