@@ -290,7 +290,7 @@ func TestDesktopWriteAuthorizationCannotBeRemembered(t *testing.T){
  b:=newDesktopAuthBroker();b.tokenEndpoint=tokenServer.URL
  b.launch=func(raw string)error{var err error;authURL,err=url.Parse(raw);return err}
  b.saveSession=func(desktopSavedSession)error{saves++;return nil}
- if _,err:=b.start(fakeDesktopID,"",{Remember:true,SheetWrite:true,SheetID:"fixtureSheet012345"});err==nil{
+ if _,err:=b.start(fakeDesktopID,"",desktopStartOptions{Remember:true,SheetWrite:true,SheetID:"fixtureSheet012345"});err==nil{
   t.Fatal("Sheet edit grant was allowed into the saved session")
  }
  id,err:=b.start(fakeDesktopID,"",desktopStartOptions{SheetID:"fixtureSheet012345",SheetWrite:true})
