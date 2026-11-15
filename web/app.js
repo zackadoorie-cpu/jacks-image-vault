@@ -239,6 +239,11 @@
     observer: null,
     favorites: new Set(readFavorites()),
     reviewEdits: new Map(),
+    activityHistory: null,
+    activityError: '',
+    activityFilter: 'all',
+    activityQuery: '',
+    activityPage: 1,
     reviewFilter: 'pending',
     inboxFilter: 'all',
     inboxPage: 1,
@@ -1494,6 +1499,57 @@
   function reviewStorageKey(){
     if(!state.driveIdentity||!state.config.sheetId)return '';
     return REVIEW_STORAGE+'-'+state.driveIdentity+'-'+state.config.sheetId;
+  }
+  function activityContext(){
+    return state.driveIdentity&&state.config.sheetId?
+      {account:state.driveIdentity,sheetId:state.config.sheetId}:null;
+  }
+  function activityStorageKey(){
+    const ctx=activityContext();
+    return ctx?'jack-vault-private-activity-v1-'+ctx.account+'-'+ctx.sheetId:'';
+  }
+  function loadActivityHistory(){
+    state.activityHistory=null;state.activityError='';
+    const ctx=activityContext(),key=activityStorageKey();
+    if(!ctx||!key){
+      state.activityError='Account identity unavailable; activity history is disabled for this session.';
+      return;
+    }
+    try{
+      state.activityHistory=activityLedger.activityParse(localStorage.getItem(key),ctx);
+    }catch(err){
+      // Never overwrite a damaged or mismatched journal. The user can export
+      // the raw storage through browser tools before explicitly clearing it.
+      state.activityError=err.message||'Local activity history is unavailable.';
+    }
+  }
+  function storeActivityHistory(history){
+    const key=activityStorageKey(),ctx=activityContext();
+    if(!state.connected||!key||!ctx||!history)
+      throw new Error('Connect the correct Drive account to manage activity.');
+    const serialized=JSON.stringify(history);
+    if(serialized.length>activityLedger.ACTIVITY_MAX_BYTES)
+      throw new Error('Activity history is too large to save.');
+    localStorage.setItem(key,serialized);
+    state.activityHistory=history;
+    state.activityError='';
+  }
+  function logActivity(kind,{fileId='',count=0,before,after}={}){
+    const ctx=activityContext();
+    if(!ctx||!state.activityHistory)return false;
+    const entry={id:crypto.randomUUID(),at:Date.now(),kind,status:'complete',
+      fileId:String(fileId||''),count};
+    if(before!==undefined)entry.before=before;
+    if(after!==undefined)entry.after=after;
+    try{
+      storeActivityHistory(activityLedger.activityAppend(state.activityHistory,entry,ctx));
+      if(state.view==='activity')renderActivity();
+      return true;
+    }catch(err){
+      state.activityError='Activity could not be saved on this device: '+(err.message||'Storage unavailable.');
+      if(state.view==='activity')renderActivity();
+      return false;
+    }
   }
   function validateReviewEntry(value){
     if(!value||typeof value!=='object'||Array.isArray(value))return null;
