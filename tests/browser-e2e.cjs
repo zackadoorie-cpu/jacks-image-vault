@@ -38,7 +38,7 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,t
    if(native)window.__JACKS_VAULT_DESKTOP_HOST=true;
    localStorage.setItem('jack-vault-settings-v2',JSON.stringify({clientId:'123456789-fixture.apps.googleusercontent.com',sheetId:'fixture_sheet_123456789'}));
    window.google={accounts:{oauth2:{
-     initTokenClient(opts){return {requestAccessToken(options){(window.__authPrompts??=[]).push(options?.prompt);opts.callback({access_token:'fake-e2e-token',expires_in:3600});}};},
+     initTokenClient(opts){return {requestAccessToken(options){(window.__authPrompts??=[]).push(options?.prompt);opts.callback({access_token:'fake-e2e-token',expires_in:3600,scope:opts.scope});}};},
      revoke(_,fn){fn();}
    }}};
  },native);
@@ -472,9 +472,10 @@ async function main(){
     p.once('dialog',dialog=>dialog.dismiss());
     await p.locator('#sheetWriteApply').click();
     assert.equal(approvals.getSheetWrites().length,0,'declined authorization still wrote');
-    p.once('dialog',dialog=>dialog.accept());
-    p.once('dialog',dialog=>dialog.accept());
+    const acceptApprovals=dialog=>void dialog.accept();
+    p.on('dialog',acceptApprovals);
     await p.locator('#sheetWriteApply').click();
+    p.off('dialog',acceptApprovals);
     await p.waitForFunction(()=>document.querySelector('#sheetWriteApplyStatus')?.textContent.includes('Verified 1 approved'),null,{timeout:18000});
     assert.equal(approvals.getSheetWrites().length,1);
     const payload=approvals.getSheetWrites()[0];
