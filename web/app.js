@@ -1465,8 +1465,11 @@
     $('prefBatchSize').value=String(state.pageSize);
     $('prefDensity').value=state.density;
     $('prefRememberBrowsing').checked=state.rememberBrowsing;
-    $('prefAutoReconnect').checked=state.autoReconnect;
-    $('prefReconnectStatus').textContent=state.connected&&safeId(state.driveIdentity)?
+    $('prefAutoReconnect').checked=!IN_NATIVE_DESKTOP&&state.autoReconnect;
+    $('prefAutoReconnect').disabled=IN_NATIVE_DESKTOP;
+    $('prefReconnectStatus').textContent=IN_NATIVE_DESKTOP?
+      'Windows auto-login is managed under Drive connection → Stay signed in. It uses a Windows-encrypted read-only session and is separate from browser reconnect.':
+      state.connected&&safeId(state.driveIdentity)?
       'Current Google account verified. This remembers only its account ID, the OAuth client ID and Sheet ID.':
       'Automatic reconnect starts after your next successful manual connection to a verified Google account.';
     $('prefTheme').value=state.theme;
@@ -1483,7 +1486,7 @@
     const batchSize=Number($('prefBatchSize').value);
     const density=$('prefDensity').value;
     const rememberBrowsing=$('prefRememberBrowsing').checked;
-    const autoReconnect=$('prefAutoReconnect').checked;
+    const autoReconnect=!IN_NATIVE_DESKTOP&&$('prefAutoReconnect').checked;
     const theme=$('prefTheme').value;
     if(![16,32,48].includes(batchSize)||!['compact','comfortable','large'].includes(density)||
       !VAULT_THEMES.includes(theme))return;
