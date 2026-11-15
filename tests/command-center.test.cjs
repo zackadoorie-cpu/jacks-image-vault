@@ -116,3 +116,39 @@ test('source and browser bundles must match exactly under release checks',()=>{
     assert.equal(res.status,0,res.stderr+res.stdout);
   }
 });
+
+test('Phase 9C Pulse separates verified Sheet differences from on-device activity',()=>{
+  const v=fixture({images:[{id:'file00000000001',description:'Seen'}, {id:'file00000000003',description:''}],
+    reviewPending:1,reviewSourceReviewed:1,activity:[{kind:'review-save',at:1784115000000,fileId:'SECRET'}]});
+  const p=c.commandPulse(v);
+  assert.equal(p.descriptionCoverage,50);assert.equal(p.reviewCoverage,50);
+  assert.equal(p.verified,true);assert.equal(p.added,1);assert.equal(p.missing,1);
+  assert.equal(p.actions[0].id,'health');
+  assert.equal(JSON.stringify(p).includes('SECRET'),false);
+  const scanning=c.commandPulse({...v,scanning:true});
+  assert.equal(scanning.verified,false);assert.equal(scanning.added,null);
+});
+test('Phase 9C Pulse fails closed on disconnected or partial scans',()=>{
+  const v=fixture({fullVerifiedAt:null,failedFolders:1});
+  const partial=c.commandPulse(v);
+  assert.equal(partial.verified,false);assert.equal(partial.added,null);
+  assert.equal(partial.actions[0].id,'verify');
+  assert.ok(partial.bottlenecks.includes('Folder scan failures'));
+  const disconnected=c.commandPulse({...v,connected:false,activity:[{kind:'inventory',at:1784115000000}]});
+  assert.equal(disconnected.total,null);assert.equal(disconnected.activity.length,0);
+  assert.equal(disconnected.actions[0].id,'connect');
+});
+test('Phase 9C Pulse handles duplicates and unknown activity safely',()=>{
+  const p=c.commandPulse(fixture({images:[{id:'file00000000001',description:'Yes'},
+    {id:'file00000000001',description:''},{id:'file00000000002',description:''}],
+    reviewPending:90,reviewReviewed:1,activity:[{kind:'unknown',at:1784115000000},{kind:'inventory',at:1784115000000}]}));
+  assert.equal(p.total,2);assert.equal(p.described,1);assert.equal(p.reviewCoverage,50);
+  assert.equal(p.activity.length,1);assert.ok(p.actions.length<=3);
+});
+test('Phase 9C homepage IDs and bound controller exist',()=>{
+  for(const id of ['vaultPulse','pulseSummary','pulseCoverage','pulseReviews',
+    'pulseDifferences','pulseFolders','pulseAttention','pulseActions','pulseRecent'])
+    assert.ok(html.includes('id="'+id+'"'),id);
+  assert.match(app,/pulseRender\(m\)/);
+  assert.match(app,/data-pulse-action/);
+});

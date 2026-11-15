@@ -1,5 +1,14 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 9C — Vault Pulse (development branch)
+
+The homepage gains read-only description and visual-review coverage, verified
+Sheet-to-Drive differences, folder failures, priority recommendations, and
+recent actions from the private on-device Activity ledger. Sheet differences
+are never represented as dated Drive events. No new Google permissions or
+background write actions are introduced.
+
+
 ## Phase 9B-2 — Sheet Approvals and Windows saved sign-in
 
 **Windows auto-login:** An explicitly approved Desktop OAuth login can save a

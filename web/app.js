@@ -997,7 +997,65 @@
         folders:connected?folderCount:null
       };
     }
-    return {COMMAND_CENTER_SCHEMA,COMMAND_VIDEO_LEVELS,commandTime,commandSafeCount,commandCenter};
+    const COMMAND_PULSE_SCHEMA=1;
+    // Phase 9C uses full-verified Sheet comparisons, never guesses recent Drive events.
+    function commandPulse(input={},metrics=commandCenter(input)){
+      const connected=metrics.connected===true;
+      const ids=new Map();
+      if(connected&&Array.isArray(input.images))for(const item of input.images){
+        if(item&&!item.demo&&typeof item.id==='string'&&item.id&&!ids.has(item.id))ids.set(item.id,item);
+      }
+      const total=ids.size;
+      let described=0;
+      for(const item of ids.values())if(typeof item.description==='string'&&item.description.trim())described++;
+      const pending=connected?commandSafeCount(input.reviewPending):null;
+      const deferred=connected?commandSafeCount(input.reviewDeferred):null;
+      const reviewed=connected?Math.min(total,commandSafeCount(input.reviewReviewed)+commandSafeCount(input.reviewSourceReviewed)):null;
+      const folderCount=connected?commandSafeCount(input.folderCount):null;
+      const foldersObserved=connected?Math.min(folderCount,commandSafeCount(input.syncedFolderCount)):null;
+      const folderFailures=connected?commandSafeCount(input.failedFolders):null;
+      const previewFailures=connected?commandSafeCount(input.previewFailed):null;
+      const bottlenecks=[];
+      if(connected){
+        if(folderFailures)bottlenecks.push('Folder scan failures');
+        if(metrics.health==='warning'&&!folderFailures)bottlenecks.push('Sync needs attention');
+        if(!metrics.liveVerified)bottlenecks.push('Full comparison pending');
+        if(pending+deferred)bottlenecks.push('Visual reviews awaiting attention');
+        if(previewFailures)bottlenecks.push('Browser preview failures');
+      }
+      const actions=[];
+      const suggest=(id,title,note)=>{if(actions.length<3)actions.push({id,title,note});};
+      if(!connected)suggest('connect','Connect Google Drive','Load the private Sheet inventory.');
+      else if(metrics.health==='expired')suggest('connect','Reconnect Google','Access expired.');
+      else{
+        if(!metrics.liveVerified&&!input.scanning)suggest('verify','Verify Drive folders','Read-only full folder comparison.');
+        if(metrics.liveVerified&&(metrics.added>0||metrics.missing>0))suggest('health','Inspect inventory differences','Review verified Sheet-versus-Drive gaps.');
+        if(pending+deferred)suggest('reviews','Open review inbox','Review pending and deferred images.');
+        if(previewFailures)suggest('gallery','Inspect gallery previews','Review unavailable browser previews.');
+        if(!actions.length&&metrics.liveVerified)suggest('collections','Explore collections','All available health checks look clear.');
+      }
+      const kinds={
+        'review-save':'Saved a local review','review-reset':'Reset a local review',
+        'review-import':'Imported local reviews','review-backup':'Exported a review backup',
+        'rename-plan':'Exported a rename proposal','rename-clear':'Cleared rename staging',
+        inventory:'Loaded a Sheet inventory','undo-review':'Undid a local review',
+        'sheet-write':'Verified an approved Sheet write',
+        'sheet-write-unverified':'Sheet write outcome requires checking'
+      };
+      const activity=connected&&Array.isArray(input.activity)?input.activity.filter(e=>
+        e&&typeof e.kind==='string'&&Object.hasOwn(kinds,e.kind)&&
+        Number.isSafeInteger(e.at)&&e.at>=0).slice(0,3).map(e=>({
+          title:kinds[e.kind],at:new Date(e.at).toISOString(),
+          status:e.status==='undone'?'Undone':e.kind==='sheet-write-unverified'?'Uncertain':'Recorded'
+        })):[];
+      return {schema:COMMAND_PULSE_SCHEMA,connected,verified:metrics.liveVerified,
+        total:connected?total:null,described:connected?described:null,
+        descriptionCoverage:connected?(total?Math.round(100*described/total):0):null,
+        reviewed,reviewCoverage:connected?(total?Math.round(100*reviewed/total):0):null,
+        pending,deferred,added:metrics.added,missing:metrics.missing,
+        foldersObserved,folderCount,folderFailures,previewFailures,bottlenecks,actions,activity};
+    }
+    return {COMMAND_CENTER_SCHEMA,COMMAND_VIDEO_LEVELS,commandTime,commandSafeCount,commandCenter,COMMAND_PULSE_SCHEMA,commandPulse};
   })();
   /* GENERATED COMMAND CENTER END */
   /* GENERATED REVIEW INBOX START */
@@ -3877,6 +3935,53 @@
   }
   /* GENERATED VIDEO CONTROLLER END */
   /* GENERATED COMMAND CONTROLLER START */
+  function pulseRender(m){
+    const counts=state.connected?reviewCounts():{};
+    const p=commandEngine.commandPulse({
+      connected:state.connected,images:state.images,
+      folderCount:state.folderSources.length,syncedFolderCount:state.syncedFolders.size,
+      failedFolders:state.scanFailures.size,scanning:state.scanning,
+      reviewPending:counts.pending,reviewDeferred:counts.deferred,
+      reviewReviewed:counts.reviewed,reviewSourceReviewed:counts['source-reviewed'],
+      previewFailed:state.thumbErrors.size,activity:state.activityHistory?.items||[]
+    },m);
+    const fmt=x=>x===null?'—':format(x);
+    $('pulseSummary').textContent=!p.connected?'Connect your private library to see its pulse.':
+      p.verified?'Complete Drive comparison verified against current Sheet snapshot.':
+      'Drive comparison is not yet verified. Gallery coverage figures are provisional.';
+    $('pulseSummary').dataset.status=m.health;
+    $('pulseCoverage').textContent=p.connected?p.descriptionCoverage+'%':'—';
+    $('pulseCoverageNote').textContent=p.connected?fmt(p.described)+' of '+fmt(p.total)+
+      ' gallery records. A description is not proof of visual inspection.':'Connect to see coverage.';
+    $('pulseReviews').textContent=p.connected?p.reviewCoverage+'%':'—';
+    $('pulseReviewsNote').textContent=p.connected?fmt(p.reviewed)+' reviewed or source-reviewed · '+
+      fmt(p.pending+p.deferred)+' pending/deferred.':'Connect to inspect review evidence.';
+    $('pulseDifferences').textContent=p.verified?'+'+fmt(p.added)+' / −'+fmt(p.missing):'—';
+    $('pulseDifferencesNote').textContent=p.verified?
+      'Differences versus Sheet; not a dated Drive change feed.':
+      'Awaiting complete Drive folder verification.';
+    $('pulseFolders').textContent=p.connected?fmt(p.foldersObserved)+' / '+fmt(p.folderCount):'—';
+    $('pulseFoldersNote').textContent=p.connected?fmt(p.folderFailures)+
+      ' folder failures. Observed folders may include restored cache.':'Connect to inspect folders.';
+    $('pulseAttention').textContent=p.connected?fmt(p.bottlenecks.length):'—';
+    $('pulseAttentionNote').textContent=p.connected?
+      (p.bottlenecks.join(' · ')||'No priority bottlenecks detected.'):'Connect to get suggestions.';
+    const list=$('pulseActions');list.replaceChildren();
+    for(const a of p.actions){
+      const li=document.createElement('li'),button=document.createElement('button'),note=document.createElement('small');
+      button.className='pulse-action';button.type='button';button.dataset.pulseAction=a.id;
+      button.textContent=a.title;note.textContent=a.note;li.append(button,note);list.append(li);
+    }
+    if(!p.actions.length){const li=document.createElement('li');li.textContent=
+      state.scanning?'Drive scan in progress. Suggestions update on completion.':'No next action available.';list.append(li);}
+    const recent=$('pulseRecent');recent.replaceChildren();
+    if(!p.activity.length){const li=document.createElement('li');li.textContent='No recent actions on this device.';recent.append(li);}
+    for(const e of p.activity){
+      const li=document.createElement('li'),strong=document.createElement('strong'),time=document.createElement('small');
+      strong.textContent=e.title;time.textContent=commandTimeLabel(e.at)+' · '+e.status;
+      li.append(strong,time);recent.append(li);
+    }
+  }
   function commandMetrics(){
     const counts=state.connected?reviewCounts():{pending:0,deferred:0};
     const items=state.connected?state.images.map(item=>
@@ -3940,6 +4045,7 @@
     $('commandVideos').disabled=!m.connected;
     $('commandSimilarity').disabled=!m.connected;
     $('commandDiagnostics').disabled=!m.connected;
+    pulseRender(m);
   }
   function commandOpenHelp(origin){
     state.shortcutReturnFocus=origin||document.activeElement;
@@ -5549,6 +5655,18 @@
       state.sheetWriteMessage='Staged changes cleared without writing to Google Sheets.';
       renderSheetWrite();
     };
+    $('pulseActions').addEventListener('click',event=>{
+      const button=event.target.closest('button[data-pulse-action]');
+      if(!button||!$('pulseActions').contains(button))return;
+      switch(button.dataset.pulseAction){
+      case 'connect':$('connectButton').click();break;
+      case 'verify':if(state.connected&&!state.scanning)void syncWithDrive({full:true});break;
+      case 'health':displayPage('health');break;
+      case 'reviews':displayPage('review-inbox');break;
+      case 'gallery':displayPage('all');break;
+      case 'collections':displayPage('smart');break;
+      }
+    });
     $('sheetWriteApply').onclick=()=>void sheetWriteApply();
     $('sheetWriteOpenReview').onclick=()=>displayPage('review');
     $('sheetWriteOpenActivity').onclick=()=>displayPage('activity');

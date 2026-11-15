@@ -14,7 +14,7 @@ const start='  /* GENERATED COMMAND CENTER START */',end='  /* GENERATED COMMAND
 const current=section(app,start,end);
 const built=[start,'  const commandEngine=(()=>{',
  ...p.inner.split('\n').map(line=>'    '+line),
- '    return {COMMAND_CENTER_SCHEMA,COMMAND_VIDEO_LEVELS,commandTime,commandSafeCount,commandCenter};',
+ '    return {COMMAND_CENTER_SCHEMA,COMMAND_VIDEO_LEVELS,commandTime,commandSafeCount,commandCenter,COMMAND_PULSE_SCHEMA,commandPulse};',
  '  })();',end].join('\n');
 const next=app.slice(0,current.a)+built+app.slice(current.b+end.length);
 if(process.argv.includes('--check')){
