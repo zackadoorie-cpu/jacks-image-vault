@@ -493,6 +493,14 @@
             <h2>Approved batch preview</h2>
             <p>Open a review, inspect the live Sheet values, and stage it. At most 10 verified file IDs can be staged. Staging does not change Google Sheets.</p>
             <div id="sheetWriteStaged" class="activity-list"></div>
+            <details class="sheet-write-credentials">
+              <summary>Desktop OAuth credentials (only needed without saved Windows sign-in)</summary>
+              <label class="field-label" for="sheetWriteDesktopClient">Desktop client ID</label>
+              <input id="sheetWriteDesktopClient" class="field" autocomplete="off" spellcheck="false" maxlength="180">
+              <label class="field-label" for="sheetWriteDesktopSecret">Matching Desktop client secret</label>
+              <input id="sheetWriteDesktopSecret" class="field" type="password" autocomplete="off" spellcheck="false" maxlength="256">
+              <p>These values are sent only to the native localhost OAuth broker for this authorization and are never stored in your Sheet, browser storage, or exported history.</p>
+            </details>
             <div class="activity-quicklinks">
               <button class="btn outline" id="sheetWriteClear" type="button">Clear staged reviews</button>
               <button class="btn primary" id="sheetWriteApply" type="button" disabled>Authorize &amp; apply approved reviews</button>
