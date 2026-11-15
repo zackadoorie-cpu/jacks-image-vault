@@ -117,6 +117,8 @@
     activeImage: null,
     returnFocus: null,
     thumbCache: new Map(),
+    thumbCacheBytes: 0,
+    maxThumbCacheBytes: 48*1024*1024,
     loadingThumbs: new Map(),
     thumbJobs: [],
     thumbErrors: new Map(),
@@ -3170,7 +3172,7 @@
     for (const controller of state.activeControllers) controller.abort();
     state.activeControllers.clear(); state.loadingThumbs.clear();
     for (const entry of state.thumbCache.values()) if (entry?.objectUrl) URL.revokeObjectURL(entry.src);
-    state.thumbCache.clear(); state.thumbErrors.clear();state.posterError.clear();
+    state.thumbCache.clear();state.thumbCacheBytes=0;state.thumbErrors.clear();state.posterError.clear();
     videoClearStoryboard();
     if (state.observer) {state.observer.disconnect();state.observer=null;}
   }
@@ -4255,10 +4257,21 @@
     },{rootMargin:'200px'});
     for(const btn of all)state.observer.observe(btn);
   }
+  function evictThumb(id){
+    const existing=state.thumbCache.get(id);
+    if(!existing)return;
+    state.thumbCache.delete(id);
+    state.thumbCacheBytes=Math.max(0,state.thumbCacheBytes-(Number(existing.bytes)||0));
+    if(existing.objectUrl)URL.revokeObjectURL(existing.src);
+  }
   function requestThumb(item,{priority=false,mediaOnly=false,force=false}={}) {
     if(!state.connected || item.demo || !state.accessToken || mediaKind(item)==='pdf')return;
-    if(force){state.thumbErrors.delete(item.id);const old=state.thumbCache.get(item.id);if(old?.objectUrl)URL.revokeObjectURL(old.src);state.thumbCache.delete(item.id);}
-    if(!mediaOnly&&state.thumbCache.has(item.id)){paintThumb(item.id,state.thumbCache.get(item.id));return;}
+    if(force){state.thumbErrors.delete(item.id);evictThumb(item.id);}
+    if(!mediaOnly&&state.thumbCache.has(item.id)){
+      const cached=state.thumbCache.get(item.id);
+      state.thumbCache.delete(item.id);state.thumbCache.set(item.id,cached);
+      paintThumb(item.id,cached);return;
+    }
     const existing=state.loadingThumbs.get(item.id);
     if(existing){if(priority){const i=state.thumbJobs.indexOf(existing);if(i>=0){state.thumbJobs.splice(i,1);state.thumbJobs.unshift(existing);}}return;}
     if(!force&&state.thumbErrors.has(item.id))return;
@@ -4268,13 +4281,16 @@
     pumpThumbJobs();
   }
   function putThumb(id,entry){
-    const old=state.thumbCache.get(id);if(old?.objectUrl)URL.revokeObjectURL(old.src);
-    state.thumbCache.delete(id);state.thumbCache.set(id,entry);
-    while(state.thumbCache.size>96){
-      const [first,firstEntry]=state.thumbCache.entries().next().value;
-      state.thumbCache.delete(first);if(firstEntry?.objectUrl)URL.revokeObjectURL(firstEntry.src);
+    evictThumb(id);
+    const bytes=Math.max(0,Number(entry.bytes)||0);
+    state.thumbCache.set(id,entry);
+    state.thumbCacheBytes+=bytes;
+    while(state.thumbCache.size>96||state.thumbCacheBytes>state.maxThumbCacheBytes){
+      const first=state.thumbCache.keys().next().value;
+      if(first===undefined)break;
+      evictThumb(first);
     }
-    paintThumb(id,entry);updatePreviewStats();
+    paintThumb(id,state.thumbCache.get(id)||null);updatePreviewStats();
   }
   function pumpThumbJobs() {
     while(state.runningThumbJobs<state.maxConcurrentThumbs && state.thumbJobs.length){
@@ -4327,20 +4343,21 @@
     const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
     const blob=await googleGet(url,{blob:true,maxBytes:7*1024*1024,signal});
     if(!blob.type.startsWith('image/')&&!item.mime.startsWith('image/'))throw new Error('Not an image');
-    if(item.mime==='image/gif')return {src:URL.createObjectURL(blob),objectUrl:true,kind:'media'};
+    if(item.mime==='image/gif')return {src:URL.createObjectURL(blob),objectUrl:true,kind:'media',bytes:blob.size};
     try {
       const bitmap=await createImageBitmap(blob);
       const scale=Math.min(1,440/bitmap.width,440/bitmap.height);
       const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
       canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();
       const output=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',.77));
-      return {src:URL.createObjectURL(output||blob),objectUrl:true,kind:'media'};
-    } catch {return {src:URL.createObjectURL(blob),objectUrl:true,kind:'media'};}
+      const preview=output||blob;
+      return {src:URL.createObjectURL(preview),objectUrl:true,kind:'media',bytes:preview.size};
+    } catch {return {src:URL.createObjectURL(blob),objectUrl:true,kind:'media',bytes:blob.size};}
   }
   function handleSignedImageFailure(id) {
     const item=state.images.find(x=>x.id===id), entry=state.thumbCache.get(id);
     if(!item||entry?.kind!=='signed')return;
-    state.thumbCache.delete(id);
+    evictThumb(id);
     const text='Google thumbnail unavailable. Trying a small authenticated preview…';
     for(const btn of document.querySelectorAll('[data-open-image]'))if(btn.dataset.openImage===id){const small=btn.querySelector('.tile-placeholder small');if(small)small.textContent=text;}
     if(mediaKind(item)==='image')requestThumb(item,{priority:state.activeImage?.id===id,mediaOnly:true});
@@ -4501,7 +4518,7 @@
       if(controller.signal.aborted||state.posterController!==controller||state.activeImage?.id!==item.id)return;
       const src=URL.createObjectURL(jpeg);
       state.thumbErrors.delete(item.id);state.posterError.delete(item.id);
-      putThumb(item.id,{src,objectUrl:true,kind:'generated'});
+      putThumb(item.id,{src,objectUrl:true,kind:'generated',bytes:jpeg.size});
       const previous=videoSession(item);
       state.videoSessionEvidence.set(item.id,{...previous,poster:true});
       videoUpdateEvidence(item);
