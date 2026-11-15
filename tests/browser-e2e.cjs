@@ -327,8 +327,41 @@ async function main(){
     assert.equal(await p.locator('#reviewInboxPreviewDialog').evaluate(d=>d.open),false);
     await p.locator('[data-inbox-action="open"]').first().click();
     assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),true);
+    await p.locator('#reviewDescription').fill('First local note for undo verification.');
+    await p.locator('#reviewSaveDraft').click();
+    await p.locator('#reviewDescription').fill('Second local note supersedes first.');
+    await p.locator('#reviewSaveDraft').click();
+    assert.match(await p.locator('#reviewEditorStatus').innerText(),/Undo is available/);
     await p.mouse.click(5,5);
     assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),false);
+    await p.locator('[data-view="activity"]').click();
+    assert.equal(await p.locator('#activityView').isVisible(),true);
+    assert.match(await p.locator('#activityStatus').innerText(),/Nothing has been written to Google/);
+    assert.equal(await p.locator('#activityUndoable').innerText(),'1',
+      'only the most recent local note should be reversible without conflict');
+    const reviewRows=await p.locator('#activityList .activity-entry').count();
+    assert.ok(reviewRows>=3,'inventory load and two local saves should be logged');
+    await p.locator('#activityFilter').selectOption('review');
+    assert.equal(await p.locator('#activityList .activity-entry').count(),2);
+    p.once('dialog',dialog=>dialog.accept());
+    await p.locator('[data-activity-undo]').click();
+    assert.equal(await p.locator('#activityUndoable').innerText(),'1',
+      'restoring the first note should allow reversing the older note next');
+    p.once('dialog',dialog=>dialog.accept());
+    await p.locator('[data-activity-undo]').click();
+    assert.equal(await p.locator('#activityUndoable').innerText(),'0');
+    const reviewStore=await p.evaluate(()=>{
+      const key=Object.keys(localStorage).find(key=>key.startsWith('jack-vault-local-reviews-v1-'));
+      return JSON.parse(localStorage.getItem(key)||'{}');
+    });
+    assert.equal(reviewStore.items?.length,0,'sequential undo should restore original unedited review state');
+    const activityStorage=await p.evaluate(()=>localStorage.getItem(
+      Object.keys(localStorage).find(key=>key.startsWith('jack-vault-private-activity-v1-'))));
+    assert.ok(activityStorage&&JSON.parse(activityStorage).items.length>=5,
+      'account-scoped local activity should persist without remote calls');
+    await p.locator('#activityFilter').selectOption('all');
+    await p.locator('#activityOpenInbox').click();
+    assert.equal(await p.locator('#reviewInboxView').isVisible(),true);
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     await p.keyboard.press('Alt+1');
     await p.locator('#commandVideos').click();
@@ -367,6 +400,12 @@ async function main(){
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     await p.locator('#renameDeskClear').click();
     assert.equal((await p.locator('#renameDeskStagedCount').innerText()).trim(),'0');
+    await p.locator('[data-view="activity"]').click();
+    await p.locator('#activityFilter').selectOption('plans');
+    assert.equal(await p.locator('#activityList .activity-entry').count(),2,
+      'rename-plan export and staging-clear are tracked but not undoable');
+    assert.equal(await p.locator('[data-activity-undo]').count(),0);
+    assert.equal(connected.requests.every(x=>x==='GET'),true);
 
     await p.keyboard.press('Alt+1');connected.failSheet();
     await p.locator('#commandSync').click();
