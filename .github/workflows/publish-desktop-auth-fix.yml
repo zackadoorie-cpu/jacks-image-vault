@@ -1,0 +1,31 @@
+name: Publish approved Desktop OAuth diagnostic fix
+
+# This workflow only triggers on an exact reviewed squash merge subject;
+# ordinary pushes cannot initiate a release.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      github.event.head_commit.message == 'release: Desktop OAuth diagnostic fix v2.1.20'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify approved release is not already published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.20 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.20 exists; no duplicate release."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.20
+          echo "Started the existing full-test release pipeline for v2.1.20."

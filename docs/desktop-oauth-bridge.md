@@ -51,6 +51,38 @@ refresh token. It may need a new manual authorization whenever the short-lived
 access token expires. Existing browser Google sign-in remains the primary
 recommended option for normal use.
 
+## Troubleshooting after Google's consent screen
+
+If the system browser returns to a white page reading **Authorization failed.
+Return to Image Vault**, Google has returned to the localhost callback but
+the subsequent code-for-token exchange did not complete. This is different
+from the earlier `redirect_uri_mismatch` error seen with a **Web application**
+client ID.
+
+The new diagnostic release maps Google's `invalid_request`,
+`invalid_client`, `invalid_grant`, and `invalid_scope` responses to safe,
+actionable messages, shown in the callback and in the Vault's Google setup
+status. These messages are **fixed app-authored text**; Google-controlled
+`error_description` values are never copied into a page or log.
+
+An increasingly common cause is a missing `client_secret`. Google's Desktop
+OAuth documentation marks it optional, but some Desktop OAuth PKCE exchanges
+still respond with `invalid_request: client_secret is missing`. In Google
+Cloud **Clients**, open the *Desktop app* OAuth client and download its JSON
+credentials while available. Copy its `client_secret` into the Image Vault
+**Desktop client secret** field, pairing it only with the *same* Desktop
+`client_id`. Never use the original Web application client secret or share
+credentials in screenshots or chat. The secret is used in memory for the
+exchange and not persisted by Image Vault.
+
+If the diagnostic says `invalid_grant`, start a **fresh authorization
+attempt**, rather than refreshing the callback page; codes expire and are
+single-use. An `invalid_client` message points to an incorrect ID/secret
+pair or client type. If permissions are missing, confirm that Drive and
+Sheets read-only scopes and the Google consent-screen audience are configured.
+
+Official docs: https://developers.google.com/identity/protocols/oauth2/native-app
+
 ## Security limitations
 
 - This beta is currently hosted by the existing localhost gallery, **not** a
