@@ -1,5 +1,34 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 9A — Turbo Gallery Engine (next release)
+
+Large galleries now render through a **bounded, two-way virtual tile window**.
+Once a filtered collection exceeds 320 items, Image Vault keeps at most 32
+overscanned rows of cards in the DOM while retaining the full result order.
+Offscreen space is represented by measured-layout row spacers, so you can
+scroll down and back up without permanently accumulating thousands of cards.
+The existing automatic Load More and manual Load More preferences still govern
+how many records are browsable, and previous browsing positions are preserved.
+
+Existing GIF, WebM, MP4, image and PDF playback, reviews, favorites, saved
+searches and sorting are unchanged. Nearby thumbnail requests remain
+intersection-observed and at most five run concurrently. A new in-memory LRU
+limits thumbnail entries to **96 and 48 MiB**, whichever comes first; evicted
+object URLs are released. Fast lookup by file ID avoids repeated full-library
+searches while requesting thumbnails.
+
+The app is still **read-only** to Google Drive and Google Sheets. This update
+does not add any rename or write-back permissions. Your existing
+**Roll back one version** and **Restore built-in UI** continue to work. A
+separate library Activity & Undo history belongs to the future Smart Library
+Manager 2.0 phase, where each approved write will need an explicit reversible
+audit record and conflict detection.
+
+Chromium CI scroll-tests 10,000 entirely synthetic media records, checks
+that the DOM remains bounded, reverses scrolling and verifies filtering.
+Other unit tests validate row-spacer geometry and the thumbnail cache budget.
+There is no live Drive access in these performance tests.
+
 ## Optional native WebView2 Windows window (desktop preview)
 
 The release now offers a separate **Desktop Bundle ZIP** containing a
