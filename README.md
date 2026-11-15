@@ -1,5 +1,21 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 9B-1 — Activity & Local Undo
+
+A new **Activity & Undo** section under **Review & Health** records recent
+read-only inventory loads, local review saves and resets, review imports,
+exported rename proposals and cleared staging, isolated to your Drive account
+and configured Sheet. Save a local review note, then undo it only if the current
+note still matches the recorded result. More recent changes are protected.
+
+The browser-local journal is limited to 120 entries / 480 KiB, supports
+private export and explicit clear, and does not store Google tokens or media
+bytes. Exported logs can include private local review descriptions and tags.
+
+**App-update rollback has not changed.** Drive/Sheet write-back and undo of
+remote changes are not enabled by this release; current Google permissions
+remain read-only. See [Activity & Undo safety details](docs/phase9b-activity-local-undo.md).
+
 ## Phase 9A — Turbo Gallery Engine (next release)
 
 Large galleries now render through a **bounded, two-way virtual tile window**.
