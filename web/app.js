@@ -2390,7 +2390,7 @@
       if($('settingsDialog').open)$('desktopAuthSection').hidden=!data.available;
       const saved=data.available&&data.storesRefreshTokens&&data.savedReadOnlySession===true;
       $('desktopResumeSavedButton').classList.toggle('hidden',!saved);
-      $('desktopResumeSavedButton').disabled=state.connected;
+      $('desktopResumeSavedButton').disabled=state.connected&&Date.now()<state.expiry;
       if(data.available){
         $('desktopSavedSessionStatus').textContent=saved?
           'Windows-encrypted read-only sign-in found. Reconnect without entering OAuth credentials; it survives UI patches and opens in either Windows launcher.':
@@ -5796,7 +5796,7 @@
       const button=$('desktopResumeSavedButton');
       button.disabled=true;
       try{await resumeDesktopSession({allowBrowser:true});}
-      finally{button.disabled=state.connected;}
+      finally{button.disabled=state.connected&&Date.now()<state.expiry;}
     };
     $('desktopForgetSavedButton').onclick=forgetDesktopSavedSession;
     $('desktopSaveSheetButton').onclick=saveDesktopSheetId;
