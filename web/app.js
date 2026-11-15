@@ -4250,6 +4250,262 @@
     if(scroll)window.scrollTo({top:0,behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth'});
     updateScrollControls();
   }
+  // Phase 9B-2 approval desk: the only Google write route in this UI.
+  // All other browsing, thumbnail and sync code remains GET-only.
+  function sheetWriteCandidates(){
+    if(!state.connected||!state.driveIdentity)return [];
+    return state.images.filter(item=>
+      sheetApproval.sheetApprovalCandidate(item,state.reviewEdits.get(item.id)));
+  }
+  function renderSheetWrite(){
+    const connected=state.connected&&!!state.driveIdentity;
+    const candidates=sheetWriteCandidates();
+    const pages=Math.max(1,Math.ceil(candidates.length/12));
+    state.sheetWritePage=Math.min(pages,Math.max(1,state.sheetWritePage));
+    $('sheetWritePage').textContent=connected?state.sheetWritePage+' / '+pages:'—';
+    $('sheetWritePrev').disabled=!connected||state.sheetWriteBusy||state.sheetWritePage<=1;
+    $('sheetWriteNext').disabled=!connected||state.sheetWriteBusy||state.sheetWritePage>=pages;
+    $('sheetWriteStatus').textContent=!connected?
+      'Connect a verified Drive account to prepare locally reviewed items.':
+      candidates.length+' eligible local reviews · '+state.sheetWriteStaged.size+
+      ' staged. Google Drive files and original Sheet values are still unchanged.';
+    $('sheetWriteApplyStatus').textContent=state.sheetWriteMessage;
+    $('sheetWriteClear').disabled=state.sheetWriteBusy||!state.sheetWriteStaged.size;
+    $('sheetWriteApply').disabled=state.sheetWriteBusy||!connected||!state.sheetWriteStaged.size;
+    const shown=candidates.slice((state.sheetWritePage-1)*12,state.sheetWritePage*12);
+    $('sheetWriteList').innerHTML=!shown.length?
+      '<p class="activity-empty">'+(connected?
+        'No eligible local reviews on this page. Open Needs review and approve an item locally first.':
+        'Connect your Google account before preparing a Sheet approval.')+'</p>':
+      shown.map(item=>{
+        const staged=state.sheetWriteStaged.has(item.id);
+        return '<article class="activity-entry"><div class="activity-entry-main">'+
+          '<span class="activity-entry-type">LOCAL REVIEW · MANIFEST ROW '+escapeHTML(String(item.manifestRow))+'</span>'+
+          '<h3>'+escapeHTML(item.name)+'</h3><p>'+escapeHTML(item.folder||'')+'</p>'+
+          '<p>'+escapeHTML(item.id)+'</p></div>'+
+          '<button class="btn outline" type="button" data-sheet-preview="'+escapeHTML(item.id)+'" '+
+          (state.sheetWriteBusy?'disabled':'')+'>'+(staged?'Refresh preview':'Preview Sheet change')+'</button></article>';
+      }).join('');
+    $('sheetWriteCurrentPreview').hidden=!state.sheetWritePreview;
+    if(state.sheetWritePreview){
+      const plan=state.sheetWritePreview;
+      $('sheetWriteBefore').textContent=JSON.stringify({
+        fileId:plan.fileId,row:plan.row,description:plan.before.description,
+        tags:plan.before.tags,review:plan.before.review
+      },null,2);
+      $('sheetWriteAfter').textContent=JSON.stringify({
+        fileId:plan.fileId,row:plan.row,description:plan.after.description,
+        tags:plan.after.tags,review:plan.after.review
+      },null,2);
+      $('sheetWriteStage').disabled=state.sheetWriteBusy;
+    }
+    $('sheetWriteStaged').innerHTML=!state.sheetWriteStaged.size?
+      '<p class="activity-empty">No staged changes. Preview a local review to prepare one.</p>':
+      [...state.sheetWriteStaged.values()].map(plan=>
+        '<article class="activity-entry"><div class="activity-entry-main">'+
+        '<span class="activity-entry-type">EXPLICITLY STAGED · SHEET ROW '+escapeHTML(String(plan.row))+'</span>'+
+        '<h3>'+escapeHTML(plan.name)+'</h3><p>Before: '+escapeHTML(plan.before.description)+' / '+escapeHTML(plan.before.tags)+'</p>'+
+        '<p>After: '+escapeHTML(plan.after.description)+' / '+escapeHTML(plan.after.tags)+'</p></div>'+
+        '<button class="btn quiet" type="button" data-sheet-remove="'+escapeHTML(plan.fileId)+'" '+
+        (state.sheetWriteBusy?'disabled':'')+'>Unstage</button></article>'
+      ).join('');
+  }
+  async function sheetWriteFetch(url,token,{method='GET',payload}={}){
+    if(!token||!url.startsWith('https://sheets.googleapis.com/v4/spreadsheets/'))
+      throw new Error('Invalid Sheet request or missing separate authorization.');
+    const response=await fetch(url,{
+      method,mode:'cors',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',
+      headers:{Authorization:'Bearer '+token,...(payload?{'Content-Type':'application/json'}:{})},
+      ...(payload?{body:JSON.stringify(payload)}:{})
+    });
+    if(!response.ok)throw new Error('Google Sheets API returned HTTP '+response.status+'. Refresh and check permissions before retrying.');
+    return response.json();
+  }
+  async function sheetWriteReadRow(row,token){
+    if(!Number.isSafeInteger(row)||row<2||row>100000)
+      throw new Error('Invalid Manifest row.');
+    const ranges=['Manifest!D'+row,'Manifest!M'+row,'Manifest!N'+row,'Manifest!T'+row];
+    const params=new URLSearchParams({valueRenderOption:'FORMULA'});
+    ranges.forEach(range=>params.append('ranges',range));
+    const url='https://sheets.googleapis.com/v4/spreadsheets/'+
+      encodeURIComponent(state.config.sheetId)+'/values:batchGet?'+params;
+    const data=await sheetWriteFetch(url,token);
+    if(!Array.isArray(data.valueRanges)||data.valueRanges.length!==4)
+      throw new Error('Manifest fields could not be read for this review.');
+    const values=data.valueRanges.map(range=>String(range.values?.[0]?.[0]??''));
+    return {fileId:values[0],description:values[1],tags:values[2],review:values[3]};
+  }
+  async function sheetWriteManifestID(token){
+    const url='https://sheets.googleapis.com/v4/spreadsheets/'+
+      encodeURIComponent(state.config.sheetId)+'?fields=sheets(properties(sheetId,title))';
+    const data=await sheetWriteFetch(url,token);
+    const matches=(data.sheets||[]).filter(x=>x.properties?.title==='Manifest');
+    if(matches.length!==1||!Number.isSafeInteger(matches[0].properties.sheetId))
+      throw new Error('The configured spreadsheet lacks one unambiguous Manifest tab.');
+    return matches[0].properties.sheetId;
+  }
+  async function sheetWritePreviewItem(id){
+    if(state.sheetWriteBusy||!state.connected)return;
+    const item=state.images.find(x=>x.id===id);
+    const note=state.reviewEdits.get(id);
+    if(!sheetApproval.sheetApprovalCandidate(item,note))return;
+    const ctx={account:state.driveIdentity,sheetId:state.config.sheetId};
+    const epoch=state.authEpoch;
+    state.sheetWritePreview=null;
+    state.sheetWriteMessage='Reading the exact live Manifest cells for this file…';
+    renderSheetWrite();
+    try{
+      const live=await sheetWriteReadRow(item.manifestRow,state.accessToken);
+      if(epoch!==state.authEpoch||!state.connected||state.config.sheetId!==ctx.sheetId||
+        state.driveIdentity!==ctx.account)return;
+      const plan=sheetApproval.sheetApprovalDraft(item,note,live,ctx);
+      state.sheetWritePreview=plan;
+      state.sheetWriteMessage='Live row confirmed. Inspect the full before-and-after values before staging.';
+    }catch(error){state.sheetWriteMessage='Cannot prepare review: '+error.message;}
+    renderSheetWrite();
+  }
+  function sheetWriteStagePreview(){
+    const plan=state.sheetWritePreview;
+    if(!plan||!state.connected||state.sheetWriteBusy)return;
+    const note=state.reviewEdits.get(plan.fileId);
+    const guard=sheetApproval.sheetApprovalCheck(plan,plan.before,note,{
+      account:state.driveIdentity,sheetId:state.config.sheetId});
+    if(!guard.ok){state.sheetWriteMessage=guard.reason;state.sheetWritePreview=null;renderSheetWrite();return;}
+    if(state.sheetWriteStaged.size>=sheetApproval.SHEET_APPROVAL_LIMIT&&!state.sheetWriteStaged.has(plan.fileId)){
+      state.sheetWriteMessage='At most 10 reviews per approval batch.';renderSheetWrite();return;
+    }
+    state.sheetWriteStaged.set(plan.fileId,plan);
+    state.sheetWritePreview=null;
+    state.sheetWriteMessage='Staged locally. No Google Sheet cells changed.';
+    renderSheetWrite();
+  }
+  async function sheetWriteAuthorize(){
+    if(IN_NATIVE_DESKTOP){
+      const clientId=$('sheetWriteDesktopClient').value.trim();
+      const clientSecret=$('sheetWriteDesktopSecret').value;
+      $('sheetWriteDesktopSecret').value='';
+      const start=await desktopAuthPost('write-start',{
+        sheetId:state.config.sheetId,clientId,clientSecret
+      });
+      const flow=String(start.flowId||'');
+      if(!flow)throw new Error('Desktop Google consent session could not start.');
+      sheetWriteFlowId=flow;
+      const epoch=state.authEpoch;
+      try{
+        for(let i=0;i<150;i++){
+          if(epoch!==state.authEpoch)throw new Error('Connection changed during authorization.');
+          await desktopAuthPause(1100);
+          const result=await desktopAuthPost('poll',{flowId:flow});
+          if(result.status==='pending'||result.status==='exchanging')continue;
+          if(result.status==='error')throw new Error(result.message||'Sheet authorization was declined.');
+          if(result.status==='ready'&&result.writeScope===true&&typeof result.accessToken==='string')
+            return result.accessToken;
+          throw new Error('Google did not return an approved Sheet-write grant.');
+        }
+        throw new Error('Sheet write authorization timed out.');
+      }finally{
+        if(sheetWriteFlowId===flow)sheetWriteFlowId='';
+        await desktopAuthPost('cancel',{flowId:flow}).catch(()=>{});
+      }
+    }
+    if(!window.google?.accounts?.oauth2||!state.config.clientId)
+      throw new Error('Connect your browser Google OAuth client before requesting Sheet write permission.');
+    return new Promise((resolve,reject)=>{
+      try{
+        const client=google.accounts.oauth2.initTokenClient({
+          client_id:state.config.clientId,
+          scope:SHEET_WRITE_SCOPE+' https://www.googleapis.com/auth/drive.readonly',
+          callback:result=>{
+            if(!result?.access_token){reject(new Error('Google denied Sheet write permission.'));return;}
+            const scopes=String(result.scope||'').split(/\s+/);
+            if(!scopes.includes(SHEET_WRITE_SCOPE)||!scopes.includes('https://www.googleapis.com/auth/drive.readonly')){
+              reject(new Error('Required temporary write and identity scopes were not granted.'));return;
+            }
+            resolve(result.access_token);
+          },
+          error_callback:()=>reject(new Error('Google Sheet write authorization was cancelled.'))
+        });
+        client.requestAccessToken({prompt:'consent'});
+      }catch(error){reject(error);}
+    });
+  }
+  async function sheetWriteApply(){
+    const plans=[...state.sheetWriteStaged.values()];
+    if(state.sheetWriteBusy||!state.connected||!state.driveIdentity||
+      !plans.length||plans.length>sheetApproval.SHEET_APPROVAL_LIMIT)return;
+    const ctx={account:state.driveIdentity,sheetId:state.config.sheetId};
+    if(!confirm('Authorize a TEMPORARY Google Sheets edit grant for '+plans.length+
+      ' explicitly staged review(s)? Google grants access to Sheets broadly, but Image Vault will write ONLY Manifest columns M, N and T in the configured inventory after another confirmation.'))return;
+    const epoch=state.authEpoch;
+    state.sheetWriteBusy=true;
+    state.sheetWriteMessage='Waiting for separate Google Sheets edit authorization…';
+    renderSheetWrite();
+    let submitted=false;
+    try{
+      const writeToken=await sheetWriteAuthorize();
+      if(epoch!==state.authEpoch||!state.connected||state.driveIdentity!==ctx.account||
+        state.config.sheetId!==ctx.sheetId||state.view!=='sheet-write')
+        throw new Error('Connection or workspace changed before approval. No write was sent.');
+      const identityResponse=await fetch('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',{
+        method:'GET',mode:'cors',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',
+        headers:{Authorization:'Bearer '+writeToken}
+      });
+      if(!identityResponse.ok)throw new Error('Could not verify the Google account holding the temporary write token.');
+      const identity=await identityResponse.json();
+      if(identity.user?.permissionId!==ctx.account)
+        throw new Error('Write authorization belongs to a different Google account. No changes were sent.');
+      const tabID=await sheetWriteManifestID(writeToken);
+      state.sheetWriteMessage='Checking exact Drive IDs and live Sheet values before writing…';
+      renderSheetWrite();
+      for(const plan of plans){
+        const item=state.images.find(x=>x.id===plan.fileId);
+        if(!item||item.manifestRow!==plan.row)
+          throw new Error('Manifest row mapping changed for '+plan.name+'. Re-stage from the live inventory.');
+        const live=await sheetWriteReadRow(plan.row,writeToken);
+        const result=sheetApproval.sheetApprovalCheck(plan,live,state.reviewEdits.get(plan.fileId),ctx);
+        if(!result.ok)throw new Error(plan.name+': '+result.reason);
+      }
+      if(epoch!==state.authEpoch||!state.connected||state.view!=='sheet-write')
+        throw new Error('Approval context changed. No write was sent.');
+      if(!confirm('Final confirmation: write '+plans.length+' exact review(s) into Manifest M/N/T of Sheet '+
+        ctx.sheetId+'? These Google Sheet edits are NOT reversed by app rollback.'))throw new Error('Final approval cancelled. Nothing was written.');
+      const update=sheetApproval.sheetApprovalRequests(plans,tabID);
+      const url='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(ctx.sheetId)+':batchUpdate';
+      const result=await sheetWriteFetch(url,writeToken,{method:'POST',payload:update});
+      if(!Array.isArray(result.replies)||result.replies.length!==update.requests.length)
+        throw new Error('Google did not confirm all update requests; inspect the Sheet before retrying.');
+      submitted=true;
+      for(const plan of plans){
+        const live=await sheetWriteReadRow(plan.row,writeToken);
+        if(live.fileId!==plan.fileId||
+          live.description!==plan.after.description||
+          live.tags!==plan.after.tags||live.review!==plan.after.review)
+          throw new Error('Read-back verification differed for '+plan.name+'. Inspect the live Manifest before retrying.');
+      }
+      if(epoch!==state.authEpoch||!state.connected)return;
+      for(const plan of plans){
+        for(const arr of [state.images,state.inventory]){
+          const item=arr.find(x=>x.id===plan.fileId);
+          if(item){item.description=plan.after.description;item.tags=plan.after.tags;item.review=plan.after.review;}
+        }
+        state.sheetWriteStaged.delete(plan.fileId);
+      }
+      logActivity('sheet-write',{count:plans.length});
+      state.sheetWritePreview=null;
+      state.sheetWriteMessage='Verified '+plans.length+' approved review(s) in the live Manifest. Drive files and filenames were untouched.';
+      updateReviewCounts();
+    }catch(error){
+      if(epoch===state.authEpoch){
+        state.sheetWriteMessage=(submitted?
+          'WRITE MAY HAVE OCCURRED; verification incomplete. Inspect the live Manifest before attempting any retry: ':
+          'Nothing was submitted by this attempt: ')+(error.message||'Unexpected error');
+        if(submitted)logActivity('sheet-write-unverified',{count:plans.length});
+      }
+    }finally{
+      state.sheetWriteBusy=false;
+      if(state.view==='sheet-write')renderSheetWrite();
+    }
+  }
   function activityTitle(kind){
     return {
       'inventory':'Read-only inventory loaded',
