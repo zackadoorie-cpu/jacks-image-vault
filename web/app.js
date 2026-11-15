@@ -1001,6 +1001,7 @@
     // Phase 9C uses full-verified Sheet comparisons, never guesses recent Drive events.
     function commandPulse(input={},metrics=commandCenter(input)){
       const connected=metrics.connected===true;
+      const verified=metrics.liveVerified===true&&metrics.health!=='expired';
       const ids=new Map();
       if(connected&&Array.isArray(input.images))for(const item of input.images){
         if(item&&!item.demo&&typeof item.id==='string'&&item.id&&!ids.has(item.id))ids.set(item.id,item);
@@ -1028,11 +1029,11 @@
       if(!connected)suggest('connect','Connect Google Drive','Load the private Sheet inventory.');
       else if(metrics.health==='expired')suggest('connect','Reconnect Google','Access expired.');
       else{
-        if(!metrics.liveVerified&&!input.scanning)suggest('verify','Verify Drive folders','Read-only full folder comparison.');
-        if(metrics.liveVerified&&(metrics.added>0||metrics.missing>0))suggest('health','Inspect inventory differences','Review verified Sheet-versus-Drive gaps.');
+        if(!verified&&!input.scanning)suggest('verify','Verify Drive folders','Read-only full folder comparison.');
+        if(verified&&(metrics.added>0||metrics.missing>0))suggest('health','Inspect inventory differences','Review verified Sheet-versus-Drive gaps.');
         if(pending+deferred)suggest('reviews','Open review inbox','Review pending and deferred images.');
         if(previewFailures)suggest('gallery','Inspect gallery previews','Review unavailable browser previews.');
-        if(!actions.length&&metrics.liveVerified)suggest('collections','Explore collections','All available health checks look clear.');
+        if(!actions.length&&verified)suggest('collections','Explore collections','All available health checks look clear.');
       }
       const kinds={
         'review-save':'Saved a local review','review-reset':'Reset a local review',
@@ -1044,15 +1045,15 @@
       };
       const activity=connected&&Array.isArray(input.activity)?input.activity.filter(e=>
         e&&typeof e.kind==='string'&&Object.hasOwn(kinds,e.kind)&&
-        Number.isSafeInteger(e.at)&&e.at>=0).slice(0,3).map(e=>({
+        Number.isSafeInteger(e.at)&&e.at>=0&&e.at<=8640000000000000).slice(0,3).map(e=>({
           title:kinds[e.kind],at:new Date(e.at).toISOString(),
           status:e.status==='undone'?'Undone':e.kind==='sheet-write-unverified'?'Uncertain':'Recorded'
         })):[];
-      return {schema:COMMAND_PULSE_SCHEMA,connected,verified:metrics.liveVerified,
+      return {schema:COMMAND_PULSE_SCHEMA,connected,verified,
         total:connected?total:null,described:connected?described:null,
         descriptionCoverage:connected?(total?Math.round(100*described/total):0):null,
         reviewed,reviewCoverage:connected?(total?Math.round(100*reviewed/total):0):null,
-        pending,deferred,added:metrics.added,missing:metrics.missing,
+        pending,deferred,added:verified?metrics.added:null,missing:verified?metrics.missing:null,
         foldersObserved,folderCount,folderFailures,previewFailures,bottlenecks,actions,activity};
     }
     return {COMMAND_CENTER_SCHEMA,COMMAND_VIDEO_LEVELS,commandTime,commandSafeCount,commandCenter,COMMAND_PULSE_SCHEMA,commandPulse};

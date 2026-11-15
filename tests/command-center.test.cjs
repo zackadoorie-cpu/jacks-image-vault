@@ -152,3 +152,9 @@ test('Phase 9C homepage IDs and bound controller exist',()=>{
   assert.match(app,/pulseRender\(m\)/);
   assert.match(app,/data-pulse-action/);
 });
+
+test('Phase 9C suppresses full-scan claims when the Google access token expires',()=>{
+  const p=c.commandPulse(fixture({expiresAt:1,now:1000}));
+  assert.equal(p.verified,false);assert.equal(p.added,null);assert.equal(p.missing,null);
+  assert.equal(p.actions[0].id,'connect');
+});
