@@ -3595,6 +3595,8 @@
     if (state.observer) {state.observer.disconnect();state.observer=null;}
   }
   function disconnect() {
+    powerContextClose();
+    powerPaletteClose();
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
     const token = state.accessToken;
     const wasDesktop=state.authProvider==='desktop';
@@ -4160,7 +4162,7 @@
     const bar=$('sidebarResizer');
     if(bar)bar.setAttribute('aria-valuenow',String(next));
     if(persist)try{localStorage.setItem(POWER_SIDEBAR_KEY,String(next));}catch{}
-    if(state.turboEnabled)renderTurboWindow(true);
+    if(state.turboEnabled)scheduleTurboWindow();
   }
   function powerSidebarInit(){
     const bar=$('sidebarResizer');
@@ -4183,6 +4185,7 @@
       window.removeEventListener('pointercancel',stop);
       const cur=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--vault-sidebar-width'),10);
       powerSidebarSet(cur,true);
+      if(state.turboEnabled)renderTurboWindow(true);
     };
     bar.addEventListener('pointerdown',e=>{
       if(e.button!==0||window.innerWidth<=940)return;
@@ -4264,6 +4267,7 @@
   function powerPaletteExecute(index){
     const choice=powerPaletteItems[index];
     if(!choice)return;
+    powerPaletteReturnFocus=null;
     powerPaletteClose();
     if(choice.kind==='view'){
       if(POWER_COMMANDS.some(x=>x.id===choice.id&&(!x.kind||x.kind==='view')))
@@ -4315,11 +4319,12 @@
   }
   async function powerContextAction(action){
     const id=powerContextId;
+    const origin=powerContextReturnFocus;
     const item=state.connected?state.images.find(x=>x.id===id&&!x.demo):null;
     powerContextClose();
     if(!item)return;
     switch(action){
-    case 'open':openImage(id,powerContextReturnFocus||$('powerPaletteTrigger'));break;
+    case 'open':openImage(id,origin||$('powerPaletteTrigger'));break;
     case 'favorite':toggleFavorite(id);renderGallery();break;
     case 'copy':
       try{
