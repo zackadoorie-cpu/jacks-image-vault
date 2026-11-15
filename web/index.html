@@ -48,6 +48,7 @@
             <button class="nav-item" data-view="review-inbox"><span class="nav-icon">▤</span>Review Inbox</button>
             <button class="nav-item" data-view="rename-desk"><span class="nav-icon">✎</span>Rename Desk</button>
             <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
+            <button class="nav-item" data-view="activity"><span class="nav-icon">↶</span>Activity &amp; Undo</button>
             <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
           </div>
         </details>
@@ -413,6 +414,52 @@
             <button id="reviewInboxNext" class="btn outline" type="button" disabled>Next</button>
           </div>
           <p class="privacy-note">Missing photo EXIF dates and duplicate decisions remain in the existing spreadsheet Review Queue. No photo bytes, descriptions or tags are sent to GitHub. Filename drafts require individual approval in a later release.</p>
+        </section>
+        <section id="activityView" class="view hidden" aria-labelledby="activityTitle">
+          <div class="gallery-heading activity-heading">
+            <div>
+              <p class="eyebrow">SMART LIBRARY MANAGER 2.0 · FIRST STEP</p>
+              <h1 id="activityTitle">Activity &amp; Undo</h1>
+              <p>One private timeline for local review edits, imported review batches, filename plans and inventory refreshes. This history is stored on this device for the connected Google account and Sheet.</p>
+            </div>
+          </div>
+          <p class="activity-boundary" role="note"><strong>Two different recoveries:</strong> Undo here restores only a local review note when it has not changed since the recorded edit. To roll back an app update, use <strong>Updates → Recovery</strong>. This page cannot undo Drive renames or Google Sheet edits because it never makes them.</p>
+          <div class="activity-quicklinks" aria-label="Related manager tools">
+            <button type="button" id="activityOpenInbox" class="btn outline">Review Inbox</button>
+            <button type="button" id="activityOpenRenames" class="btn outline">Rename Desk</button>
+            <button type="button" id="activityOpenUpdates" class="btn outline">App update recovery</button>
+          </div>
+          <div class="activity-metrics" aria-label="Private activity counts">
+            <div><span>History entries</span><strong id="activityTotal">—</strong><small>At most 120 retained</small></div>
+            <div><span>Local edits eligible for undo</span><strong id="activityUndoable">—</strong><small>Checked again before restoring</small></div>
+            <div><span>Google files modified by this tool</span><strong>0</strong><small>Read-only access remains in force</small></div>
+          </div>
+          <div class="activity-toolbar">
+            <label for="activityFilter">Activity type
+              <select id="activityFilter" class="select">
+                <option value="all">All activity</option>
+                <option value="review">Local reviews &amp; undo</option>
+                <option value="imports">Review imports &amp; backups</option>
+                <option value="plans">Rename plans</option>
+                <option value="inventory">Inventory refreshes</option>
+              </select>
+            </label>
+            <label for="activityQuery">Search ID or action
+              <input id="activityQuery" class="field" type="search" maxlength="120" placeholder="Search recent activity…">
+            </label>
+            <div class="activity-export-actions">
+              <button id="activityExport" class="btn outline" type="button">Export private history</button>
+              <button id="activityClear" class="btn quiet" type="button">Clear history</button>
+            </div>
+          </div>
+          <p class="activity-status" role="status" aria-live="polite" id="activityStatus">Connect Drive to see activity from this device.</p>
+          <div id="activityList" class="activity-list" aria-label="Private activity history"></div>
+          <div class="activity-pages">
+            <button id="activityPrev" class="btn outline" type="button">Previous</button>
+            <span id="activityPage" aria-live="polite">—</span>
+            <button id="activityNext" class="btn outline" type="button">Next</button>
+          </div>
+          <p class="privacy-note">The history contains local review-note snapshots needed for undo. Exports can contain private descriptions, tags and Drive file IDs. Store exported JSON securely. No access token, passwords, photos or Google API writes are included. Clearing this history removes undo records, but never deletes review notes or changes Google files.</p>
         </section>
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
           <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original spreadsheet snapshot with current Drive files. New subfolders under the verified Memes and Jacks Photos roots are discovered automatically.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Discover &amp; verify folders</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
