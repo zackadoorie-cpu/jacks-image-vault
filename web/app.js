@@ -4018,6 +4018,70 @@
     return scored.map(x=>x.image);
   }
   function galleryTitle() {if(state.view==='memory-results')return memoryTitle();if(state.view==='smart-results')return currentSmartCollection()?.name||'Smart Collection';return ({all:'All media',memes:'Meme gallery',photos:'Photo archive',favorites:'Your favorites',review:'Needs review'})[state.view]||'Gallery';}
+  function virtualGalleryAvailable(){
+    const grid=$('galleryGrid');
+    return state.filtered.length>turboGallery.threshold &&
+      typeof grid?.getBoundingClientRect==='function' &&
+      typeof window.innerHeight==='number' &&
+      typeof getComputedStyle==='function';
+  }
+  function pruneThumbnailQueue(items){
+    const ids=new Set(items.map(item=>item.id));
+    if(state.activeImage)ids.add(state.activeImage.id);
+    state.thumbJobs=state.thumbJobs.filter(job=>{
+      if(ids.has(job.id))return true;
+      if(state.loadingThumbs.get(job.id)===job)state.loadingThumbs.delete(job.id);
+      return false;
+    });
+  }
+  function renderTurboWindow(force=false){
+    if(!state.turboEnabled)return false;
+    const grid=$('galleryGrid');
+    const layout=getComputedStyle(grid);
+    const columns=state.layout==='list'?1:
+      Math.max(1,String(layout.gridTemplateColumns||'').split(/\s+/).filter(Boolean).length);
+    const gap=Number.parseFloat(layout.rowGap)||0;
+    const rowHeight=turboGallery.rowHeight(state.layout,state.density);
+    const plan=turboGallery.plan({
+      loaded:state.renderedCount,columns,
+      offset:Math.max(0,-grid.getBoundingClientRect().top),
+      viewport:window.innerHeight,rowHeight,gap
+    });
+    if(!force&&plan.start===state.turboStart&&plan.end===state.turboEnd)return true;
+    // Move focus to a stable landmark if virtualizing would remove the
+    // currently focused tile. No interactive tile is left dangling in the DOM.
+    const focused=document.activeElement;
+    const focusTile=focused?.closest?.('.image-tile');
+    if(focusTile&&grid.contains(focusTile)){
+      const id=focusTile.querySelector('[data-open-image]')?.dataset.openImage;
+      const index=id==null?-1:state.filtered.findIndex(item=>item.id===id);
+      if(index>=0&&(index<plan.start||index>=plan.end)){
+        grid.setAttribute('tabindex','-1');
+        grid.focus({preventScroll:true});
+      }
+    }
+    state.observer?.disconnect();
+    const top=plan.top?'<div class="gallery-virtual-spacer" aria-hidden="true" style="height:'+plan.top+'px"></div>':'';
+    const bottom=plan.bottom?'<div class="gallery-virtual-spacer" aria-hidden="true" style="height:'+plan.bottom+'px"></div>':'';
+    const mounted=state.filtered.slice(plan.start,plan.end);
+    grid.innerHTML=top+mounted.map(tileHTML).join('')+bottom;
+    state.turboStart=plan.start;state.turboEnd=plan.end;
+    bindGalleryTileEvents(grid.querySelectorAll('[data-open-image]'),grid.querySelectorAll('[data-favorite]'));
+    pruneThumbnailQueue(mounted);
+    observeThumbs();
+    updatePreviewStats();
+    return true;
+  }
+  function scheduleTurboWindow(){
+    if(!state.turboEnabled||state.turboScrollScheduled||!['all','memes','photos','favorites','review','smart-results','memory-results'].includes(state.view))return;
+    state.turboScrollScheduled=true;
+    const schedule=typeof window.requestAnimationFrame==='function'?window.requestAnimationFrame.bind(window):
+      callback=>setTimeout(callback,16);
+    schedule(()=>{
+      state.turboScrollScheduled=false;
+      if(state.turboEnabled)renderTurboWindow();
+    });
+  }
   function bindGalleryTileEvents(previews,hearts){
     for(const btn of previews)btn.addEventListener('click',()=>openImage(btn.dataset.openImage,btn));
     for(const btn of hearts)btn.addEventListener('click',e=>{
