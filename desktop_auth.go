@@ -113,7 +113,7 @@ func (b *desktopAuthBroker) start(clientID,secret string,options ...desktopStart
  }
  if opts.SheetWrite&&opts.Remember{return "",errors.New("Temporary Sheets write access cannot be saved")}
  scope:=desktopDriveScope+" "+desktopSheetScope
- if opts.SheetWrite{scope=desktopSheetWriteScope}
+ if opts.SheetWrite{scope=desktopSheetWriteScope+" "+desktopDriveScope}
  if len(clientID)>180||!desktopClientRE.MatchString(clientID) {return "",errors.New("Enter a Google OAuth Desktop application client ID")}
  if len(secret)>256||strings.ContainsAny(secret,"\r\n") {return "",errors.New("Invalid desktop client secret")}
  id,err:=randomPKCE();if err!=nil{return "",err}
@@ -152,8 +152,9 @@ func (b *desktopAuthBroker) start(clientID,secret string,options ...desktopStart
  return id,nil
 }
 func exactWriteScopes(granted string)bool{
- for _,scope:=range strings.Fields(granted){if scope==desktopSheetWriteScope{return true}}
- return false
+ scopes:=map[string]bool{}
+ for _,scope:=range strings.Fields(granted){scopes[scope]=true}
+ return scopes[desktopSheetWriteScope]&&scopes[desktopDriveScope]
 }
 func exactReadScopes(granted string)bool{
  scopes:=map[string]bool{}
