@@ -112,6 +112,7 @@ function renameDeskExportSelected(){
     setTimeout(()=>URL.revokeObjectURL(url),10000);
     $('renameDeskMessage').textContent='Exported '+plan.entries.length+
       ' staged proposals. Nothing has been renamed. Approve exact files before any future Drive update.';
+    logActivity('rename-plan',{count:plan.entries.length});
   }catch(error){
     $('renameDeskMessage').textContent='Cannot export: '+(error.message||'validation failed');
   }
