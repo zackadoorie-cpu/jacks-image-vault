@@ -5113,6 +5113,23 @@
   function initEvents() {
     setupSidebarGroups();
     document.querySelectorAll('[data-view]').forEach(btn=>btn.onclick=()=>displayPage(btn.dataset.view));
+    $('activityFilter').onchange=event=>{
+      state.activityFilter=event.target.value;state.activityPage=1;renderActivity();
+    };
+    $('activityQuery').oninput=event=>{
+      state.activityQuery=event.target.value.slice(0,120);state.activityPage=1;renderActivity();
+    };
+    $('activityPrev').onclick=()=>{state.activityPage=Math.max(1,state.activityPage-1);renderActivity();};
+    $('activityNext').onclick=()=>{state.activityPage++;renderActivity();};
+    $('activityList').onclick=event=>{
+      const button=event.target.closest('button[data-activity-undo]');
+      if(button&&$('activityList').contains(button))undoActivityReview(button.dataset.activityUndo);
+    };
+    $('activityExport').onclick=exportActivityHistory;
+    $('activityClear').onclick=clearActivityHistory;
+    $('activityOpenInbox').onclick=()=>displayPage('review-inbox');
+    $('activityOpenRenames').onclick=()=>displayPage('rename-desk');
+    $('activityOpenUpdates').onclick=()=>$('updatesButton').click();
     $('renameDeskSearch').oninput=event=>{
       state.renameQuery=event.target.value.slice(0,120);state.renamePage=1;renameDeskRender();
     };
