@@ -49,6 +49,7 @@
             <button class="nav-item" data-view="rename-desk"><span class="nav-icon">✎</span>Rename Desk</button>
             <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
             <button class="nav-item" data-view="activity"><span class="nav-icon">↶</span>Activity &amp; Undo</button>
+            <button class="nav-item" data-view="sheet-write"><span class="nav-icon">✓</span>Sheet Approvals</button>
             <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
           </div>
         </details>
@@ -461,6 +462,36 @@
           </div>
           <p class="privacy-note">The history contains local review-note snapshots needed for undo. Exports can contain private descriptions, tags and Drive file IDs. Store exported JSON securely. No access token, passwords, photos or Google API writes are included. Clearing this history removes undo records, but never deletes review notes or changes Google files.</p>
         </section>
+        <section id="sheetWriteView" class="view hidden" aria-labelledby="sheetWriteTitle">
+          <div class="gallery-heading"><div>
+            <p class="eyebrow">PHASE 9B-2 · EXPLICIT APPROVAL ONLY</p>
+            <h1 id="sheetWriteTitle">Sheet Review Approvals</h1>
+            <p>Review exact before-and-after description, tags and review status for locally reviewed items. No filename, media, folder or formula changes.</p>
+          </div></div>
+          <p class="activity-boundary" role="note"><strong>Permission boundary:</strong> Normal browsing uses read-only Google scopes. Applying these reviews requires a separate, temporary Google Sheets edit authorization, an explicit batch confirmation, a fresh Manifest row/Drive ID check, and post-write verification. Google grants a broad Sheets edit scope, but this app restricts writes to the configured inventory Sheet. Concurrent external edits cannot be fully excluded by the Sheets API.</p>
+          <div class="activity-quicklinks">
+            <button class="btn outline" type="button" id="sheetWriteOpenReview">Open local review queue</button>
+            <button class="btn outline" type="button" id="sheetWriteOpenActivity">Activity &amp; Undo</button>
+          </div>
+          <p class="activity-status" id="sheetWriteStatus" role="status" aria-live="polite">Connect Drive to prepare reviews for Google Sheets.</p>
+          <div id="sheetWriteList" class="activity-list" aria-label="Pending local reviews eligible for Sheet approval"></div>
+          <div class="activity-pages">
+            <button class="btn outline" id="sheetWritePrev" type="button">Previous</button>
+            <span id="sheetWritePage" aria-live="polite">—</span>
+            <button class="btn outline" id="sheetWriteNext" type="button">Next</button>
+          </div>
+          <div class="activity-boundary sheet-write-panel" id="sheetWritePlan">
+            <h2>Approved batch preview</h2>
+            <p>Open a review, inspect the live Sheet values, and stage it. At most 10 verified file IDs can be staged. Staging does not change Google Sheets.</p>
+            <div id="sheetWriteStaged" class="activity-list"></div>
+            <div class="activity-quicklinks">
+              <button class="btn outline" id="sheetWriteClear" type="button">Clear staged reviews</button>
+              <button class="btn primary" id="sheetWriteApply" type="button" disabled>Authorize &amp; apply approved reviews</button>
+            </div>
+            <p class="activity-status" id="sheetWriteApplyStatus" role="status" aria-live="polite"></p>
+          </div>
+          <p class="privacy-note">Only Manifest columns M (review description), N (tags), and T (review status) are eligible. Every selected row must still match its original Drive ID and staged before-values immediately before submission. No bulk auto-sync, auto-approval, or hidden background writes. Undo for Sheet edits is not enabled yet; your app-version rollback does not reverse Google Sheet changes.</p>
+        </section>
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
           <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original spreadsheet snapshot with current Drive files. New subfolders under the verified Memes and Jacks Photos roots are discovered automatically.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Discover &amp; verify folders</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
           <div class="index-metrics" id="indexMetrics" aria-label="Index coverage"><div class="index-metric"><span>Spreadsheet snapshot</span><strong id="metricSnapshot">—</strong><small>Original inventory, unchanged</small></div><div class="index-metric"><span>Live Drive files</span><strong id="metricLive">—</strong><small id="metricLiveNote">Not yet verified</small></div><div class="index-metric"><span>New files</span><strong id="metricAdded">—</strong><small>Not in spreadsheet snapshot</small></div><div class="index-metric"><span>Missing files</span><strong id="metricMissing">—</strong><small>No longer in watched roots</small></div></div>
@@ -584,7 +615,10 @@
       <input class="field" id="desktopClientIdInput" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="180" placeholder="Desktop client ID from Google Cloud">
       <label class="field-label" for="desktopClientSecretInput">Desktop client secret (from the SAME Desktop OAuth client)</label>
       <input class="field" id="desktopClientSecretInput" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="Paste client_secret from Desktop OAuth credentials JSON, if provided">
-      <p class="field-help">Some Google Desktop OAuth token exchanges require this field even when documentation marks it optional. If you see “client_secret is missing”, use the <code>client_secret</code> in the downloaded <strong>Desktop app</strong> credentials JSON. Do not use your Web client secret, and never enter your Google account password. Neither credential is saved by the Vault.</p>
+      <p class="field-help">If Google requires a client secret, use the one from the <strong>same Desktop app</strong> credentials JSON. Never enter your Google account password or share the OAuth secret.</p>
+      <label class="pref-toggle" for="desktopRememberInput"><span><strong>Stay signed in on this Windows account</strong><small>Recommended. On your approval, Image Vault will encrypt a read-only refresh token and matching Desktop credentials using Windows user protection. It can then reconnect when you reopen the app. Sheet-edit permission is never saved.</small></span><input id="desktopRememberInput" type="checkbox" checked></label>
+      <button class="btn quiet" id="desktopForgetSavedButton" type="button">Forget saved Windows sign-in</button>
+      <p class="field-help" id="desktopSavedSessionStatus" role="status">Checking saved Windows sign-in…</p>
       <div class="dialog-actions">
         <button class="btn outline" id="desktopAuthCancelButton" type="button" disabled>Cancel authorization</button>
         <button class="btn primary" id="desktopAuthConnectButton" type="button">Connect via system browser</button>
