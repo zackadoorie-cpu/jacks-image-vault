@@ -36,7 +36,8 @@ test('native app switches sign-in to OS browser PKCE without a browser OAuth cli
  assert.match(app,/const IN_NATIVE_DESKTOP=window\.__JACKS_VAULT_DESKTOP_HOST===true/);
  assert.match(app,/if\(IN_NATIVE_DESKTOP\)\{/);
  assert.match(app,/saveDesktopSheetId\(\)/);
- assert.match(app,/if\(IN_NATIVE_DESKTOP\)return;/);
+ assert.match(app,/if\(state\.config\.sheetId\)void resumeDesktopSession\(\);/);
+ assert.match(app,/desktopAuthPost\('forget'/);
  assert.match(html,/id="desktopSheetIdInput"/);
  assert.match(html,/id="desktopSaveSheetButton"/);
 });
