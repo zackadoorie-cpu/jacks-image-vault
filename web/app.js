@@ -2388,12 +2388,18 @@
       if(!res.ok)throw new Error('Native desktop authorization not installed');
       const data=await res.json();
       if($('settingsDialog').open)$('desktopAuthSection').hidden=!data.available;
+      const saved=data.available&&data.storesRefreshTokens&&data.savedReadOnlySession===true;
+      $('desktopResumeSavedButton').classList.toggle('hidden',!saved);
+      $('desktopResumeSavedButton').disabled=state.connected;
       if(data.available){
-        $('desktopSavedSessionStatus').textContent=data.savedReadOnlySession?
-          'Encrypted Windows sign-in found. It will reconnect automatically for the saved inventory.':
-          'No saved Windows sign-in yet. Enable Stay signed in during your next connection.';
+        $('desktopSavedSessionStatus').textContent=saved?
+          'Windows-encrypted read-only sign-in found. Reconnect without entering OAuth credentials; it survives UI patches and opens in either Windows launcher.':
+          'No saved Windows read-only sign-in. Enable Stay signed in during your next Desktop OAuth connection.';
       }
-    }catch{$('desktopAuthSection').hidden=true;}
+    }catch{
+      $('desktopAuthSection').hidden=true;
+      $('desktopResumeSavedButton').classList.add('hidden');
+    }
   }
   function saveDesktopSheetId(){
     const sheetId=$('desktopSheetIdInput').value.trim();
@@ -2492,6 +2498,8 @@
         state.accessToken=progress.accessToken;
         state.expiry=Date.now()+Math.max(60,Number(progress.expiresIn||3600)-60)*1000;
         const warning=progress.saveWarning||'';
+        if(progress.savedSession)$('desktopSavedSessionStatus').textContent=
+          'Windows-encrypted read-only sign-in saved. It will survive UI patch updates.';
         if($('settingsDialog').open)$('settingsDialog').close();
         await loadLiveIndex();
         if(warning)alertUser(warning,'error');
@@ -2511,28 +2519,47 @@
       $('desktopAuthConnectButton').disabled=false;
     }
   }
-  async function resumeDesktopSession({silent=false,load=true}={}){
-    if(!IN_NATIVE_DESKTOP||!safeId(state.config.sheetId))return false;
+  async function resumeDesktopSession({silent=false,load=true,allowBrowser=false}={}){
+    // Only the trusted private loopback UI may reach the nonce-guarded broker.
+    // Explicitly saved Desktop read-only sessions may also resume in the
+    // Windows browser launcher. Nothing here saves tokens in web storage.
+    if(!IN_NATIVE_DESKTOP&&!allowBrowser)return false;
+    if(state.config.sheetId&&!safeId(state.config.sheetId))return false;
     if(desktopResumePromise)return desktopResumePromise;
-    const epoch=state.authEpoch;
+    const epoch=state.authEpoch,expectedSheetId=state.config.sheetId||'';
     const attempt=(async()=>{
       try{
         if(!silent){
-          state.autoReconnectStatus='Restoring encrypted Windows Google session…';
+          state.autoReconnectStatus='Restoring encrypted Windows Google sign-in…';
           updateStatus();
         }
-        const data=await desktopAuthPost('resume',{sheetId:state.config.sheetId});
+        const data=await desktopAuthPost('resume',{sheetId:expectedSheetId});
         if(epoch!==state.authEpoch)return false;
         if(data.status!=='ready'||typeof data.accessToken!=='string')return false;
+        if(!expectedSheetId){
+          // Native WebView2 and browser launchers have independent localStorage.
+          // Rehydrate ONLY the Sheet ID bound to a successfully refreshed
+          // Windows-encrypted grant. Never copy OAuth secrets to localStorage.
+          if(!safeId(data.sheetId))throw new Error('Saved Windows session has no valid inventory identifier.');
+          state.config={...state.config,sheetId:data.sheetId};
+          try{localStorage.setItem(SHELL_STORAGE,JSON.stringify(state.config));}catch{}
+        }
         state.authProvider='desktop';
         state.accessToken=data.accessToken;
         state.expiry=Date.now()+Math.max(60,Number(data.expiresIn||3600)-60)*1000;
         state.autoReconnectStatus='';
-        if(load)await loadLiveIndex();
+        if(load){
+          if($('settingsDialog').open)$('settingsDialog').close();
+          await loadLiveIndex();
+        }else updateStatus();
         return !load||state.connected;
       }catch(error){
+        if(epoch!==state.authEpoch)return false;
         if(!silent){
-          state.autoReconnectStatus='Windows saved sign-in unavailable. Connect via system browser.';
+          // Broker messages are fixed, credential-free errors. Use textContent.
+          const reason=String(error?.message||'Windows reconnect was unavailable.').slice(0,340);
+          state.autoReconnectStatus='Saved Windows sign-in: '+reason;
+          $('desktopAuthMessage').textContent=state.autoReconnectStatus;
           updateStatus();
         }
         return false;
@@ -2639,12 +2666,30 @@
       }else alertUser('Connection could not start: '+(error.message||error),'error');
     }
   }
-  function tryAutoReconnect(){
+  async function tryAutoReconnect(){
     if(IN_NATIVE_DESKTOP){
-      // New Windows host starts with a private DPAPI read-only session. The
-      // separate Sheets-write grant is never refreshed or remembered.
-      if(state.config.sheetId)void resumeDesktopSession();
+      // Attempt the Windows-encrypted grant even when WebView2 localStorage
+      // was reset during a launcher/profile transition. The broker will
+      // return the saved Sheet binding only after a successful token refresh.
+      void resumeDesktopSession();
       return;
+    }
+    // The browser-mode Windows launcher shares this loopback backend, but
+    // originally only the native WebView2 host retried its saved session.
+    // Probe safely, use it only for the already-configured inventory, and
+    // fall back to the existing browser Google flow if unavailable.
+    if(state.config.sheetId&&location.protocol==='http:'&&
+       ['127.0.0.1','localhost'].includes(location.hostname)){
+      try{
+        const response=await fetch('/__vault_desktop_auth/status',{cache:'no-store'});
+        if(response.ok){
+          const status=await response.json();
+          if(status.available===true&&status.storesRefreshTokens===true&&
+             status.savedReadOnlySession===true&&!state.connected&&state.authMode==='idle'){
+            if(await resumeDesktopSession({allowBrowser:true}))return;
+          }
+        }
+      }catch{}
     }
     if(!state.autoReconnect||!readAutoBinding()||!state.config.clientId||!state.config.sheetId)return;
     if(location.protocol==='file:')return;
@@ -5747,6 +5792,12 @@
     $('sheetIdInput').oninput=()=>$('sheetIdInput').setCustomValidity('');
     $('settingsForm').onsubmit=saveSettings;
     $('desktopAuthConnectButton').onclick=connectDesktopOAuth;
+    $('desktopResumeSavedButton').onclick=async()=>{
+      const button=$('desktopResumeSavedButton');
+      button.disabled=true;
+      try{await resumeDesktopSession({allowBrowser:true});}
+      finally{button.disabled=state.connected;}
+    };
     $('desktopForgetSavedButton').onclick=forgetDesktopSavedSession;
     $('desktopSaveSheetButton').onclick=saveDesktopSheetId;
     $('desktopAuthCancelButton').onclick=()=>void cancelDesktopAuth();
