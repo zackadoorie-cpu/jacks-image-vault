@@ -161,7 +161,7 @@
         if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
         if(chosen==='plans'&&!['rename-plan','rename-clear'].includes(e.kind))return false;
         if(chosen==='inventory'&&e.kind!=='inventory')return false;
-    if(chosen==='writes'&&!['sheet-write','sheet-write-unverified'].includes(e.kind))return false;
+        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified'].includes(e.kind))return false;
         return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
       });
       const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
