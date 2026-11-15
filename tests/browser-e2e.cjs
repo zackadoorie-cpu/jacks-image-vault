@@ -475,8 +475,12 @@ async function main(){
     const acceptApprovals=dialog=>void dialog.accept();
     p.on('dialog',acceptApprovals);
     await p.locator('#sheetWriteApply').click();
+    await p.waitForFunction(()=>document.querySelector('#sheetWriteApplyStatus')?.textContent.includes('Verified 1 approved'),null,{timeout:18000})
+      .catch(async error=>{
+        const message=await p.locator('#sheetWriteApplyStatus').innerText();
+        throw new Error('Sheet approval smoke did not finish: '+message+'; '+error.message);
+      });
     p.off('dialog',acceptApprovals);
-    await p.waitForFunction(()=>document.querySelector('#sheetWriteApplyStatus')?.textContent.includes('Verified 1 approved'),null,{timeout:18000});
     assert.equal(approvals.getSheetWrites().length,1);
     const payload=approvals.getSheetWrites()[0];
     assert.deepEqual(payload.requests.map(x=>x.updateCells.start.columnIndex),[12,13,19]);
