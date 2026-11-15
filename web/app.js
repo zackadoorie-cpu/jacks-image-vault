@@ -4088,7 +4088,7 @@
   }
   function displayPage(view,{reset=true,scroll=true}={}) {
     if(state.connected&&browsingView())saveBrowsingPosition();
-    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'){
+    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'){
       state.autoLoadObserver?.disconnect();
       state.autoLoadObserver=null;
       state.galleryRevision++;
@@ -4101,9 +4101,10 @@
       if($('folderSearch'))$('folderSearch').value='';
     }
     $('homeView').classList.toggle('hidden',view!=='home');
-    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk');
+    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity');
     $('reviewInboxView').classList.toggle('hidden',view!=='review-inbox');
     $('renameDeskView').classList.toggle('hidden',view!=='rename-desk');
+    $('activityView').classList.toggle('hidden',view!=='activity');
     $('videoLibraryView').classList.toggle('hidden',view!=='video-library');
     $('similarityView').classList.toggle('hidden',view!=='similarity');
     $('memoryView').classList.toggle('hidden',view!=='memory');
@@ -4114,7 +4115,131 @@
     if(scroll)window.scrollTo({top:0,behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth'});
     updateScrollControls();
   }
-  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else if(state.view==='rename-desk')renameDeskRender();else renderGallery();}
+  function activityTitle(kind){
+    return {
+      'inventory':'Read-only inventory loaded',
+      'review-save':'Local review saved',
+      'review-reset':'Local review reset',
+      'review-import':'Visual review batch imported',
+      'review-backup':'Private review backup imported',
+      'rename-plan':'Unapplied rename plan exported',
+      'rename-clear':'Rename staging cleared',
+      'undo-review':'Local review change reversed'
+    }[kind]||'Local activity';
+  }
+  function renderActivity(){
+    const active=state.connected&&!!state.activityHistory;
+    const history=state.activityHistory||activityLedger.activityEmpty('offline','offline');
+    const page=activityLedger.activityPage(history,{
+      filter:state.activityFilter,query:state.activityQuery,page:state.activityPage,pageSize:12
+    });
+    state.activityPage=page.page;
+    const ctx=activityContext();
+    const undoable=active?history.items.filter(entry=>activityLedger.activityCanUndo(
+      entry,state.reviewEdits.get(entry.fileId)||null,{
+        ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+      }).ok).length:0;
+    $('activityTotal').textContent=active?format(history.items.length):'—';
+    $('activityUndoable').textContent=active?format(undoable):'—';
+    $('activityFilter').value=state.activityFilter;
+    $('activityQuery').value=state.activityQuery;
+    $('activityExport').disabled=!active||!history.items.length;
+    $('activityClear').disabled=!state.connected||!activityStorageKey();
+    $('activityPrev').disabled=!active||page.page<=1;
+    $('activityNext').disabled=!active||page.page>=page.pages;
+    $('activityPage').textContent=active?page.page+' / '+page.pages:'—';
+    $('activityStatus').textContent=!state.connected?
+      'Connect Drive to see private activity on this device.':
+      state.activityError?state.activityError:
+      !active?'History is not available for this account.':
+      page.count+' matching activities · '+history.items.length+' recorded locally. Nothing has been written to Google Drive or Sheets.';
+    if(!active){
+      $('activityList').innerHTML='<p class="activity-empty">No account-specific activity available. Your local review notes remain untouched.</p>';
+      return;
+    }
+    if(!page.items.length){
+      $('activityList').innerHTML='<p class="activity-empty">No activity matches this filter yet. Saving a local review or exporting a rename plan will appear here.</p>';
+      return;
+    }
+    const byId=new Map(state.images.filter(item=>!item.demo).map(item=>[item.id,item]));
+    $('activityList').innerHTML=page.items.map(entry=>{
+      const current=state.reviewEdits.get(entry.fileId)||null;
+      const guard=activityLedger.activityCanUndo(entry,current,{
+        ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+      });
+      const media=byId.get(entry.fileId);
+      const label=media?media.name:(entry.fileId?'Media not in current inventory':'');
+      const type=['review-save','review-reset','undo-review'].includes(entry.kind)?'LOCAL REVIEW':
+        ['review-import','review-backup'].includes(entry.kind)?'REVIEW IMPORT':
+        ['rename-plan','rename-clear'].includes(entry.kind)?'FILENAME PLANNING':'INVENTORY READ';
+      const count=entry.count>1?' · '+entry.count+' records':'';
+      const date=new Date(entry.at).toLocaleString();
+      const status=entry.status==='undone'?' · already undone':
+        !guard.ok&&['review-save','review-reset'].includes(entry.kind)?
+          ' · undo unavailable if newer edits exist':'';
+      return '<article class="activity-entry" data-activity-id="'+escapeHTML(entry.id)+'">'+
+        '<div class="activity-entry-main"><span class="activity-entry-type">'+escapeHTML(type)+'</span>'+
+        '<h3>'+escapeHTML(activityTitle(entry.kind))+'</h3>'+
+        '<p>'+escapeHTML(date+count+status)+'</p>'+
+        (label?'<p>'+escapeHTML(label)+'</p>':'')+
+        '</div>'+
+        (guard.ok?'<button class="btn outline" type="button" data-activity-undo="'+escapeHTML(entry.id)+'">Undo local review</button>':'')+
+        '</article>';
+    }).join('');
+  }
+  function undoActivityReview(id){
+    if(!state.connected||!state.activityHistory)return;
+    const ctx=activityContext(),history=state.activityHistory;
+    const entry=history.items.find(event=>event.id===id);
+    const current=entry?state.reviewEdits.get(entry.fileId)||null:null;
+    const guard=activityLedger.activityCanUndo(entry,current,{
+      ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+    });
+    if(!guard.ok){
+      $('activityStatus').textContent=guard.reason;
+      renderActivity();
+      return;
+    }
+    if(!confirm('Undo this LOCAL review edit on this device? Only the previous personal review note will be restored. Google Drive files, Sheets and application updates remain unchanged.'))return;
+    const next=new Map(state.reviewEdits);
+    if(entry.before===null)next.delete(entry.fileId);
+    else next.set(entry.fileId,{...entry.before});
+    try{writeReviewNotes(next);}
+    catch(err){$('activityStatus').textContent='Undo failed: '+err.message;return;}
+    try{
+      const marked=activityLedger.activityMarkUndone(history,id,ctx);
+      const event={id:crypto.randomUUID(),at:Date.now(),kind:'undo-review',
+        status:'complete',fileId:entry.fileId,count:1};
+      storeActivityHistory(activityLedger.activityAppend(marked,event,ctx));
+    }catch(err){
+      state.activityError='Local review restored, but activity history could not be updated. Export a review backup. '+err.message;
+    }
+    if(state.activeImage?.id===entry.fileId)populateImageDialog();
+    state.reviewDirty=false;
+    updateReviewCounts();
+    renderActivity();
+  }
+  function exportActivityHistory(){
+    if(!state.connected||!state.activityHistory||!state.activityHistory.items.length)return;
+    if(!confirm('Export private activity history? It includes original and edited LOCAL review descriptions, tags, timestamps and file IDs. Store the JSON securely.'))return;
+    const serialized=JSON.stringify(state.activityHistory,null,2);
+    const url=URL.createObjectURL(new Blob([serialized],{type:'application/json'}));
+    const link=document.createElement('a');
+    link.href=url;link.download='image-vault-private-activity-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.appendChild(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),10000);
+  }
+  function clearActivityHistory(){
+    const ctx=activityContext(),key=activityStorageKey();
+    if(!ctx||!key||!state.connected)return;
+    if(!confirm('Permanently clear activity history on THIS device for the connected account and Sheet? This removes local undo records, but NOT your saved review notes, Drive files, spreadsheet, or app-update rollback.'))return;
+    try{
+      localStorage.removeItem(key);
+      state.activityHistory=activityLedger.activityEmpty(ctx.account,ctx.sheetId);
+      state.activityError='';state.activityPage=1;renderActivity();
+    }catch(err){$('activityStatus').textContent='Could not clear local activity: '+err.message;}
+  }
+  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else if(state.view==='rename-desk')renameDeskRender();else if(state.view==='activity')renderActivity();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
     $('statImages').textContent=count(state.inventory.length);
