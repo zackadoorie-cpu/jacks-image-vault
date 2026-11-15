@@ -32,6 +32,35 @@
     captureDate: '', review: 'Illustration only', confidence: '', category: '', mime: 'image/png',
     size: 0, url: '', demo: true, total
   })));
+  // Turbo Gallery keeps only a small, overscanned set of tiles in the DOM.
+  // Counts, filtering, search and paging still refer to the full logical list.
+  // Fixed-size rows make spacer heights deterministic and avoid scroll jumps.
+  const turboGallery=Object.freeze({
+    threshold:320,
+    overscanRows:5,
+    maxRows:32,
+    rowHeight(layout,density){
+      if(layout==='list')return 112;
+      if(density==='compact')return 260;
+      if(density==='large')return 405;
+      return 315;
+    },
+    plan({loaded,columns,offset,viewport,rowHeight,gap}){
+      const cols=Math.max(1,Math.floor(Number(columns)||1));
+      const count=Math.max(0,Math.floor(Number(loaded)||0));
+      const totalRows=Math.ceil(count/cols);
+      const stride=Math.max(1,rowHeight+gap);
+      const wanted=Math.min(this.maxRows,Math.max(1,Math.ceil(Math.max(1,viewport)/stride)+2*this.overscanRows));
+      const firstRow=Math.min(Math.max(0,totalRows-wanted),Math.max(0,Math.floor(Math.max(0,offset)/stride)-this.overscanRows));
+      const endRow=Math.min(totalRows,firstRow+wanted);
+      const start=firstRow*cols;
+      const end=Math.min(count,endRow*cols);
+      const top=Math.max(0,firstRow*stride-(firstRow?gap:0));
+      const bottomRows=totalRows-endRow;
+      const bottom=Math.max(0,bottomRows*stride-(bottomRows?gap:0));
+      return {start,end,top,bottom,columns:cols,totalRows};
+    }
+  });
   const startingPrefs = readPreferences();
   const state = {
     config: readSettings(),
@@ -80,6 +109,11 @@
     autoLoadPending: false,
     galleryRevision: 0,
     filtered: [],
+    filteredById: new Map(),
+    turboEnabled: false,
+    turboStart: -1,
+    turboEnd: -1,
+    turboScrollScheduled: false,
     activeImage: null,
     returnFocus: null,
     thumbCache: new Map(),
