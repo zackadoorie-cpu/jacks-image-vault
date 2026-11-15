@@ -38,6 +38,7 @@ jobs:
           node scripts/build-review-inbox-controller.cjs --check
           node scripts/build-rename-desk.cjs --check
           node scripts/build-rename-desk-controller.cjs --check
+          node scripts/build-activity-ledger.cjs --check
           node scripts/build-video-library.cjs --check
           node scripts/build-video-controller.cjs --check
           node scripts/build-similarity-lab.cjs --check
