@@ -1,6 +1,9 @@
 'use strict';
 /* command-controller:portable:start */
 function pulseRender(m){
+  // A partial/older UI or a lightweight test DOM must never break Drive sync.
+  const actionsNode=$('pulseActions');
+  if(!actionsNode||typeof actionsNode.replaceChildren!=='function')return;
   const counts=state.connected?reviewCounts():{};
   const p=commandEngine.commandPulse({
     connected:state.connected,images:state.images,
@@ -14,7 +17,7 @@ function pulseRender(m){
   $('pulseSummary').textContent=!p.connected?'Connect your private library to see its pulse.':
     p.verified?'Complete Drive comparison verified against current Sheet snapshot.':
     'Drive comparison is not yet verified. Gallery coverage figures are provisional.';
-  $('pulseSummary').dataset.status=m.health;
+  $('pulseSummary').setAttribute('data-status',m.health);
   $('pulseCoverage').textContent=p.connected?p.descriptionCoverage+'%':'—';
   $('pulseCoverageNote').textContent=p.connected?fmt(p.described)+' of '+fmt(p.total)+
     ' gallery records. A description is not proof of visual inspection.':'Connect to see coverage.';
