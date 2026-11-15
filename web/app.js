@@ -3491,6 +3491,10 @@
     const token = state.accessToken;
     const wasDesktop=state.authProvider==='desktop';
     if(desktopFlowId)void cancelDesktopAuth();
+    if(sheetWriteFlowId){
+      const flow=sheetWriteFlowId;sheetWriteFlowId='';
+      void desktopAuthPost('cancel',{flowId:flow}).catch(()=>{});
+    }
     state.authEpoch++;
     state.authMode='idle';
     state.autoReconnect=false;
@@ -4471,10 +4475,12 @@
         ctx.sheetId+'? These Google Sheet edits are NOT reversed by app rollback.'))throw new Error('Final approval cancelled. Nothing was written.');
       const update=sheetApproval.sheetApprovalRequests(plans,tabID);
       const url='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(ctx.sheetId)+':batchUpdate';
+      // Once a request leaves this app, even a network error cannot prove the
+      // server did not commit. Never automatically retry an uncertain batch.
+      submitted=true;
       const result=await sheetWriteFetch(url,writeToken,{method:'POST',payload:update});
       if(!Array.isArray(result.replies)||result.replies.length!==update.requests.length)
         throw new Error('Google did not confirm all update requests; inspect the Sheet before retrying.');
-      submitted=true;
       for(const plan of plans){
         const live=await sheetWriteReadRow(plan.row,writeToken);
         if(live.fileId!==plan.fileId||
@@ -5504,6 +5510,29 @@
   function initEvents() {
     setupSidebarGroups();
     document.querySelectorAll('[data-view]').forEach(btn=>btn.onclick=()=>displayPage(btn.dataset.view));
+    $('sheetWriteList').onclick=event=>{
+      const button=event.target.closest('button[data-sheet-preview]');
+      if(button&&$('sheetWriteList').contains(button))void sheetWritePreviewItem(button.dataset.sheetPreview);
+    };
+    $('sheetWriteStage').onclick=sheetWriteStagePreview;
+    $('sheetWriteStaged').onclick=event=>{
+      const button=event.target.closest('button[data-sheet-remove]');
+      if(!button||state.sheetWriteBusy)return;
+      state.sheetWriteStaged.delete(button.dataset.sheetRemove);
+      state.sheetWriteMessage='Review unstaged. No Google Sheet changes made.';
+      renderSheetWrite();
+    };
+    $('sheetWritePrev').onclick=()=>{state.sheetWritePage=Math.max(1,state.sheetWritePage-1);renderSheetWrite();};
+    $('sheetWriteNext').onclick=()=>{state.sheetWritePage++;renderSheetWrite();};
+    $('sheetWriteClear').onclick=()=>{
+      if(state.sheetWriteBusy)return;
+      state.sheetWriteStaged.clear();state.sheetWritePreview=null;
+      state.sheetWriteMessage='Staged changes cleared without writing to Google Sheets.';
+      renderSheetWrite();
+    };
+    $('sheetWriteApply').onclick=()=>void sheetWriteApply();
+    $('sheetWriteOpenReview').onclick=()=>displayPage('review');
+    $('sheetWriteOpenActivity').onclick=()=>displayPage('activity');
     $('activityFilter').onchange=event=>{
       state.activityFilter=event.target.value;state.activityPage=1;renderActivity();
     };
