@@ -571,6 +571,78 @@ async function main(){
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     assert.equal((await p.evaluate(()=>JSON.stringify(localStorage))).includes('fake-e2e-token'),false);
   }finally{await connected.ctx.close();}
+  // Phase 10B synthetic Drive edit. No real files or secrets are accessed.
+  const renames=await fixturePage(browser,url);
+  let current={...fake,version:'17',trashed:false,capabilities:{canRename:true}};
+  let sibling={...fakeVideo,trashed:false};
+  const patchBodies=[];
+  await renames.page.route('https://www.googleapis.com/**',route=>{
+    const request=route.request(),u=new URL(request.url());
+    if(u.pathname==='/drive/v3/files/'+id){
+      if(request.method()==='GET')return route.fulfill(reply(current));
+      if(request.method()==='PATCH'){
+        const body=request.postDataJSON();patchBodies.push(body);
+        current={...current,name:body.name,version:String(+current.version+1)};
+        return route.fulfill(reply(current));
+      }
+    }
+    if(u.pathname==='/drive/v3/files'&&u.searchParams.has('q')){
+      assert.equal(u.searchParams.get('q'),"'"+folder+"' in parents and trashed = false");
+      return route.fulfill(reply({files:[
+        {id:current.id,name:current.name,trashed:false},
+        {id:sibling.id,name:sibling.name,trashed:false}
+      ]}));
+    }
+    return route.fallback();
+  });
+  try{
+    const p=renames.page;
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:15000});
+    await p.locator('#homeActionFilenameReview').click();
+    await p.locator('[data-filename-stage="'+id+'"]').check();
+    current.name='EXTERNAL-UPDATE.jpg';
+    await p.locator('#filenameRenamePreview').click();
+    await p.waitForFunction(()=>document.querySelector('#filenameReviewMessage')?.textContent.includes('Cannot prepare Drive rename'));
+    assert.equal(patchBodies.length,0,'Externally changed name must block rename');
+    assert.equal(await p.locator('#filenameRenamePanel').isVisible(),false);
+    current.name=fake.name;
+    sibling.name='ORANGE CAT - REACTION MEME.JPG';
+    await p.locator('#filenameRenamePreview').click();
+    await p.waitForFunction(()=>document.querySelector('#filenameReviewMessage')?.textContent.includes('conflicts'));
+    assert.equal(patchBodies.length,0,'Actual Drive name collision blocks rename');
+    sibling.name=fakeVideo.name;
+    await p.locator('#filenameRenamePreview').click();
+    await p.waitForFunction(()=>!document.querySelector('#filenameRenamePanel')?.hidden);
+    assert.match(await p.locator('#filenameRenameBefore').innerText(),/IMG_123456789.jpg/);
+    assert.match(await p.locator('#filenameRenameAfter').innerText(),/orange cat - reaction meme.jpg/);
+    assert.equal(patchBodies.length,0,'Read-only preview must not PATCH');
+    p.once('dialog',dialog=>dialog.dismiss());
+    await p.locator('#filenameRenameApply').click();
+    assert.equal(patchBodies.length,0,'Declined permission must not PATCH');
+    renames.setAccount('other_permission_123456789');
+    const accept=dialog=>dialog.accept();
+    p.on('dialog',accept);
+    await p.locator('#filenameRenameApply').click();
+    await p.waitForFunction(()=>document.querySelector('#filenameReviewMessage')?.textContent.includes('No rename submitted'));
+    p.off('dialog',accept);
+    assert.equal(patchBodies.length,0,'Write grant from another account must not PATCH');
+    renames.setAccount('fixture_permission_123456789');
+    p.on('dialog',accept);
+    await p.locator('#filenameRenameApply').click();
+    await p.waitForFunction(()=>document.querySelector('#filenameReviewMessage')?.textContent.includes('Verified Drive rename'),null,{timeout:20000});
+    p.off('dialog',accept);
+    assert.equal(patchBodies.length,1,'One expressly approved name-only PATCH');
+    assert.deepEqual(patchBodies[0],{name:'orange cat - reaction meme.jpg'});
+    assert.equal(current.name,'orange cat - reaction meme.jpg');
+    assert.equal(current.parents[0],folder);
+    assert.equal(await p.locator('#filenameRenamePanel').isVisible(),false);
+    assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'0');
+    await p.locator('#navigation [data-view="activity"]').click();
+    await p.locator('#activityFilter').selectOption('writes');
+    assert.match(await p.locator('#activityList').innerText(),/Drive filename changed and verified/);
+    assert.equal((await p.evaluate(()=>JSON.stringify(localStorage))).includes('fake-e2e-token'),false);
+  }finally{await renames.ctx.close();}
   // Sheets approval smoke: explicit preview and staging never POST.
   // Separate transient consent, two confirmations and exact M/N/T updates
   // are exercised only against fabricated Google API routes.

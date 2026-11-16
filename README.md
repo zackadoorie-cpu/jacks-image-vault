@@ -1,5 +1,27 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 10B — Explicit Google Drive rename (v2.1.29)
+
+Filename Review now offers a separate, one-file-at-a-time **Verify one
+staged Drive rename** workflow. It checks the live Drive file, stable
+Manifest ID/row, original name, parent folder, MIME, version, edit rights
+and all known sibling filenames. Before the name-only PATCH, it requires
+a clearly disclosed temporary Google Drive metadata edit authorization
+and two explicit confirmations, followed by live read-back verification.
+The Google "drive.metadata" scope is restricted and covers file metadata
+across the account, not only this one file. The app deliberately limits
+its own operation to the single chosen filename. Temporary edit tokens
+are not stored. No delete, move, trash, Sheet update or media-content
+change is implemented. The Windows read-only Stay Signed In grant remains
+unchanged.
+
+IMPORTANT: **Install the full v2.1.29 Windows Desktop Bundle once** to
+receive the new protected rename OAuth endpoint. A UI-only patch on the
+old native EXE does not enable the rename authorization. The Google
+Sheet's indexed name may remain old until separately reindexed.
+See docs/phase10b-guarded-drive-rename.md.
+
+
 ## Phase 10A — Intelligent Filename Review (v2.1.28)
 
 A new **Intelligent Filename Review** workspace merges meme, photo and video
