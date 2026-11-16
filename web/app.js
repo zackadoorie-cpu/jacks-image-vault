@@ -5333,7 +5333,7 @@
     $('filenameReviewExport').disabled=state.renameBusy||!model.connected||!state.filenameStaged.size;
     $('filenameRenamePreview').disabled=state.renameBusy||!model.connected||state.filenameStaged.size!==1;
     $('filenameRenameApply').disabled=state.renameBusy||!state.renamePrepared;
-    $('filenameClear').disabled=!state.filenameStaged.size&&!state.filenameDrafts.size;
+    $('filenameClear').disabled=state.renameBusy||(!state.filenameStaged.size&&!state.filenameDrafts.size);
     $('filenameReviewStatus').textContent=!model.connected?
       'Connect a verified Drive account and inventory to review your private filenames.':
       format(page.total)+' matching proposals · '+format(model.rows.length)+
@@ -5635,7 +5635,9 @@
         const freshNames=await driveRenameLiveFolder(plan.folderId,writeToken);
         const finalCheck=driveRename.driveRenameCheck(plan,fresh,freshNames,{baselineVersion:version});
         if(!finalCheck.ok)throw new Error('Drive changed during approval: '+finalCheck.reason);
-        if(!driveRenameSessionMatches(plan,epoch))throw new Error('Google account changed before submission.');
+        if(!driveRenameSessionMatches(plan,epoch)||state.renamePrepared!==prepared||
+           state.filenameStaged.size!==1||!state.filenameStaged.has(plan.fileId))
+          throw new Error('Account, staged selection or rename preview changed before submission.');
         const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(plan.fileId)+
           '?fields=id,name,mimeType,parents,trashed,version&supportsAllDrives=true';
         submitted=true;
@@ -7163,6 +7165,7 @@
     $('filenameRenamePreview').onclick=()=>void driveRenamePreview();
     $('filenameRenameApply').onclick=()=>void driveRenameApply();
     $('filenameClear').onclick=()=>{
+      if(state.renameBusy)return;
       filenameReviewReset();renderFilenameReview();
       $('filenameReviewMessage').textContent='Local staging and drafts cleared. No Drive content changed.';
     };
