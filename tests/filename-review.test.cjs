@@ -73,9 +73,9 @@ test('export requires account binding and 1–25 explicit distinct safe selectio
  assert.equal(plan.status,'unapplied');
  assert.equal(plan.kind,'review-only-filename-plan');
  assert.equal(plan.entries.length,2);
- assert.equal(plan.entries[0].proposedName,'Orange Cat - Another Meme.jpg');
- assert.equal(plan.entries[1].proposedName,'2026-08-09_14-33-05.heic');
- assert.equal(plan.entries[1].evidence,'EXIF camera date and time · Manifest!P');
+ assert.equal(plan.entries.find(e=>e.category==='meme').proposedName,'Orange Cat - Another Meme.jpg');
+ assert.equal(plan.entries.find(e=>e.category==='photo').proposedName,'2026-08-09_14-33-05.heic');
+ assert.equal(plan.entries.find(e=>e.category==='photo').evidence,'EXIF camera date and time · Manifest!P');
  assert.equal(plan.requiresLiveDriveRecheck,true);
  assert.ok(plan.entries.every(x=>x.undo.expectedCurrentName===x.proposedName));
  assert.throws(()=>E.filenameReviewExport(model,selected,edits,[meme,photo,video],

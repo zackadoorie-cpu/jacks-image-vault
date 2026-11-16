@@ -1,5 +1,21 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 10A — Intelligent Filename Review (v2.1.28)
+
+A new **Intelligent Filename Review** workspace merges meme, photo and video
+filename candidates in one private queue. Memes use reviewed tags, videos
+use existing reviewed title metadata, and photos use strict **EXIF capture
+date/time** from Manifest!P (Search Index!H), not filename-derived dates or
+Drive upload/modified timestamps. Date-only EXIF evidence is labeled
+explicitly; a nonexistent capture time is never invented. Proposed names
+preserve the original extension and undergo Windows filename, same-folder
+collision and competing-proposal checks. Up to 25 individually staged
+proposals may be exported as a private **unapplied** JSON plan. There is
+**no Google Drive rename, Sheet edit, new OAuth permission or background
+write** in this release. Windows DPAPI auto-login remains unchanged.
+See docs/phase10a-intelligent-filename-review.md.
+
+
 ## Phase 9B-4 — Unified Library Desk (v2.1.27)
 
 The new **Library Desk** unifies the read-only status of Review Inbox,
