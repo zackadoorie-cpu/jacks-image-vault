@@ -61,9 +61,11 @@ Sheet review write-back and reliable native Windows auto-login.
 - This stage does not rename/move/delete media, change the formula-driven
   `Search Index` directly, or modify the separate historic `Review Queue`
   and `Rename Log` tabs.
-- App-version rollback is still under Updates → Recovery. Undo of successful
-  remote Sheets writes is **not yet enabled**. The local activity log records
-  verified/uncertain outcomes without offering an invalid remote-undo button.
+- App-version rollback remains under Updates → Recovery. Phase 9B-3
+  introduces a distinct, independently authorized, conflict-checked
+  row-level undo for **newly verified** Sheet approvals whose exact
+  before-and-after values are retained. Older count-only events cannot
+  be safely undone. The Sheets API does not provide atomic compare-and-swap.
 
 ## Verification
 - Linux Go OAuth tests verify the saved grant is only read-only, that it is

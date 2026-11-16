@@ -102,3 +102,28 @@ test('source and bundled ledger remain identical, read-only and linked to Activi
   "activityLedger.activityMarkUndone", "state.activityHistory=null"])assert.ok(app.includes(token),token);
  assert.match(app,/spreadsheets\.readonly https:\/\/www\.googleapis\.com\/auth\/drive\.readonly/);
 });
+
+test('verified row-level Sheet approvals become account-scoped, individually undoable snapshots',()=>{
+ const change={fileId,row:31,
+  before:{description:'Old note',tags:'old',review:'Needs review'},
+  after:{description:'Reviewed photo',tags:'photo',review:'Reviewed by library owner in Image Vault'}};
+ const one={id,at:time,kind:'sheet-write',status:'complete',fileId,count:1,sheetChange:change};
+ const log=engine.activityAppend(engine.activityEmpty(account,sheetId),one,{...ctx,now:time});
+ const parsed=engine.activityParse(JSON.stringify(log),{...ctx,now:time});
+ assert.equal(engine.activityCanUndoSheet(parsed.items[0],{
+  ...ctx,entryAccount:account,entrySheetId:sheetId}).ok,true);
+ assert.equal(engine.activityCanUndoSheet(parsed.items[0],{
+  account:other,sheetId,entryAccount:account,entrySheetId:sheetId}).ok,false);
+ const restored=engine.activityMarkSheetUndone(parsed,id,ctx);
+ assert.equal(restored.items[0].status,'undone');
+ assert.throws(()=>engine.activityMarkSheetUndone(restored,id,ctx),/Only a verified/);
+ const old={...one,id:id2, sheetChange:undefined};
+ delete old.sheetChange;
+ assert.equal(engine.activityCanUndoSheet(old,{...ctx,entryAccount:account,entrySheetId:sheetId}).ok,false);
+ for(const changed of [
+  {...one,sheetChange:{...change,fileId:'bad'}},
+  {...one,sheetChange:{...change,before:{...change.before,description:'=VLOOKUP()'}}},
+  {...one,sheetChange:{...change,after:{...change.after,tags:'x'.repeat(8193)}}}
+ ])assert.throws(()=>engine.activityAppend(log,changed,{...ctx,now:time}),/Invalid local/);
+ assert.equal(engine.activityPage(log,{filter:'writes'}).count,1);
+});

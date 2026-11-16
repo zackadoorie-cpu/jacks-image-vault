@@ -929,3 +929,9 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .tile-more:hover,.tile-more:focus-visible{color:var(--purple);background:var(--surface2)}
 @media(max-width:1050px){.power-trigger span{display:none}}
 @media(max-width:680px){.topbar #powerPaletteTrigger{display:none}.power-trigger kbd{display:none}.power-palette-dialog{padding:14px}}
+
+/* Phase 9B-3: row-by-row remote undo preview, no new palette or auth storage. */
+#activitySheetUndoPanel{margin:12px 0 16px}
+#activitySheetUndoPanel pre{overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+#activitySheetUndoApply{margin-top:12px}
+#activitySheetUndoStatus:not(:empty){margin-block:8px}

@@ -13,7 +13,7 @@ const end='  /* GENERATED ACTIVITY LEDGER END */';
 const at=app.indexOf(start),until=app.indexOf(end,at+start.length);
 if(at<0||until<0||app.indexOf(start,at+start.length)>=0)
  throw new Error('Activity browser bundle markers missing or duplicated');
-const exportNames='ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage';
+const exportNames='ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone';
 const generated=[start,'  const activityLedger=(()=>{',
  ...sourceBody.split('\n').map(line=>'    '+line),
  '    return {'+exportNames+'};',
