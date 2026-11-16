@@ -6,7 +6,7 @@ const ACTIVITY_SCHEMA=1;
 const ACTIVITY_MAX_EVENTS=120;
 const ACTIVITY_MAX_BYTES=480*1024;
 const ACTIVITY_AGE_MS=90*24*60*60*1000;
-const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified']);
+const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified']);
 function activityReview(value){
   if(value==null)return null;
   if(typeof value!=='object'||Array.isArray(value)||
@@ -38,6 +38,19 @@ function activitySheetUndoSnapshot(change){
  return change.after.review==='Reviewed by library owner in Image Vault'&&
    !!change.after.description.trim();
 }
+function activityDriveRenameSnapshot(change){
+ if(!change||typeof change!=='object'||Array.isArray(change)||
+  !/^[A-Za-z0-9_-]{10,100}$/.test(String(change.fileId||''))||
+  !/^[A-Za-z0-9_-]{10,100}$/.test(String(change.parentId||''))||
+  typeof change.beforeName!=='string'||typeof change.afterName!=='string'||
+  !change.beforeName||!change.afterName||
+  change.beforeName.length>96||change.afterName.length>96||
+  change.beforeName===change.afterName)return false;
+ for(const name of [change.beforeName,change.afterName]){
+  if(/[\\/:*?"<>|\u0000-\u001f\u007f]/.test(name)||/[ .]$/.test(name))return false;
+ }
+ return true;
+}
 function activityValidEntry(entry,now){
   if(!entry||typeof entry!=='object'||Array.isArray(entry)||
      typeof entry.id!=='string'||!/^[a-f0-9-]{36}$/i.test(entry.id)||
@@ -50,7 +63,9 @@ function activityValidEntry(entry,now){
      entry.before!==undefined&&activityReview(entry.before)===undefined||
      entry.after!==undefined&&activityReview(entry.after)===undefined||
      entry.sheetChange!==undefined&&(entry.kind!=='sheet-write'||!activitySheetUndoSnapshot(entry.sheetChange))||
-     entry.kind==='sheet-undo'&&entry.fileId==='')return false;
+     entry.kind==='sheet-undo'&&entry.fileId===''||
+     entry.driveChange!==undefined&&(entry.kind!=='drive-rename'||!activityDriveRenameSnapshot(entry.driveChange))||
+     entry.kind==='drive-rename'&&!activityDriveRenameSnapshot(entry.driveChange))return false;
   if(['review-save','review-reset'].includes(entry.kind)){
     if(!entry.fileId||!Object.hasOwn(entry,'after')||!Object.hasOwn(entry,'before'))return false;
     if(entry.kind==='review-save'&&entry.after==null)return false;
@@ -59,6 +74,7 @@ function activityValidEntry(entry,now){
     return false;
   }
   if(entry.sheetChange!==undefined&&(entry.fileId!==entry.sheetChange.fileId||entry.count!==1))return false;
+  if(entry.driveChange!==undefined&&(entry.fileId!==entry.driveChange.fileId||entry.count!==1))return false;
   return true;
 }
 function activityEmpty(account,sheetId){
@@ -132,9 +148,9 @@ function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
   const list=(log?.items||[]).filter(e=>{
     if(chosen==='review'&&!['review-save','review-reset','undo-review'].includes(e.kind))return false;
     if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
-    if(chosen==='plans'&&!['rename-plan','rename-clear'].includes(e.kind))return false;
+    if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified'].includes(e.kind))return false;
     if(chosen==='inventory'&&e.kind!=='inventory')return false;
-    if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified'].includes(e.kind))return false;
+    if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified'].includes(e.kind))return false;
     return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
   });
   const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
@@ -145,4 +161,4 @@ function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
 /* activity-ledger:portable:end */
 module.exports={ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,
  ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,
- activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone};
+ activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone,activityDriveRenameSnapshot};

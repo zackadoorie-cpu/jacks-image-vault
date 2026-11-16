@@ -28,6 +28,7 @@ const (
  desktopDriveScope = "https://www.googleapis.com/auth/drive.readonly"
  desktopSheetScope = "https://www.googleapis.com/auth/spreadsheets.readonly"
  desktopSheetWriteScope = "https://www.googleapis.com/auth/spreadsheets"
+ desktopDriveMetadataScope = "https://www.googleapis.com/auth/drive.metadata"
  desktopFlowTTL = 3*time.Minute
  desktopTokenClaimTTL = 5*time.Minute
 )
@@ -36,7 +37,7 @@ var desktopClientRE = regexp.MustCompile("^[0-9]+-[a-z0-9-]+[.]apps[.]googleuser
 type desktopFlow struct {
  id, state, verifier, clientID, secret, redirectURI string
  scope, sheetID string
- remember, sheetWrite, saved bool
+ remember, sheetWrite, driveRename, saved bool
  saveWarning string
  server *http.Server
  listener net.Listener
@@ -77,6 +78,7 @@ type desktopStartOptions struct{
  Remember bool
  SheetID string
  SheetWrite bool
+ DriveRename bool
 }
 func desktopURL(base string,f *desktopFlow) (string,error) {
  endpoint,err:=url.Parse(base);if err!=nil{return "",err}
@@ -86,7 +88,7 @@ func desktopURL(base string,f *desktopFlow) (string,error) {
   "scope":f.scope,"state":f.state,
   "code_challenge_method":"S256","code_challenge":pkceChallenge(f.verifier),
   "access_type":map[bool]string{true:"offline",false:"online"}[f.remember],
-  "prompt":map[bool]string{true:"consent select_account",false:"select_account"}[f.remember||f.sheetWrite],
+  "prompt":map[bool]string{true:"consent select_account",false:"select_account"}[f.remember||f.sheetWrite||f.driveRename],
  }{q.Set(k,v)}
  endpoint.RawQuery=q.Encode()
  return endpoint.String(),nil
@@ -108,12 +110,14 @@ func (b *desktopAuthBroker) abort(f *desktopFlow,message string) {
 func (b *desktopAuthBroker) start(clientID,secret string,options ...desktopStartOptions) (string,error) {
  opts:=desktopStartOptions{}
  if len(options)>0{opts=options[0]}
- if opts.Remember&&(opts.SheetWrite||!desktopSheetIDRE.MatchString(opts.SheetID)){
+ if opts.Remember&&(opts.SheetWrite||opts.DriveRename||!desktopSheetIDRE.MatchString(opts.SheetID)){
   return "",errors.New("A valid inventory Sheet ID is required for a saved read-only desktop connection")
  }
- if opts.SheetWrite&&opts.Remember{return "",errors.New("Temporary Sheets write access cannot be saved")}
+ if (opts.SheetWrite||opts.DriveRename)&&opts.Remember{return "",errors.New("Temporary edit access cannot be saved")}
+ if opts.SheetWrite&&opts.DriveRename{return "",errors.New("Only one edit scope may be requested per authorization")}
  scope:=desktopDriveScope+" "+desktopSheetScope
  if opts.SheetWrite{scope=desktopSheetWriteScope+" "+desktopDriveScope}
+ if opts.DriveRename{scope=desktopDriveMetadataScope+" "+desktopDriveScope}
  if len(clientID)>180||!desktopClientRE.MatchString(clientID) {return "",errors.New("Enter a Google OAuth Desktop application client ID")}
  if len(secret)>256||strings.ContainsAny(secret,"\r\n") {return "",errors.New("Invalid desktop client secret")}
  id,err:=randomPKCE();if err!=nil{return "",err}
@@ -123,7 +127,7 @@ func (b *desktopAuthBroker) start(clientID,secret string,options ...desktopStart
  if err!=nil {return "",fmt.Errorf("Unable to bind a private localhost OAuth callback: %w",err)}
  f:=&desktopFlow{id:id,state:state,verifier:verifier,clientID:clientID,
   secret:secret,listener:listener,redirectURI:"http://"+listener.Addr().String()+"/oauth/callback",
-  scope:scope,sheetID:opts.SheetID,remember:opts.Remember,sheetWrite:opts.SheetWrite,
+  scope:scope,sheetID:opts.SheetID,remember:opts.Remember,sheetWrite:opts.SheetWrite,driveRename:opts.DriveRename,
   status:"pending"}
  f.server=&http.Server{Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){b.callback(f,w,r)}),
   ReadHeaderTimeout:5*time.Second,IdleTimeout:5*time.Second}
@@ -155,6 +159,11 @@ func exactWriteScopes(granted string)bool{
  scopes:=map[string]bool{}
  for _,scope:=range strings.Fields(granted){scopes[scope]=true}
  return scopes[desktopSheetWriteScope]&&scopes[desktopDriveScope]
+}
+func exactDriveRenameScopes(granted string)bool{
+ scopes:=map[string]bool{}
+ for _,scope:=range strings.Fields(granted){scopes[scope]=true}
+ return scopes[desktopDriveMetadataScope]&&scopes[desktopDriveScope]
 }
 func exactReadScopes(granted string)bool{
  scopes:=map[string]bool{}
@@ -227,13 +236,14 @@ func (b *desktopAuthBroker) exchange(f *desktopFlow,code string)error{
  duration,_:=payload["expires_in"].(float64)
  granted:=exactReadScopes(scope)
  if f.sheetWrite{granted=exactWriteScopes(scope)}
+ if f.driveRename{granted=exactDriveRenameScopes(scope)}
  if kind!="Bearer"||len(token)<12||len(token)>8192||
   duration<90||duration>86400||!granted{
   return errors.New("OAuth token lacks required requested scopes or expiry")
  }
  b.mu.Lock();defer b.mu.Unlock()
  if b.active!=f||f.status!="exchanging" {return errors.New("Authorization session expired")}
- if f.remember&&!f.sheetWrite{
+ if f.remember&&!f.sheetWrite&&!f.driveRename{
   refresh,_:=payload["refresh_token"].(string)
   if len(refresh)<12||len(refresh)>8192 {
    f.saveWarning="Google did not issue a refresh token. You are signed in, but Windows auto-login was not saved."
@@ -296,7 +306,7 @@ func (b *desktopAuthBroker) callback(f *desktopFlow,w http.ResponseWriter,r *htt
   _,_=io.WriteString(w,"<!doctype html><title>Image Vault authorization</title><p>Authorization failed. Return to Image Vault.</p><p>Reason: "+html.EscapeString(message)+"</p>")
   return
  }
- _,_=io.WriteString(w,"<!doctype html><title>Image Vault</title><p>Read-only access approved. Return to Jack's Image Vault. You may close this tab.</p>")
+ _,_=io.WriteString(w,"<!doctype html><title>Image Vault</title><p>Google authorization approved. Return to Jack's Image Vault. You may close this tab.</p>")
 }
 func (b *desktopAuthBroker) poll(id string)(map[string]any,error){
  b.mu.Lock();defer b.mu.Unlock()
@@ -305,7 +315,7 @@ func (b *desktopAuthBroker) poll(id string)(map[string]any,error){
  switch f.status{
  case "ready":
   result:=map[string]any{"status":"ready","accessToken":f.token,"expiresIn":f.expires,
-    "savedSession":f.saved,"saveWarning":f.saveWarning,"writeScope":f.sheetWrite}
+    "savedSession":f.saved,"saveWarning":f.saveWarning,"writeScope":f.sheetWrite,"renameScope":f.driveRename}
   if f.timer!=nil{f.timer.Stop()}
   f.token="";f.status="claimed";b.active=nil
   return result,nil
@@ -389,6 +399,16 @@ func (b *desktopAuthBroker) startSheetWrite(sheetID,clientID,secret string)(stri
  }
  return b.start(clientID,secret,desktopStartOptions{SheetID:sheetID,SheetWrite:true})
 }
+func (b *desktopAuthBroker) startDriveRename(sheetID,clientID,secret string)(string,error){
+ if !desktopSheetIDRE.MatchString(sheetID){return "",errors.New("Invalid inventory Sheet ID")}
+ if clientID==""{
+  saved,err:=b.loadSession()
+  if err!=nil{return "",errors.New("Enter the Desktop OAuth credentials or save a Windows read-only session first.")}
+  if saved.SheetID!=sheetID{return "",errors.New("Saved desktop credentials belong to another Sheet")}
+  clientID=saved.ClientID;secret=saved.ClientSecret
+ }
+ return b.start(clientID,secret,desktopStartOptions{SheetID:sheetID,DriveRename:true})
+}
 func (v *vault) handleDesktopAuthStatus(w http.ResponseWriter,r *http.Request){
  if !v.guard(w,r,false){return}
  if r.Method!="GET"{http.Error(w,"GET required",405);return}
@@ -420,6 +440,10 @@ func (v *vault) handleDesktopAuth(w http.ResponseWriter,r *http.Request){
   response(w,200,map[string]any{"status":"pending","flowId":id})
  case "/__vault_desktop_auth/write-start":
   id,err:=v.desktopAuth.startSheetWrite(data["sheetId"],strings.TrimSpace(data["clientId"]),data["clientSecret"])
+  if err!=nil{fail(w,400,err.Error());return}
+  response(w,200,map[string]any{"status":"pending","flowId":id})
+ case "/__vault_desktop_auth/rename-start":
+  id,err:=v.desktopAuth.startDriveRename(data["sheetId"],strings.TrimSpace(data["clientId"]),data["clientSecret"])
   if err!=nil{fail(w,400,err.Error());return}
   response(w,200,map[string]any{"status":"pending","flowId":id})
  case "/__vault_desktop_auth/resume":
