@@ -6,7 +6,7 @@ const ACTIVITY_SCHEMA=1;
 const ACTIVITY_MAX_EVENTS=120;
 const ACTIVITY_MAX_BYTES=480*1024;
 const ACTIVITY_AGE_MS=90*24*60*60*1000;
-const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified']);
+const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified']);
 function activityReview(value){
   if(value==null)return null;
   if(typeof value!=='object'||Array.isArray(value)||
@@ -23,6 +23,21 @@ function activityReviewEquals(a,b){
   return !!left&&!!right&&left.description===right.description&&
     left.tags===right.tags&&left.status===right.status&&left.updatedAt===right.updatedAt;
 }
+function activitySheetUndoSnapshot(change){
+ if(!change||typeof change!=='object'||Array.isArray(change)||
+    !Number.isSafeInteger(change.row)||change.row<2||change.row>100000||
+    !/^[a-zA-Z0-9_-]{10,100}$/.test(String(change.fileId||'')))return false;
+ for(const name of ['before','after']){
+  const fields=change[name];
+  if(!fields||typeof fields!=='object'||Array.isArray(fields))return false;
+  for(const key of ['description','tags','review']){
+   const value=fields[key];
+   if(typeof value!=='string'||value.length>8192||value.startsWith('='))return false;
+  }
+ }
+ return change.after.review==='Reviewed by library owner in Image Vault'&&
+   !!change.after.description.trim();
+}
 function activityValidEntry(entry,now){
   if(!entry||typeof entry!=='object'||Array.isArray(entry)||
      typeof entry.id!=='string'||!/^[a-f0-9-]{36}$/i.test(entry.id)||
@@ -33,7 +48,9 @@ function activityValidEntry(entry,now){
      (entry.fileId!==''&&!/^[a-zA-Z0-9_-]{10,100}$/.test(entry.fileId))||
      !Number.isSafeInteger(entry.count)||entry.count<0||entry.count>20000||
      entry.before!==undefined&&activityReview(entry.before)===undefined||
-     entry.after!==undefined&&activityReview(entry.after)===undefined)return false;
+     entry.after!==undefined&&activityReview(entry.after)===undefined||
+     entry.sheetChange!==undefined&&(entry.kind!=='sheet-write'||!activitySheetUndoSnapshot(entry.sheetChange))||
+     entry.kind==='sheet-undo'&&entry.fileId==='')return false;
   if(['review-save','review-reset'].includes(entry.kind)){
     if(!entry.fileId||!Object.hasOwn(entry,'after')||!Object.hasOwn(entry,'before'))return false;
     if(entry.kind==='review-save'&&entry.after==null)return false;
@@ -41,6 +58,7 @@ function activityValidEntry(entry,now){
   }else if(entry.before!==undefined||entry.after!==undefined){
     return false;
   }
+  if(entry.sheetChange!==undefined&&(entry.fileId!==entry.sheetChange.fileId||entry.count!==1))return false;
   return true;
 }
 function activityEmpty(account,sheetId){
@@ -91,6 +109,22 @@ function activityCanUndo(entry,current,{account,sheetId,entryAccount,entrySheetI
     return {ok:false,reason:'This review changed after the recorded action. Undo is blocked to protect newer work.'};
   return {ok:true,reason:'Only this device’s local review note will be restored.'};
 }
+function activityCanUndoSheet(entry,{account,sheetId,entryAccount,entrySheetId}={}){
+ if(!account||!sheetId||account!==entryAccount||sheetId!==entrySheetId)
+  return {ok:false,reason:'This Sheet edit belongs to a different Google account or inventory.'};
+ if(!entry||entry.kind!=='sheet-write'||entry.status!=='complete'||
+    !activitySheetUndoSnapshot(entry.sheetChange)||entry.fileId!==entry.sheetChange.fileId)
+  return {ok:false,reason:'No verified before-and-after values are available for this Sheet edit.'};
+ return {ok:true,reason:'Preview the live Manifest row before requesting temporary edit permission.'};
+}
+function activityMarkSheetUndone(log,id,{account,sheetId}){
+ if(!log||log.account!==account||log.sheetId!==sheetId)
+  throw new Error('Sheet activity belongs to another Google account or inventory.');
+ const entry=log.items.find(e=>e.id===id);
+ if(!activityCanUndoSheet(entry,{account,sheetId,entryAccount:log.account,entrySheetId:log.sheetId}).ok)
+  throw new Error('Only a verified, completed Sheet approval can be marked undone.');
+ return {...log,items:log.items.map(e=>e.id===id?{...e,status:'undone'}:e)};
+}
 function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
   const categories=['all','review','imports','plans','inventory','writes'];
   const chosen=categories.includes(filter)?filter:'all';
@@ -100,7 +134,7 @@ function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
     if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
     if(chosen==='plans'&&!['rename-plan','rename-clear'].includes(e.kind))return false;
     if(chosen==='inventory'&&e.kind!=='inventory')return false;
-    if(chosen==='writes'&&!['sheet-write','sheet-write-unverified'].includes(e.kind))return false;
+    if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified'].includes(e.kind))return false;
     return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
   });
   const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
@@ -111,4 +145,4 @@ function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
 /* activity-ledger:portable:end */
 module.exports={ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,
  ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,
- activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage};
+ activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone};

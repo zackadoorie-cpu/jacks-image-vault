@@ -68,6 +68,58 @@ function sheetApprovalRequests(plans,tabID){
  }
  return {requests,includeSpreadsheetInResponse:false};
 }
+
+const SHEET_UNDO_FIELDS=['description','tags','review'];
+function sheetUndoSnapshot(plan){
+ if(!plan||!Number.isSafeInteger(plan.row)||plan.row<2||plan.row>100000||
+    !/^[A-Za-z0-9_-]{10,100}$/.test(String(plan.fileId||'')))
+   throw new Error('Undo needs an exact verified Manifest row and Drive ID.');
+ const before={},after={};
+ for(const key of SHEET_UNDO_FIELDS){
+  if(typeof plan.before?.[key]!=='string'||typeof plan.after?.[key]!=='string')
+   throw new Error('Undo needs every original and applied Manifest value.');
+  const original=plan.before[key],applied=plan.after[key];
+  if(original.startsWith('=')||applied.startsWith('='))
+   throw new Error('Formula-like Sheet values cannot be safely restored from a text-only snapshot.');
+  if(original.length>8192||applied.length>8192)
+   throw new Error('A Manifest field is too long for a bounded undo history.');
+  before[key]=original;after[key]=applied;
+ }
+ if(after.review!==SHEET_REVIEW_STATUS||!after.description.trim())
+  throw new Error('Undo snapshot does not represent a verified owner approval.');
+ return {fileId:plan.fileId,row:plan.row,before,after};
+}
+function sheetUndoCheck(change,live){
+ if(!change||!Number.isSafeInteger(change.row)||change.row<2||
+   !/^[A-Za-z0-9_-]{10,100}$/.test(String(change.fileId||'')))
+   return {ok:false,reason:'The original Manifest identity is not available.'};
+ if(!live||live.fileId!==change.fileId)
+   return {ok:false,reason:'Manifest Drive file ID changed. This row cannot be restored.'};
+ for(const key of SHEET_UNDO_FIELDS){
+  if(typeof change.before?.[key]!=='string'||typeof change.after?.[key]!=='string'||
+   typeof live[key]!=='string'||change.before[key].startsWith('=')||
+   change.after[key].startsWith('=')||live[key].startsWith('='))
+   return {ok:false,reason:'A formula-like or invalid '+key+' value blocks this undo.'};
+  if(change.after[key]!==live[key])
+   return {ok:false,reason:'Manifest '+key+' changed since approval. Undo is blocked to protect newer edits.'};
+ }
+ return {ok:true,reason:'Exact Drive ID and all three applied Sheet values still match.'};
+}
+function sheetUndoRequests(change,tabID){
+ if(!Number.isSafeInteger(tabID)||tabID<0)
+   throw new Error('Undo requires the live Manifest tab ID.');
+ // Verify snapshot shape and field bounds, and build ONLY text values for M/N/T.
+ // This builder can never emit formulas or modify Drive originals.
+ const safe=sheetUndoSnapshot({...change,after:change.after});
+ return {requests:[[12,'description'],[13,'tags'],[19,'review']].map(([columnIndex,key])=>({
+  updateCells:{
+   start:{sheetId:tabID,rowIndex:safe.row-1,columnIndex},
+   rows:[{values:[{userEnteredValue:{stringValue:safe.before[key]}}]}],
+   fields:'userEnteredValue'
+  }
+ })),includeSpreadsheetInResponse:false};
+}
+
 /* sheet-approval:portable:end */
 module.exports={SHEET_APPROVAL_LIMIT,SHEET_REVIEW_STATUS,
- sheetApprovalCandidate,sheetApprovalDraft,sheetApprovalCheck,sheetApprovalRequests};
+ sheetApprovalCandidate,sheetApprovalDraft,sheetApprovalCheck,sheetApprovalRequests,sheetUndoSnapshot,sheetUndoCheck,sheetUndoRequests};

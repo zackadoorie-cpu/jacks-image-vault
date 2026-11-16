@@ -71,3 +71,27 @@ test('source and embedded approval engines must match and no implicit write is s
  assert.ok(app.includes("if(!confirm('Final confirmation:"));
  assert.match(app,/spreadsheets\.readonly https:\/\/www\.googleapis\.com\/auth\/drive\.readonly/);
 });
+
+test('remote undo preserves exact prior Manifest values in M/N/T only',()=>{
+ const plan=engine.sheetApprovalDraft(item,note,live,ctx);
+ const change=engine.sheetUndoSnapshot(plan);
+ assert.deepEqual(change.before,{description:live.description,tags:live.tags,review:live.review});
+ assert.equal(engine.sheetUndoCheck(change,{fileId:id,...plan.after}).ok,true);
+ const payload=engine.sheetUndoRequests(change,1888160209);
+ assert.deepEqual(payload.requests.map(r=>r.updateCells.start.columnIndex),[12,13,19]);
+ assert.deepEqual(payload.requests.map(r=>r.updateCells.rows[0].values[0].userEnteredValue.stringValue),
+  [live.description,live.tags,live.review]);
+ for(const r of payload.requests)assert.equal(r.updateCells.fields,'userEnteredValue');
+});
+test('remote undo fails closed on moved IDs, concurrent edits and formulas',()=>{
+ const change=engine.sheetUndoSnapshot(engine.sheetApprovalDraft(item,note,live,ctx));
+ for(const field of ['description','tags','review']){
+  const mutated={fileId:id,...change.after,[field]:'outside collaborator changed this value'};
+  assert.equal(engine.sheetUndoCheck(change,mutated).ok,false,field);
+ }
+ assert.equal(engine.sheetUndoCheck(change,{fileId:'DIFFERENT',...change.after}).ok,false);
+ assert.equal(engine.sheetUndoCheck(change,{fileId:id,...change.after,tags:'=SUM(A1:A2)'}).ok,false);
+ assert.throws(()=>engine.sheetUndoSnapshot({...change,before:{...change.before,description:'=1+1'}}),/Formula-like/);
+ assert.throws(()=>engine.sheetUndoRequests(change,-1),/Manifest tab/);
+ assert.throws(()=>engine.sheetUndoSnapshot({...change,fileId:'bad'}),/Drive ID/);
+});
