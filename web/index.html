@@ -46,6 +46,7 @@
           <summary class="nav-group-toggle"><span>REVIEW &amp; HEALTH</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
           <div class="nav-group-items">
             <button class="nav-item" data-view="manager-desk"><span class="nav-icon">☷</span>Library Desk</button>
+            <button class="nav-item" data-view="filename-review"><span class="nav-icon">✎</span>Filename Review</button>
             <button class="nav-item" data-view="review-inbox"><span class="nav-icon">▤</span>Review Inbox</button>
             <button class="nav-item" data-view="rename-desk"><span class="nav-icon">✎</span>Rename Desk</button>
             <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
@@ -131,6 +132,7 @@
             </div>
             <div class="home-shortcuts">
               <button type="button" id="homeActionVideos" class="home-shortcut"><span class="home-shortcut-icon">▶</span><strong>Video Library</strong><small>Titles, descriptions and clips</small><span aria-hidden="true">↗</span></button>
+              <button type="button" id="homeActionFilenameReview" class="home-shortcut"><span class="home-shortcut-icon">✎</span><strong>Filename Review</strong><small>Meme, photo and video proposals</small><span aria-hidden="true">↗</span></button>
               <button type="button" id="homeActionDesk" class="home-shortcut"><span class="home-shortcut-icon">☷</span><strong>Library Desk</strong><small>All review and approval steps together</small><span aria-hidden="true">↗</span></button>
               <button type="button" id="homeActionRename" class="home-shortcut"><span class="home-shortcut-icon">✎</span><strong>Rename Desk</strong><small>Review filename proposals</small><span aria-hidden="true">↗</span></button>
               <button type="button" id="homeActionCollections" class="home-shortcut"><span class="home-shortcut-icon">✦</span><strong>Smart Collections</strong><small>Explore your curated views</small><span aria-hidden="true">↗</span></button>
@@ -365,6 +367,52 @@
             <button id="videoCatalogNext" class="btn outline" type="button" disabled>Next →</button>
           </div>
           <p class="privacy-note">Video Library reads the existing Google Sheet and Drive index. Videos are only downloaded after you select Play, Generate thumbnail, or Generate storyboard in the media details. Download limits are enforced, and source Drive files and Sheets remain untouched.</p>
+        </section>
+        <section id="filenameReviewView" class="view hidden" aria-labelledby="filenameReviewTitle">
+          <div class="gallery-heading"><div>
+            <p class="eyebrow">PHASE 10A · INTELLIGENT LIBRARY AUTOMATION</p>
+            <h1 id="filenameReviewTitle">Intelligent Filename Review</h1>
+            <p>One private naming desk for memes, photos and videos. Inspect actual source evidence, adjust each proposal and export a review-only plan. No Google Drive rename or Sheet edit is performed.</p>
+          </div></div>
+          <p class="activity-boundary" role="note"><strong>Preview and export only.</strong> Meme suggestions use previously reviewed tags, video names use indexed review titles, and photo names use EXIF capture dates from Manifest P. Filename-derived dates, Drive upload dates, and missing capture times are never presented as camera timestamps. All counts cover your loaded gallery, not a newly verified full Drive scan.</p>
+          <div class="filename-metrics">
+            <article><span>Ready proposals</span><strong id="filenameReady">—</strong></article>
+            <article><span>Name conflicts</span><strong id="filenameConflicts">—</strong></article>
+            <article><span>Needs evidence</span><strong id="filenameBlocked">—</strong></article>
+            <article><span>Staged locally</span><strong id="filenameStaged">—</strong></article>
+          </div>
+          <div class="filename-kind-counts" id="filenameKinds">Connect Drive to inspect image, photo and video proposals.</div>
+          <div class="filename-toolbar">
+            <label for="filenameReviewSearch">Find filename, folder, Drive ID, or Manifest row
+              <input id="filenameReviewSearch" class="field" type="search" maxlength="120" placeholder="Search proposed or existing names…" disabled>
+            </label>
+            <label for="filenameReviewFilter">Show proposals
+              <select id="filenameReviewFilter" class="select" disabled>
+                <option value="all">All review items</option>
+                <option value="ready">Ready for individual review</option>
+                <option value="conflict">Conflicting names</option>
+                <option value="blocked">Missing evidence</option>
+                <option value="staged">Staged locally</option>
+                <option value="meme">Memes</option>
+                <option value="photo">Photos</option>
+                <option value="video">Videos</option>
+              </select>
+            </label>
+          </div>
+          <div class="filename-actions">
+            <button class="btn outline" type="button" id="filenameOpenManager">Library Desk</button>
+            <button class="btn outline" type="button" id="filenameClear">Clear local staging</button>
+            <button class="btn primary" type="button" id="filenameReviewExport" disabled>Export staged plan (JSON)</button>
+          </div>
+          <p id="filenameReviewStatus" class="activity-status" role="status" aria-live="polite">Connect your Google Drive read-only inventory to prepare filenames.</p>
+          <p id="filenameReviewMessage" class="activity-status" role="status" aria-live="polite">No filenames have been modified.</p>
+          <div id="filenameReviewList" class="filename-list" aria-label="Evidence-backed filename proposals"></div>
+          <div class="activity-pages">
+            <button id="filenameReviewPrev" class="btn outline" type="button">Previous</button>
+            <span id="filenameReviewPage" aria-live="polite">—</span>
+            <button id="filenameReviewNext" class="btn outline" type="button">Next</button>
+          </div>
+          <p class="privacy-note">A downloaded plan contains filenames, file IDs, review evidence, and your account/Sheet binding. Keep it private. An export is not an approval to rename Google Drive files; Phase 10B would require fresh file metadata checks and a separately requested Google Drive write grant. A patch cannot and does not silently change original media.</p>
         </section>
         <section id="renameDeskView" class="view hidden" aria-labelledby="renameDeskTitle">
           <div class="gallery-heading"><div>
