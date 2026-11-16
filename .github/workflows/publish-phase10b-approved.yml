@@ -1,0 +1,31 @@
+# Phase 10B requires the NEW native Windows executable.
+# Canonical release.yml builds both native desktop bundle and UI patch.
+name: Publish approved Phase 10B Drive Rename
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Phase 10B Guarded Drive Rename v2.1.29 (#69)')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish complete v2.1.29 Windows release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.29 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.29 already exists; no duplicate dispatch."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.29
+          echo "Dispatched full native Windows desktop release and checksums."
