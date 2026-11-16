@@ -5447,7 +5447,9 @@
   // Drive metadata grants are requested on-demand, never stored in the
   // encrypted Windows READ-ONLY sign-in or browser persistent storage.
   async function driveRenameAuthorize(){
-    if(IN_NATIVE_DESKTOP){
+    // Both the WebView2 host and the Windows browser launcher can rely on
+    // the native saved desktop session, never the embedded Google OAuth UI.
+    if(IN_NATIVE_DESKTOP||state.authProvider==='desktop'){
       const clientId=$('filenameRenameDesktopClient').value.trim();
       const clientSecret=$('filenameRenameDesktopSecret').value;
       $('filenameRenameDesktopSecret').value='';
