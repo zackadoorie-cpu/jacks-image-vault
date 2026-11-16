@@ -446,7 +446,9 @@ async function main(){
     await p.locator('#filenameClear').click();
     assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'0');
     await p.locator('#filenameReviewSearch').fill('');
-    await p.keyboard.press('Alt+1');
+    // Alt+1 is intentionally ignored when a text input holds focus.
+    await p.locator('#navigation [data-view="home"]').click();
+    assert.equal(await p.locator('#homeView').isVisible(),true);
     assert.match(await p.locator('#commandLiveNote').innerText(),/Not verified/);
     await p.locator('#homeActionDesk').click();
     assert.equal(await p.locator('#managerDeskView').isVisible(),true);
