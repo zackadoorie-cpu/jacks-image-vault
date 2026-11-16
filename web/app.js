@@ -5100,7 +5100,7 @@
     $('activityFilter').value=state.activityFilter;
     $('activityQuery').value=state.activityQuery;
     $('activityExport').disabled=!active||!history.items.length;
-    $('activityClear').disabled=!state.connected||!activityStorageKey();
+    $('activityClear').disabled=state.sheetWriteBusy||!state.connected||!activityStorageKey();
     $('activityPrev').disabled=!active||page.page<=1;
     $('activityNext').disabled=!active||page.page>=page.pages;
     $('activityPage').textContent=active?page.page+' / '+page.pages:'—';
@@ -5280,7 +5280,10 @@
         state.sheetUndoMessage=(submitted?
           'UNDO MAY HAVE OCCURRED; read-back was incomplete. Inspect the live Manifest; do not retry blindly: ':
           'Nothing was submitted by this attempt: ')+(error.message||'Unexpected error.');
-        if(submitted&&!verified)logActivity('sheet-undo-unverified',{fileId:change.fileId,count:1});
+        if(submitted&&!verified){
+          state.sheetUndoPreview=null; // Force a new read-only preview; never retry a submitted request.
+          logActivity('sheet-undo-unverified',{fileId:change.fileId,count:1});
+        }
       }
     }finally{
       state.sheetWriteBusy=false;
@@ -5331,11 +5334,12 @@
   }
   function clearActivityHistory(){
     const ctx=activityContext(),key=activityStorageKey();
-    if(!ctx||!key||!state.connected)return;
+    if(state.sheetWriteBusy||!ctx||!key||!state.connected)return;
     if(!confirm('Permanently clear activity history on THIS device for the connected account and Sheet? This removes local undo records, but NOT your saved review notes, Drive files, spreadsheet, or app-update rollback.'))return;
     try{
       localStorage.removeItem(key);
       state.activityHistory=activityLedger.activityEmpty(ctx.account,ctx.sheetId);
+      state.sheetUndoPreview=null;state.sheetUndoMessage='';
       state.activityError='';state.activityPage=1;renderActivity();
     }catch(err){$('activityStatus').textContent='Could not clear local activity: '+err.message;}
   }
