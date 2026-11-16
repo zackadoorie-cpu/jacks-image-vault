@@ -426,8 +426,10 @@ async function main(){
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     await p.locator('#managerOpenInbox').click();
     assert.equal(await p.locator('#reviewInboxView').isVisible(),true);
-    await p.locator('#navigation details[data-nav-group="manage"] summary').click();
-    assert.equal(await p.locator('#navigation details[data-nav-group="manage"]').getAttribute('open')!==null,true);
+    // The new Library Desk navigation can already have expanded this group.
+    const manageNav=p.locator('#navigation details[data-nav-group="manage"]');
+    if(await manageNav.getAttribute('open')===null)await manageNav.locator('summary').click();
+    assert.equal(await manageNav.getAttribute('open')!==null,true);
     await p.locator('[data-view="review-inbox"]').click();
     assert.equal(await p.locator('#reviewInboxView').isVisible(),true);
     await p.waitForFunction(()=>document.querySelector('#reviewInboxNamingCount')?.textContent==='1');
