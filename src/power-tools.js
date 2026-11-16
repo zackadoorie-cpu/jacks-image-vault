@@ -9,6 +9,7 @@ const POWER_COMMANDS=[
   {id:'photos',label:'Photos',description:'Open photo albums'},
   {id:'video-library',label:'Video Library',description:'Open video collection'},
   {id:'favorites',label:'Favorites',description:'Browse local favorites'},
+  {id:'filename-review',label:'Filename Review',description:'Evidence-backed meme, photo and video name proposals · export only'},
   {id:'manager-desk',label:'Library Desk',description:'Unified review, filename and Sheet approval workspace'},
   {id:'review-inbox',label:'Review Inbox',description:'Work through visual reviews'},
   {id:'review',label:'Needs Review',description:'Find unreviewed media'},

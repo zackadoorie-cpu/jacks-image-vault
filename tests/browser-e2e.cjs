@@ -410,6 +410,45 @@ async function main(){
     assert.equal(await p.locator('#powerPaletteDialog').evaluate(d=>d.open),false);
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     await p.keyboard.press('Alt+1');
+    assert.equal(await p.locator('#homeActionFilenameReview').isVisible(),true);
+    await p.locator('#homeActionFilenameReview').click();
+    assert.equal(await p.locator('#filenameReviewView').isVisible(),true);
+    assert.equal((await p.locator('#filenameReady').innerText()).trim(),'2',
+      'reviewed meme and video should each have a proposed filename');
+    assert.equal((await p.locator('#filenameBlocked').innerText()).trim(),'0');
+    assert.equal(await p.locator('#filenameReviewList .filename-card').count(),2);
+    await p.locator('#filenameReviewFilter').selectOption('video');
+    assert.equal(await p.locator('#filenameReviewList .filename-card').count(),1);
+    assert.match(await p.locator('#filenameReviewList').innerText(),/reviewed video title/);
+    await p.locator('#filenameReviewFilter').selectOption('all');
+    await p.locator('#filenameReviewSearch').fill(fake.name);
+    assert.equal(await p.locator('#filenameReviewList .filename-card').count(),1);
+    assert.match(await p.locator('#filenameReviewList').innerText(),/Existing visually reviewed tags/);
+    await p.locator('[data-filename-stage="'+id+'"]').check();
+    assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'1');
+    assert.equal(connected.requests.every(x=>x==='GET'),true,
+      'staging a name must be read-only');
+    const filenameDownload=p.waitForEvent('download');
+    await p.locator('#filenameReviewExport').click();
+    const nameFile=await filenameDownload;
+    assert.match(nameFile.suggestedFilename(),/image-vault-filename-review-/);
+    const nameStream=await nameFile.createReadStream(),nameBytes=[];
+    for await(const chunk of nameStream)nameBytes.push(chunk);
+    const namePlan=JSON.parse(Buffer.concat(nameBytes).toString('utf8'));
+    assert.equal(namePlan.status,'unapplied');
+    assert.equal(namePlan.kind,'review-only-filename-plan');
+    assert.equal(namePlan.entries.length,1);
+    assert.equal(namePlan.entries[0].expectedName,fake.name);
+    assert.equal(namePlan.entries[0].proposedName,'orange cat - reaction meme.jpg');
+    assert.equal(namePlan.requiresLiveDriveRecheck,true);
+    assert.equal(connected.requests.every(x=>x==='GET'),true,
+      'export cannot call Google write endpoints');
+    await p.locator('#filenameClear').click();
+    assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'0');
+    await p.locator('#filenameReviewSearch').fill('');
+    // Alt+1 is intentionally ignored when a text input holds focus.
+    await p.locator('#navigation [data-view="home"]').click();
+    assert.equal(await p.locator('#homeView').isVisible(),true);
     assert.match(await p.locator('#commandLiveNote').innerText(),/Not verified/);
     await p.locator('#homeActionDesk').click();
     assert.equal(await p.locator('#managerDeskView').isVisible(),true);
@@ -519,8 +558,8 @@ async function main(){
     assert.equal((await p.locator('#renameDeskStagedCount').innerText()).trim(),'0');
     await p.locator('[data-view="activity"]').click();
     await p.locator('#activityFilter').selectOption('plans');
-    assert.equal(await p.locator('#activityList .activity-entry').count(),2,
-      'rename-plan export and staging-clear are tracked but not undoable');
+    assert.equal(await p.locator('#activityList .activity-entry').count(),3,
+      'Phase 10A filename plan export, video rename plan export and staging clear are logged but not undoable');
     assert.equal(await p.locator('[data-activity-undo]').count(),0);
     assert.equal(connected.requests.every(x=>x==='GET'),true);
 

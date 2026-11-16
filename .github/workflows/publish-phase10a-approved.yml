@@ -1,0 +1,30 @@
+# One-time dispatch of the canonical, fully tested Windows release workflow.
+name: Publish approved Phase 10A Filename Review
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Phase 10A Intelligent Filename Review v2.1.28 (#68)')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch official v2.1.28 full release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.28 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.28 already exists; avoid duplicate release."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.28
+          echo "Dispatched canonical v2.1.28 release with Windows and checksum checks."
