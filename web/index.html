@@ -410,7 +410,7 @@
               <p>New Drive discoveries, unfinished visual reviews, deferred items, and descriptive filename candidates. Suggestions use existing reviewed tags, not unseen image contents.</p>
             </div>
           </div>
-          <p class="review-inbox-warning" role="note">Read-only preview. This version cannot update Sheet cells or rename Drive files. New items appear after a Drive sync; a partial scan is not proof of a complete inventory.</p>
+          <p class="review-inbox-warning" role="note">This inbox only previews reviews and filenames. Explicit Sheet Approvals can update approved review cells after separate Google authorization and confirmations; Drive filenames are never renamed here. New discoveries require a Drive sync, and a partial scan is not a full inventory.</p>
           <div class="review-inbox-metrics" aria-label="Actionable review counts">
             <div><span>New in Drive</span><strong id="reviewInboxNewCount">—</strong><small>May not have a Manifest row yet</small></div>
             <div><span>Visual review needed</span><strong id="reviewInboxPendingCount">—</strong><small>Source evidence not yet confirmed</small></div>
@@ -488,7 +488,7 @@
               <p>One private timeline for local review edits, imported review batches, filename plans and inventory refreshes. This history is stored on this device for the connected Google account and Sheet.</p>
             </div>
           </div>
-          <p class="activity-boundary" role="note"><strong>Three separate histories:</strong> Undo here restores only a local review note when it has not changed since the recorded edit. App-update rollback remains under <strong>Updates → Recovery</strong>. Approved Sheet changes are recorded here, but this version cannot automatically undo them. Drive renames are never performed.</p>
+          <p class="activity-boundary" role="note"><strong>Three separate histories:</strong> Local review undo restores only unchanged personal notes. Newly verified Sheet approvals can offer a separate <strong>Preview Sheet undo</strong>, followed by temporary Google editing consent, live conflict checks and two confirmations. App-update rollback remains under <strong>Updates → Recovery</strong>. No Drive renames are performed.</p>
           <div class="activity-quicklinks" aria-label="Related manager tools">
             <button type="button" id="activityOpenInbox" class="btn outline">Review Inbox</button>
             <button type="button" id="activityOpenRenames" class="btn outline">Rename Desk</button>
