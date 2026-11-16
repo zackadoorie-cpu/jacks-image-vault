@@ -558,8 +558,8 @@ async function main(){
     assert.equal((await p.locator('#renameDeskStagedCount').innerText()).trim(),'0');
     await p.locator('[data-view="activity"]').click();
     await p.locator('#activityFilter').selectOption('plans');
-    assert.equal(await p.locator('#activityList .activity-entry').count(),2,
-      'rename-plan export and staging-clear are tracked but not undoable');
+    assert.equal(await p.locator('#activityList .activity-entry').count(),3,
+      'Phase 10A filename plan export, video rename plan export and staging clear are logged but not undoable');
     assert.equal(await p.locator('[data-activity-undo]').count(),0);
     assert.equal(connected.requests.every(x=>x==='GET'),true);
 
