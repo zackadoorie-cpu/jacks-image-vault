@@ -320,3 +320,51 @@ func TestDesktopWriteAuthorizationCannotBeRemembered(t *testing.T){
  }
  if saves!=0{t.Fatal("temporary Sheets edit refresh token was persisted")}
 }
+
+
+func TestDesktopDriveRenameMetadataAuthorizationNeverSaved(t *testing.T){
+ var authURL *url.URL
+ saves:=0
+ server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  _=r.ParseForm()
+  if r.Form.Get("grant_type")!="authorization_code"{t.Error("unexpected OAuth grant")}
+  _,_=io.WriteString(w,`{"access_token":"temporary-drive-metadata-token","refresh_token":"NEVER-SAVE-RENAME-REFRESH","expires_in":3600,"token_type":"Bearer","scope":"https://www.googleapis.com/auth/drive.metadata https://www.googleapis.com/auth/drive.readonly"}`)
+ }))
+ defer server.Close()
+ b:=newDesktopAuthBroker();b.tokenEndpoint=server.URL
+ b.launch=func(raw string)error{var err error;authURL,err=url.Parse(raw);return err}
+ b.saveSession=func(desktopSavedSession)error{saves++;return nil}
+ if _,err:=b.start(fakeDesktopID,"",desktopStartOptions{Remember:true,DriveRename:true,SheetID:"fixtureSheet012345"});err==nil{
+  t.Fatal("Rename grant was allowed into the Windows saved session")
+ }
+ id,err:=b.start(fakeDesktopID,"",desktopStartOptions{SheetID:"fixtureSheet012345",DriveRename:true})
+ if err!=nil{t.Fatal(err)}
+ if authURL.Query().Get("access_type")!="online"||
+  !exactDriveRenameScopes(authURL.Query().Get("scope"))||
+  !strings.Contains(authURL.Query().Get("prompt"),"consent"){
+  t.Fatal("Temporary Drive metadata consent was not isolated")
+ }
+ response,err:=http.Get(authURL.Query().Get("redirect_uri")+"?state="+
+  url.QueryEscape(authURL.Query().Get("state"))+"&code=synthetic-drive-rename")
+ if err!=nil{t.Fatal(err)};_ =response.Body.Close()
+ result,err:=b.poll(id)
+ if err!=nil||result["renameScope"]!=true||result["writeScope"]!=false||result["savedSession"]!=false{
+  t.Fatalf("Rename OAuth result not isolated: %v %v",result,err)
+ }
+ if saves!=0{t.Fatal("Drive edit refresh token was stored")}
+ if again,err:=b.poll(id);err==nil||again!=nil{t.Fatal("Rename token was claimable more than once")}
+}
+func TestDesktopDriveRenameRejectsInsufficientScopes(t *testing.T){
+ b,_,_:=desktopHarness(t,desktopDriveScope)
+ id,err:=b.start(fakeDesktopID,"",desktopStartOptions{SheetID:"fixtureSheet012345",DriveRename:true})
+ if err!=nil{t.Fatal(err)}
+ b.mu.Lock()
+ flow:=b.active
+ b.mu.Unlock()
+ response,err:=http.Get(flow.redirectURI+"?state="+url.QueryEscape(flow.state)+"&code=fixture-rename-code")
+ if err!=nil{t.Fatal(err)};_ =response.Body.Close()
+ result,err:=b.poll(id)
+ if err!=nil||result["status"]!="error"||result["accessToken"]!=nil{
+  t.Fatalf("Insufficient rename scope was accepted: %v %v",result,err)
+ }
+}
