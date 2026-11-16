@@ -414,7 +414,8 @@ async function main(){
     await p.locator('#homeActionDesk').click();
     assert.equal(await p.locator('#managerDeskView').isVisible(),true);
     assert.equal(await p.locator('#managerDeskList .manager-item').count(),2);
-    assert.equal((await p.locator('#managerNaming').innerText()).trim(),'1');
+    assert.equal((await p.locator('#managerNaming').innerText()).trim(),'2',
+      'one reviewed image and one reviewed video have unapplied name proposals');
     await p.locator('#managerDeskSearch').fill(fake.name);
     assert.equal(await p.locator('#managerDeskList .manager-item').count(),1);
     assert.match(await p.locator('#managerDeskList').innerText(),/fixture_image_123456789/);
