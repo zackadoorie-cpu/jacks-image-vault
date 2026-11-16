@@ -356,12 +356,12 @@ func TestDesktopDriveRenameMetadataAuthorizationNeverSaved(t *testing.T){
 }
 func TestDesktopDriveRenameRejectsInsufficientScopes(t *testing.T){
  b,_,_:=desktopHarness(t,desktopDriveScope)
- id,err:=b.start(fakeDesktopID,"",desktopStartOptions{SheetID:"fixtureSheet012345",DriveRename:true})
+ id,err:=b.start(fakeDesktopID,"fixture-public-secret",desktopStartOptions{SheetID:"fixtureSheet012345",DriveRename:true})
  if err!=nil{t.Fatal(err)}
  b.mu.Lock()
  flow:=b.active
  b.mu.Unlock()
- response,err:=http.Get(flow.redirectURI+"?state="+url.QueryEscape(flow.state)+"&code=fixture-rename-code")
+ response,err:=http.Get(flow.redirectURI+"?state="+url.QueryEscape(flow.state)+"&code=synthetic-google-code")
  if err!=nil{t.Fatal(err)};_ =response.Body.Close()
  result,err:=b.poll(id)
  if err!=nil||result["status"]!="error"||result["accessToken"]!=nil{
