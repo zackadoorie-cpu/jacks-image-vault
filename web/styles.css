@@ -935,3 +935,34 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 #activitySheetUndoPanel pre{overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 #activitySheetUndoApply{margin-top:12px}
 #activitySheetUndoStatus:not(:empty){margin-block:8px}
+
+/* Phase 9B-4: connected-only coordination across existing review workspaces. */
+.manager-quicklinks{display:flex;gap:9px;flex-wrap:wrap;margin:18px 0}
+.manager-quicklinks .btn{min-height:40px}
+.manager-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:15px 0}
+.manager-metrics>div{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:13px;min-width:0}
+.manager-metrics span{font-size:11px;color:var(--muted);display:block;line-height:1.45}
+.manager-metrics strong{display:block;font-size:clamp(19px,2.5vw,29px);line-height:1.4;margin-top:5px;font-variant-numeric:tabular-nums}
+.manager-toolbar{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin:16px 0}
+.manager-toolbar label{display:grid;gap:7px;flex:1 1 220px;color:var(--muted);font-size:12px;font-weight:700}
+.manager-toolbar .field,.manager-toolbar .select{width:100%;min-height:43px;box-sizing:border-box}
+.manager-list{display:grid;gap:13px;margin:12px 0}
+.manager-item{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;min-width:0}
+.manager-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.manager-head h3{font-size:15px;margin:6px 0 5px;overflow-wrap:anywhere}
+.manager-head p,.manager-meta{font-size:12px;line-height:1.6;color:var(--muted);overflow-wrap:anywhere;margin:3px 0}
+.manager-flags{display:flex;flex-wrap:wrap;gap:5px;align-items:flex-start}
+.manager-flags span{border:1px solid var(--line);border-radius:50px;padding:5px 9px;font-size:10px;color:var(--muted);background:var(--surface2);font-weight:750}
+.manager-details{margin:12px 0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface2)}
+.manager-details summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--text)}
+.manager-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;margin-top:11px}
+.manager-comparison section{border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:10px;min-width:0}
+.manager-comparison h4{font-size:12px;margin:0 0 8px}
+.manager-comparison dl{display:grid;grid-template-columns:1fr;gap:3px;margin:0}
+.manager-comparison dt{font-size:10px;text-transform:uppercase;color:var(--muted);letter-spacing:.04em}
+.manager-comparison dd{font-size:12px;margin:0 0 9px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:125px;overflow-y:auto}
+.manager-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.manager-actions .btn{min-height:39px;white-space:normal}
+@media(max-width:1170px){.manager-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:720px){.manager-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.manager-comparison{grid-template-columns:1fr}}
+@media(max-width:480px){.manager-metrics{grid-template-columns:1fr}.manager-actions .btn{flex:1 1 160px}}

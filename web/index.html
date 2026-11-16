@@ -45,6 +45,7 @@
         <details class="nav-group" data-nav-group="manage">
           <summary class="nav-group-toggle"><span>REVIEW &amp; HEALTH</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
           <div class="nav-group-items">
+            <button class="nav-item" data-view="manager-desk"><span class="nav-icon">☷</span>Library Desk</button>
             <button class="nav-item" data-view="review-inbox"><span class="nav-icon">▤</span>Review Inbox</button>
             <button class="nav-item" data-view="rename-desk"><span class="nav-icon">✎</span>Rename Desk</button>
             <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
@@ -130,6 +131,7 @@
             </div>
             <div class="home-shortcuts">
               <button type="button" id="homeActionVideos" class="home-shortcut"><span class="home-shortcut-icon">▶</span><strong>Video Library</strong><small>Titles, descriptions and clips</small><span aria-hidden="true">↗</span></button>
+              <button type="button" id="homeActionDesk" class="home-shortcut"><span class="home-shortcut-icon">☷</span><strong>Library Desk</strong><small>All review and approval steps together</small><span aria-hidden="true">↗</span></button>
               <button type="button" id="homeActionRename" class="home-shortcut"><span class="home-shortcut-icon">✎</span><strong>Rename Desk</strong><small>Review filename proposals</small><span aria-hidden="true">↗</span></button>
               <button type="button" id="homeActionCollections" class="home-shortcut"><span class="home-shortcut-icon">✦</span><strong>Smart Collections</strong><small>Explore your curated views</small><span aria-hidden="true">↗</span></button>
               <button type="button" id="homeActionHealth" class="home-shortcut"><span class="home-shortcut-icon">◈</span><strong>Library Health</strong><small>Sync status and integrity</small><span aria-hidden="true">↗</span></button>
@@ -432,6 +434,51 @@
             <button id="reviewInboxNext" class="btn outline" type="button" disabled>Next</button>
           </div>
           <p class="privacy-note">Missing photo EXIF dates and duplicate decisions remain in the existing spreadsheet Review Queue. No photo bytes, descriptions or tags are sent to GitHub. Filename drafts require individual approval in a later release.</p>
+        </section>
+        <section id="managerDeskView" class="view hidden" aria-labelledby="managerDeskTitle">
+          <div class="gallery-heading">
+            <div><p class="eyebrow">SMART LIBRARY MANAGER · UNIFIED WORKSPACE</p>
+              <h1 id="managerDeskTitle">Library Desk</h1>
+              <p>One place to coordinate review evidence, filename proposals, local approvals, and recorded Sheet undo. Your original Drive files are never modified here.</p>
+            </div>
+          </div>
+          <p class="activity-boundary" role="note"><strong>Read-only coordination:</strong> Counts describe the files in the currently loaded gallery, not a complete live Drive audit. Any Sheet change still goes through the existing live comparison, separate Google edit authorization and confirmations. A recorded undo is not considered safe until its actual Sheet row is checked.</p>
+          <div class="manager-quicklinks" aria-label="Specialized review and approval workspaces">
+            <button class="btn outline" id="managerOpenInbox" type="button">Review Inbox</button>
+            <button class="btn outline" id="managerOpenRename" type="button">Rename Desk</button>
+            <button class="btn outline" id="managerOpenApproval" type="button">Sheet Approvals</button>
+            <button class="btn outline" id="managerOpenActivity" type="button">Activity &amp; Undo</button>
+          </div>
+          <div class="manager-metrics" aria-label="Private library workflow counts">
+            <div><span>New in Drive</span><strong id="managerNew">—</strong></div>
+            <div><span>Review needed</span><strong id="managerReview">—</strong></div>
+            <div><span>Local approvals eligible</span><strong id="managerApprovals">—</strong></div>
+            <div><span>Undo previews recorded</span><strong id="managerUndo">—</strong></div>
+            <div><span>Filename proposals</span><strong id="managerNaming">—</strong></div>
+          </div>
+          <div class="manager-toolbar">
+            <label for="managerDeskSearch">Search name, folder, Drive ID or Manifest row
+              <input id="managerDeskSearch" class="field" type="search" maxlength="120" placeholder="Find an item in your loaded library…">
+            </label>
+            <label for="managerDeskFilter">Workflow status
+              <select id="managerDeskFilter" class="select">
+                <option value="all">All indexed items</option>
+                <option value="new">New in Drive</option>
+                <option value="review">Review needed</option>
+                <option value="approval">Local review ready for Sheet preview</option>
+                <option value="undo">Recorded Sheet undo preview</option>
+                <option value="naming">Filename suggestion</option>
+              </select>
+            </label>
+          </div>
+          <p id="managerDeskStatus" class="activity-status" role="status" aria-live="polite">Connect Drive to see your private workflow.</p>
+          <div id="managerDeskList" class="manager-list" aria-label="Library Desk items"></div>
+          <div class="activity-pages">
+            <button id="managerDeskPrev" class="btn outline" type="button">Previous</button>
+            <span id="managerDeskPage" aria-live="polite">—</span>
+            <button id="managerDeskNext" class="btn outline" type="button">Next</button>
+          </div>
+          <p class="privacy-note">File IDs, filenames, locally reviewed descriptions and tags are used only in this local screen and are never sent to GitHub. Suggested names are previews based on previously indexed evidence, not unseen images. No automatic Drive rename or Sheet write has been added.</p>
         </section>
         <section id="activityView" class="view hidden" aria-labelledby="activityTitle">
           <div class="gallery-heading activity-heading">
