@@ -67,7 +67,7 @@
     const ACTIVITY_MAX_EVENTS=120;
     const ACTIVITY_MAX_BYTES=480*1024;
     const ACTIVITY_AGE_MS=90*24*60*60*1000;
-    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified']);
+    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified']);
     function activityReview(value){
       if(value==null)return null;
       if(typeof value!=='object'||Array.isArray(value)||
@@ -99,6 +99,19 @@
      return change.after.review==='Reviewed by library owner in Image Vault'&&
        !!change.after.description.trim();
     }
+    function activityDriveRenameSnapshot(change){
+     if(!change||typeof change!=='object'||Array.isArray(change)||
+      !/^[A-Za-z0-9_-]{10,100}$/.test(String(change.fileId||''))||
+      !/^[A-Za-z0-9_-]{10,100}$/.test(String(change.parentId||''))||
+      typeof change.beforeName!=='string'||typeof change.afterName!=='string'||
+      !change.beforeName||!change.afterName||
+      change.beforeName.length>96||change.afterName.length>96||
+      change.beforeName===change.afterName)return false;
+     for(const name of [change.beforeName,change.afterName]){
+      if(/[\\/:*?"<>|\u0000-\u001f\u007f]/.test(name)||/[ .]$/.test(name))return false;
+     }
+     return true;
+    }
     function activityValidEntry(entry,now){
       if(!entry||typeof entry!=='object'||Array.isArray(entry)||
          typeof entry.id!=='string'||!/^[a-f0-9-]{36}$/i.test(entry.id)||
@@ -111,7 +124,9 @@
          entry.before!==undefined&&activityReview(entry.before)===undefined||
          entry.after!==undefined&&activityReview(entry.after)===undefined||
          entry.sheetChange!==undefined&&(entry.kind!=='sheet-write'||!activitySheetUndoSnapshot(entry.sheetChange))||
-         entry.kind==='sheet-undo'&&entry.fileId==='')return false;
+         entry.kind==='sheet-undo'&&entry.fileId===''||
+         entry.driveChange!==undefined&&(entry.kind!=='drive-rename'||!activityDriveRenameSnapshot(entry.driveChange))||
+         entry.kind==='drive-rename'&&!activityDriveRenameSnapshot(entry.driveChange))return false;
       if(['review-save','review-reset'].includes(entry.kind)){
         if(!entry.fileId||!Object.hasOwn(entry,'after')||!Object.hasOwn(entry,'before'))return false;
         if(entry.kind==='review-save'&&entry.after==null)return false;
@@ -120,6 +135,7 @@
         return false;
       }
       if(entry.sheetChange!==undefined&&(entry.fileId!==entry.sheetChange.fileId||entry.count!==1))return false;
+      if(entry.driveChange!==undefined&&(entry.fileId!==entry.driveChange.fileId||entry.count!==1))return false;
       return true;
     }
     function activityEmpty(account,sheetId){
@@ -193,9 +209,9 @@
       const list=(log?.items||[]).filter(e=>{
         if(chosen==='review'&&!['review-save','review-reset','undo-review'].includes(e.kind))return false;
         if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
-        if(chosen==='plans'&&!['rename-plan','rename-clear'].includes(e.kind))return false;
+        if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified'].includes(e.kind))return false;
         if(chosen==='inventory'&&e.kind!=='inventory')return false;
-        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified'].includes(e.kind))return false;
+        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified'].includes(e.kind))return false;
         return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
       });
       const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
@@ -203,7 +219,7 @@
       const at=Math.max(1,Math.min(pages,Math.floor(page)||1));
       return {filter:chosen,page:at,pages,count:list.length,items:list.slice((at-1)*size,at*size)};
     }
-    return {ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone};
+    return {ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone,activityDriveRenameSnapshot};
   })();
   /* GENERATED ACTIVITY LEDGER END */
   /* GENERATED SHEET APPROVAL START */
@@ -602,6 +618,70 @@
     return {FILENAME_REVIEW_SCHEMA,FILENAME_REVIEW_LIMIT,FILENAME_REVIEW_BATCH_LIMIT,FILENAME_REVIEW_PAGE_SIZE,FILENAME_REVIEW_FILTERS,filenameReviewCapture,filenameReviewOpaque,filenameReviewValidName,filenameReviewBuild,filenameReviewPage,filenameReviewValidate,filenameReviewExport};
   })();
   /* GENERATED FILENAME REVIEW END */
+  /* GENERATED DRIVE RENAME START */
+  const driveRename=(()=>{
+    const DRIVE_RENAME_SCHEMA=1;
+    const DRIVE_RENAME_SCOPE='https://www.googleapis.com/auth/drive.metadata';
+    const DRIVE_RENAME_MAX_FOLDER=10000;
+    const DRIVE_RENAME_MAX_NAME=96;
+    function driveRenameID(v){return typeof v==='string'&&/^[A-Za-z0-9_-]{10,100}$/.test(v);}
+    function driveRenamePlan(candidate,proposed,{account='',sheetId='',folderId=''}={}){
+     if(!candidate||!driveRenameID(candidate.fileId)||!driveRenameID(folderId)||
+       !Number.isSafeInteger(candidate.row)||candidate.row<2||candidate.row>100000||
+       !account||!sheetId||!candidate.eligible||candidate.newInDrive)
+      throw new Error('A connected account, stable Manifest row and verified folder are required.');
+     if(typeof proposed!=='string'||!proposed||proposed===candidate.oldName||
+       proposed.length>DRIVE_RENAME_MAX_NAME||
+       proposed.trim()!==proposed||/[\\/:*?"<>|\u0000-\u001f\u007f]/.test(proposed)||
+       /[ .]$/.test(proposed))
+      throw new Error('Invalid proposed filename. Review the draft before renaming.');
+     // The proposal's source engine already checks the original extension; do
+     // not let a direct call to the rename logic accidentally bypass that gate.
+     const extension=name=>(/\.[A-Za-z0-9]{2,6}$/.exec(name||'')||[''])[0].toLowerCase();
+     if(!extension(candidate.oldName)||extension(candidate.oldName)!==extension(proposed))
+      throw new Error('File extension changes are not allowed.');
+     const stem=proposed.slice(0,-extension(proposed).length);
+     if(/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem))
+      throw new Error('Reserved Windows filename.');
+     return {schema:DRIVE_RENAME_SCHEMA,fileId:candidate.fileId,manifestRow:candidate.row,
+      oldName:candidate.oldName,newName:proposed,folder:candidate.folder,
+      folderId,mimeType:candidate.mime,account,sheetId,source:candidate.source};
+    }
+    function driveRenameCheck(plan,live,files,{baselineVersion=null}={}){
+     if(!plan||plan.schema!==DRIVE_RENAME_SCHEMA||!driveRenameID(plan.fileId)||
+       !driveRenameID(plan.folderId)||!live||live.id!==plan.fileId||
+       live.name!==plan.oldName||live.mimeType!==plan.mimeType||
+       live.trashed!==false||live.capabilities?.canRename!==true||
+       !Array.isArray(live.parents)||live.parents.length!==1||
+       live.parents[0]!==plan.folderId)
+      return {ok:false,reason:'Live Drive identity, name, folder, MIME type or rename permission differs from the reviewed plan.'};
+     if(!/^\d+$/.test(String(live.version||'')))
+      return {ok:false,reason:'Drive did not provide a verifiable file version.'};
+     if(baselineVersion!==null&&String(live.version)!==String(baselineVersion))
+      return {ok:false,reason:'File changed since the first preview. Refresh and review again.'};
+     if(!Array.isArray(files)||files.length>DRIVE_RENAME_MAX_FOLDER)
+      return {ok:false,reason:'Live folder listing is incomplete or exceeds 10,000 items.'};
+     const matches=files.some(item=>item&&item.id!==plan.fileId&&item.trashed===false&&
+       typeof item.name==='string'&&item.name.normalize('NFKC').toLocaleLowerCase('en-US')===
+        plan.newName.normalize('NFKC').toLocaleLowerCase('en-US'));
+     if(matches)return {ok:false,reason:'The proposed filename now conflicts with another file in the actual Drive folder.'};
+     return {ok:true,version:String(live.version),reason:'Live identity, file version, parent folder, permissions and folder names match.'};
+    }
+    function driveRenamePatch(plan){
+     if(!plan||plan.schema!==DRIVE_RENAME_SCHEMA||!driveRenameID(plan.fileId)||
+      typeof plan.newName!=='string'||plan.newName.length>DRIVE_RENAME_MAX_NAME||
+      !plan.newName||/[\\/:*?"<>|\u0000-\u001f\u007f]/.test(plan.newName))
+      throw new Error('Invalid name-only rename request.');
+     return {name:plan.newName};
+    }
+    function driveRenameVerified(plan,after){
+     return !!plan&&!!after&&after.id===plan.fileId&&after.name===plan.newName&&
+      after.mimeType===plan.mimeType&&after.trashed===false&&
+      Array.isArray(after.parents)&&after.parents.length===1&&after.parents[0]===plan.folderId;
+    }
+    return {DRIVE_RENAME_SCHEMA,DRIVE_RENAME_SCOPE,DRIVE_RENAME_MAX_FOLDER,DRIVE_RENAME_MAX_NAME,driveRenameID,driveRenamePlan,driveRenameCheck,driveRenamePatch,driveRenameVerified};
+  })();
+  /* GENERATED DRIVE RENAME END */
   const startingPrefs = readPreferences();
   const state = {
     config: readSettings(),
@@ -684,6 +764,8 @@
     filenameDrafts: new Map(),
     filenameStaged: new Set(),
     filenameMessage: '',
+    renamePrepared: null,
+    renameBusy: false,
     sheetUndoPreview: null,
     sheetUndoMessage: '',
     activityHistory: null,
@@ -2043,7 +2125,7 @@
     state.activityHistory=history;
     state.activityError='';
   }
-  function logActivity(kind,{fileId='',count=0,before,after,sheetChange}={}){
+  function logActivity(kind,{fileId='',count=0,before,after,sheetChange,driveChange}={}){
     const ctx=activityContext();
     if(!ctx||!state.activityHistory)return false;
     const entry={id:crypto.randomUUID(),at:Date.now(),kind,status:'complete',
@@ -2051,6 +2133,7 @@
     if(before!==undefined)entry.before=before;
     if(after!==undefined)entry.after=after;
     if(sheetChange!==undefined)entry.sheetChange=sheetChange;
+    if(driveChange!==undefined)entry.driveChange=driveChange;
     try{
       storeActivityHistory(activityLedger.activityAppend(state.activityHistory,entry,ctx));
       if(state.view==='activity')renderActivity();
@@ -2750,7 +2833,7 @@
   // browser token flow. Every Desktop sign-in explicitly opens the system
   // browser; no refresh token or client secret is persisted in web storage.
   let desktopFlowId='',desktopNonce='',desktopResumePromise=null;
-  let sheetWriteFlowId='';
+  let sheetWriteFlowId='',driveRenameFlowId='';
   const SHEET_WRITE_SCOPE='https://www.googleapis.com/auth/spreadsheets';
   const desktopAuthPause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   async function checkDesktopOAuthCapability(){
@@ -3979,6 +4062,10 @@
       const flow=sheetWriteFlowId;sheetWriteFlowId='';
       void desktopAuthPost('cancel',{flowId:flow}).catch(()=>{});
     }
+    if(driveRenameFlowId){
+      const flow=driveRenameFlowId;driveRenameFlowId='';
+      void desktopAuthPost('cancel',{flowId:flow}).catch(()=>{});
+    }
     state.authEpoch++;
     state.authMode='idle';
     state.autoReconnect=false;
@@ -5205,6 +5292,7 @@
   function filenameReviewReset(){
     state.filenameFilter='all';state.filenameQuery='';state.filenamePage=1;
     state.filenameDrafts.clear();state.filenameStaged.clear();state.filenameMessage='';
+    state.renamePrepared=null;
   }
   function filenameReviewCurrent(row){
     return state.filenameDrafts.has(row.fileId)?
@@ -5242,7 +5330,9 @@
     $('filenameReviewSearch').disabled=!model.connected;
     $('filenameReviewFilter').value=state.filenameFilter;
     $('filenameReviewFilter').disabled=!model.connected;
-    $('filenameReviewExport').disabled=!model.connected||!state.filenameStaged.size;
+    $('filenameReviewExport').disabled=state.renameBusy||!model.connected||!state.filenameStaged.size;
+    $('filenameRenamePreview').disabled=state.renameBusy||!model.connected||state.filenameStaged.size!==1;
+    $('filenameRenameApply').disabled=state.renameBusy||!state.renamePrepared;
     $('filenameClear').disabled=!state.filenameStaged.size&&!state.filenameDrafts.size;
     $('filenameReviewStatus').textContent=!model.connected?
       'Connect a verified Drive account and inventory to review your private filenames.':
@@ -5252,6 +5342,17 @@
       'Using loaded Sheet and Drive metadata only. ')+
       'All staging and downloads are local.';
     $('filenameReviewMessage').textContent=state.filenameMessage||'No Drive or Sheet records have been changed.';
+    $('filenameRenamePanel').hidden=!state.renamePrepared;
+    if(state.renamePrepared){
+      const prepared=state.renamePrepared,plan=prepared.plan;
+      $('filenameRenameBefore').textContent=JSON.stringify({
+        fileId:plan.fileId,folderId:plan.folderId,manifestRow:plan.manifestRow,
+        filename:plan.oldName,version:prepared.version
+      },null,2);
+      $('filenameRenameAfter').textContent=JSON.stringify({
+        fileId:plan.fileId,filename:plan.newName,change:'Google Drive file name only'
+      },null,2);
+    }
     $('filenameReviewPrev').disabled=!model.connected||page.page<=1;
     $('filenameReviewNext').disabled=!model.connected||page.page>=page.pages;
     $('filenameReviewPage').textContent=model.connected?page.page+' / '+page.pages:'—';
@@ -5300,7 +5401,8 @@
     if(!input&&!stage)return;
     const id=(input||stage).dataset.filenameInput||(input||stage).dataset.filenameStage;
     const model=filenameReviewModel(),row=model.rows.find(x=>x.fileId===id);
-    if(!row||!state.connected)return;
+    if(!row||!state.connected||state.renameBusy)return;
+    state.renamePrepared=null;
     if(input){
       state.filenameDrafts.set(id,input.value);
       state.filenameStaged.delete(id);
@@ -5341,7 +5443,245 @@
     renderFilenameReview();
   }
 
-  // Phase 9B-2 approval desk: the only Google write route in this UI.
+
+  // Drive metadata grants are requested on-demand, never stored in the
+  // encrypted Windows READ-ONLY sign-in or browser persistent storage.
+  async function driveRenameAuthorize(){
+    if(IN_NATIVE_DESKTOP){
+      const clientId=$('filenameRenameDesktopClient').value.trim();
+      const clientSecret=$('filenameRenameDesktopSecret').value;
+      $('filenameRenameDesktopSecret').value='';
+      let start;
+      try{
+        start=await desktopAuthPost('rename-start',{
+          sheetId:state.config.sheetId,clientId,clientSecret
+        });
+      }catch(error){
+        if(/404|not found/i.test(String(error.message||'')))
+          throw new Error('Install the COMPLETE v2.1.29 Windows desktop bundle to enable new native rename authorization. A UI-only patch cannot add this protected endpoint.');
+        throw error;
+      }
+      const flow=String(start.flowId||'');
+      if(!flow)throw new Error('The native broker did not start a Drive rename authorization.');
+      driveRenameFlowId=flow;
+      const epoch=state.authEpoch;
+      try{
+        for(let i=0;i<150;i++){
+          if(epoch!==state.authEpoch)throw new Error('Google account changed during rename authorization.');
+          await desktopAuthPause(1100);
+          const progress=await desktopAuthPost('poll',{flowId:flow});
+          if(progress.status==='pending'||progress.status==='exchanging')continue;
+          if(progress.status==='error')throw new Error(progress.message||'Google declined metadata authorization.');
+          if(progress.status==='ready'&&progress.renameScope===true&&typeof progress.accessToken==='string')
+            return progress.accessToken;
+          throw new Error('A temporary Drive metadata grant was not confirmed.');
+        }
+        throw new Error('Temporary Drive authorization timed out.');
+      }finally{
+        if(driveRenameFlowId===flow)driveRenameFlowId='';
+        await desktopAuthPost('cancel',{flowId:flow}).catch(()=>{});
+      }
+    }
+    if(!window.google?.accounts?.oauth2||!state.config.clientId)
+      throw new Error('A connected browser Google OAuth client is required.');
+    return new Promise((resolve,reject)=>{
+      try{
+        const client=google.accounts.oauth2.initTokenClient({
+          client_id:state.config.clientId,
+          scope:driveRename.DRIVE_RENAME_SCOPE+' https://www.googleapis.com/auth/drive.readonly',
+          callback:result=>{
+            const scopes=String(result?.scope||'').split(/\s+/);
+            if(!result?.access_token||!scopes.includes(driveRename.DRIVE_RENAME_SCOPE)||
+               !scopes.includes('https://www.googleapis.com/auth/drive.readonly')){
+              reject(new Error('Temporary Google Drive metadata permission was not approved.'));return;
+            }
+            resolve(result.access_token);
+          },
+          error_callback:()=>reject(new Error('Temporary Drive metadata authorization was cancelled.'))
+        });
+        client.requestAccessToken({prompt:'consent'});
+      }catch(error){reject(error);}
+    });
+  }
+  async function driveRenameFetch(url,token,{method='GET',payload}={}){
+    const base='https://www.googleapis.com/drive/v3/';
+    if(!url.startsWith(base)||!token||!['GET','PATCH'].includes(method)||
+       method==='PATCH'&&(!url.includes('/files/')||
+         !payload||Object.keys(payload).length!==1||typeof payload.name!=='string'))
+      throw new Error('Unsupported Drive metadata request.');
+    const headers={Authorization:'Bearer '+token};
+    if(method==='PATCH')headers['Content-Type']='application/json';
+    const res=await fetch(url,{method,mode:'cors',credentials:'omit',cache:'no-store',
+      referrerPolicy:'no-referrer',headers,
+      ...(method==='PATCH'?{body:JSON.stringify(payload)}:{})});
+    if(!res.ok)throw new Error('Google Drive returned HTTP '+res.status+
+      '. Inspect the actual Drive file and Google OAuth permissions before proceeding.');
+    return res.json();
+  }
+  async function driveRenameLiveFile(id,token){
+    if(!driveRename.driveRenameID(id))throw new Error('Invalid Drive file ID.');
+    const query=new URLSearchParams({fields:'id,name,mimeType,parents,trashed,version,capabilities(canRename)',
+      supportsAllDrives:'true'});
+    return driveRenameFetch('https://www.googleapis.com/drive/v3/files/'+
+      encodeURIComponent(id)+'?'+query,token);
+  }
+  async function driveRenameLiveFolder(parentId,token){
+    if(!driveRename.driveRenameID(parentId))throw new Error('Invalid Drive folder ID.');
+    const contents=[],seen=new Set();
+    let cursor='';
+    for(let page=0;page<10;page++){
+      const params=new URLSearchParams({q:"'"+parentId+"' in parents and trashed = false",
+        fields:'nextPageToken,files(id,name,trashed)',pageSize:'1000',
+        supportsAllDrives:'true',includeItemsFromAllDrives:'true'});
+      if(cursor)params.set('pageToken',cursor);
+      const batch=await driveRenameFetch('https://www.googleapis.com/drive/v3/files?'+params,token);
+      if(!Array.isArray(batch.files))throw new Error('Drive did not return the folder file listing.');
+      for(const item of batch.files){
+        if(!driveRename.driveRenameID(item.id)||seen.has(item.id)||
+          typeof item.name!=='string'||item.trashed!==false)
+          throw new Error('Folder listing is inconsistent or unverified.');
+        seen.add(item.id);contents.push(item);
+        if(contents.length>driveRename.DRIVE_RENAME_MAX_FOLDER)
+          throw new Error('Folder has too many files to verify safely.');
+      }
+      if(!batch.nextPageToken)return contents;
+      if(typeof batch.nextPageToken!=='string'||batch.nextPageToken===cursor)
+        throw new Error('Folder listing cannot be fully verified.');
+      cursor=batch.nextPageToken;
+    }
+    throw new Error('Folder contains too many pages. No rename permitted without full verification.');
+  }
+  function driveRenameStagedPlan(){
+    if(state.filenameStaged.size!==1)return null;
+    const id=[...state.filenameStaged][0];
+    const model=filenameReviewModel(),entry=model.rows.find(row=>row.fileId===id);
+    if(!entry||!filenameReviewGuard(entry,model).ok)return null;
+    const item=state.images.find(x=>x.id===id&&!x.demo);
+    const parent=state.folderSources.find(f=>f.path===item?.folder&&!f.missing);
+    const ctx=activityContext();
+    if(!ctx||!parent||!driveRename.driveRenameID(parent.id))
+      throw new Error('Exact Drive parent folder is not verified. Run Verify Drive folders before renaming.');
+    return driveRename.driveRenamePlan(entry,filenameReviewCurrent(entry),{
+      account:ctx.account,sheetId:ctx.sheetId,folderId:parent.id
+    });
+  }
+  function driveRenameSessionMatches(plan,epoch){
+    return epoch===state.authEpoch&&state.connected&&state.driveIdentity===plan.account&&
+      state.config.sheetId===plan.sheetId&&state.view==='filename-review';
+  }
+  async function driveRenamePreview(){
+    if(state.renameBusy||!state.connected||state.filenameStaged.size!==1)return;
+    state.renamePrepared=null;state.renameBusy=true;
+    const epoch=state.authEpoch;
+    state.filenameMessage='Reading the exact Drive file and all names in its real parent folder…';
+    renderFilenameReview();
+    try{
+      const plan=driveRenameStagedPlan();
+      if(!plan)throw new Error('Stage exactly one valid, reviewed filename before previewing a rename.');
+      const file=await driveRenameLiveFile(plan.fileId,state.accessToken);
+      const siblings=await driveRenameLiveFolder(plan.folderId,state.accessToken);
+      const check=driveRename.driveRenameCheck(plan,file,siblings);
+      if(!check.ok)throw new Error(check.reason);
+      if(!driveRenameSessionMatches(plan,epoch))return;
+      state.renamePrepared={plan,version:check.version};
+      state.filenameMessage='Live preflight passed. Review the change and Google-wide metadata permission before authorization. No file has changed.';
+    }catch(error){
+      if(epoch===state.authEpoch)state.filenameMessage='Cannot prepare Drive rename: '+(error.message||'Live metadata unavailable.');
+    }finally{
+      state.renameBusy=false;
+      if(state.view==='filename-review')renderFilenameReview();
+    }
+  }
+  async function driveRenameApply(){
+    const prepared=state.renamePrepared;
+    if(state.renameBusy||!prepared||!state.connected)return;
+    const {plan,version}=prepared,epoch=state.authEpoch;
+    if(!driveRenameSessionMatches(plan,epoch))return;
+    const current=driveRenameStagedPlan();
+    if(!current||JSON.stringify(current)!==JSON.stringify(plan)){
+      state.renamePrepared=null;state.filenameMessage='The locally reviewed proposal changed. Preview again.';
+      renderFilenameReview();return;
+    }
+    if(!confirm('This requests Google-wide, restricted Drive METADATA edit permission, not a per-file grant. '+
+      'The app will only rename ONE selected file. The temporary token is never saved. Continue?'))return;
+    state.renameBusy=true;
+    state.filenameMessage='Waiting for a separate, temporary Google Drive metadata authorization…';
+    renderFilenameReview();
+    let submitted=false,verified=false;
+    try{
+      let writeToken=await driveRenameAuthorize();
+      try{
+        if(!driveRenameSessionMatches(plan,epoch))throw new Error('Account or workspace changed before a rename.');
+        const identity=await driveRenameFetch('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',writeToken);
+        if(identity.user?.permissionId!==plan.account)
+          throw new Error('Google write grant belongs to another Drive account.');
+        const indexed=state.images.find(x=>x.id===plan.fileId&&!x.demo);
+        if(!indexed||indexed.name!==plan.oldName||indexed.mime!==plan.mimeType||
+           indexed.folder!==plan.folder||indexed.manifestRow!==plan.manifestRow)
+          throw new Error('The indexed original filename or Manifest mapping changed.');
+        const live=await driveRenameLiveFile(plan.fileId,writeToken);
+        const siblings=await driveRenameLiveFolder(plan.folderId,writeToken);
+        const guard=driveRename.driveRenameCheck(plan,live,siblings,{baselineVersion:version});
+        if(!guard.ok)throw new Error(guard.reason);
+        if(!confirm('FINAL CONFIRMATION: Rename ONLY Drive file '+plan.fileId+
+          ' from "'+plan.oldName+'" to "'+plan.newName+'"? Google Sheets will NOT be updated.')) {
+          state.filenameMessage='Final approval cancelled. No rename was submitted.';
+          return;
+        }
+        // User interaction may have introduced a source collision. Recheck.
+        const fresh=await driveRenameLiveFile(plan.fileId,writeToken);
+        const freshNames=await driveRenameLiveFolder(plan.folderId,writeToken);
+        const finalCheck=driveRename.driveRenameCheck(plan,fresh,freshNames,{baselineVersion:version});
+        if(!finalCheck.ok)throw new Error('Drive changed during approval: '+finalCheck.reason);
+        if(!driveRenameSessionMatches(plan,epoch))throw new Error('Google account changed before submission.');
+        const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(plan.fileId)+
+          '?fields=id,name,mimeType,parents,trashed,version&supportsAllDrives=true';
+        submitted=true;
+        const result=await driveRenameFetch(url,writeToken,{
+          method:'PATCH',payload:driveRename.driveRenamePatch(plan)});
+        if(!driveRename.driveRenameVerified(plan,result))
+          throw new Error('Drive response did not confirm the exact file and new name.');
+        const after=await driveRenameLiveFile(plan.fileId,writeToken);
+        if(!driveRename.driveRenameVerified(plan,after))
+          throw new Error('Drive read-back differs. Inspect the real file before another action.');
+        verified=true;
+        if(!driveRenameSessionMatches(plan,epoch))return;
+        for(const list of [state.images,state.inventory]){
+          const match=list.find(x=>x.id===plan.fileId);
+          if(match)match.name=plan.newName;
+        }
+        let logged=true;
+        try{
+          const saved=logActivity('drive-rename',{fileId:plan.fileId,count:1,
+            driveChange:{fileId:plan.fileId,parentId:plan.folderId,
+              beforeName:plan.oldName,afterName:plan.newName}});
+          if(!saved)logged=false;
+        }catch{logged=false;}
+        state.filenameDrafts.delete(plan.fileId);
+        state.filenameStaged.delete(plan.fileId);
+        state.renamePrepared=null;
+        state.filenameMessage='Verified Drive rename: '+plan.oldName+' → '+plan.newName+
+          '. No file contents, parents or Sheet cells changed. Refresh your Sheet index separately.'+
+          (logged?'':' WARNING: local audit could not be saved.');
+        buildFolderIndex();
+      }finally{writeToken='';}
+    }catch(error){
+      if(epoch===state.authEpoch){
+        state.filenameMessage=(submitted?
+          'RENAME MAY HAVE HAPPENED. Do not retry without inspecting the real Drive file: ':
+          'No rename submitted: ')+(error.message||'Google request was not verified.');
+        if(submitted&&!verified){
+          state.renamePrepared=null;
+          logActivity('drive-rename-unverified',{fileId:plan.fileId,count:1});
+        }
+      }
+    }finally{
+      state.renameBusy=false;
+      if(state.view==='filename-review')renderFilenameReview();
+    }
+  }
+
+  // Phase 9B-2 approval desk: the only Google Sheets write route in this UI.
   // All other browsing, thumbnail and sync code remains GET-only.
   function sheetWriteCandidates(){
     if(!state.connected||!state.driveIdentity)return [];
@@ -5631,6 +5971,8 @@
       'sheet-write':'Approved Sheet reviews verified',
       'sheet-undo':'Approved Sheet review restored',
       'sheet-undo-unverified':'Sheet undo outcome requires manual check',
+      'drive-rename':'Drive filename changed and verified',
+      'drive-rename-unverified':'Drive rename outcome requires manual check',
       'sheet-write-unverified':'Sheet write requires manual verification'
     }[kind]||'Local activity';
   }
@@ -6816,6 +7158,8 @@
       if(b&&$('filenameReviewList').contains(b)&&state.connected)openImage(b.dataset.filenameOpen,b);
     });
     $('filenameReviewExport').onclick=filenameReviewExportSelected;
+    $('filenameRenamePreview').onclick=()=>void driveRenamePreview();
+    $('filenameRenameApply').onclick=()=>void driveRenameApply();
     $('filenameClear').onclick=()=>{
       filenameReviewReset();renderFilenameReview();
       $('filenameReviewMessage').textContent='Local staging and drafts cleared. No Drive content changed.';

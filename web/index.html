@@ -403,16 +403,35 @@
             <button class="btn outline" type="button" id="filenameOpenManager">Library Desk</button>
             <button class="btn outline" type="button" id="filenameClear">Clear local staging</button>
             <button class="btn primary" type="button" id="filenameReviewExport" disabled>Export staged plan (JSON)</button>
+            <button class="btn outline" type="button" id="filenameRenamePreview" disabled>Verify one staged Drive rename</button>
           </div>
           <p id="filenameReviewStatus" class="activity-status" role="status" aria-live="polite">Connect your Google Drive read-only inventory to prepare filenames.</p>
           <p id="filenameReviewMessage" class="activity-status" role="status" aria-live="polite">No filenames have been modified.</p>
+          <section id="filenameRenamePanel" class="activity-boundary sheet-write-panel" aria-label="Live verified Drive filename change" hidden>
+            <h2>Authorize one Google Drive rename</h2>
+            <p>Live file identity, version, original name, parent folder, rename capability and all folder filenames have been checked. Review the exact old and proposed name. This is a real Drive metadata change, not a Sheet edit or an app update.</p>
+            <p><strong>Google permission notice:</strong> To rename existing Drive files without a Google Picker selection, Google requests the restricted <code>drive.metadata</code> scope, which permits management of metadata across your Drive. It is broader than this one operation. Jack's Image Vault will ask temporarily, send only a single <code>{"name":"..."}</code> update, and will never save this edit grant or use it to move, trash, delete or change file contents.</p>
+            <div class="sheet-write-diff">
+              <div><strong>Current verified Drive file</strong><pre id="filenameRenameBefore"></pre></div>
+              <div><strong>Proposed name-only update</strong><pre id="filenameRenameAfter"></pre></div>
+            </div>
+            <details class="filename-credentials">
+              <summary>Desktop OAuth credentials (only if Windows has no saved sign-in)</summary>
+              <label for="filenameRenameDesktopClient">Matching Desktop OAuth client ID</label>
+              <input id="filenameRenameDesktopClient" class="field" autocomplete="off" spellcheck="false" maxlength="180">
+              <label for="filenameRenameDesktopSecret">Matching Desktop OAuth client secret</label>
+              <input id="filenameRenameDesktopSecret" class="field" type="password" autocomplete="off" maxlength="256">
+              <p>These credentials are sent only to the native localhost OAuth broker for this one authorization. They are not exported or saved in browser storage.</p>
+            </details>
+            <button class="btn primary" id="filenameRenameApply" type="button">Authorize temporary metadata access &amp; rename this file</button>
+          </section>
           <div id="filenameReviewList" class="filename-list" aria-label="Evidence-backed filename proposals"></div>
           <div class="activity-pages">
             <button id="filenameReviewPrev" class="btn outline" type="button">Previous</button>
             <span id="filenameReviewPage" aria-live="polite">—</span>
             <button id="filenameReviewNext" class="btn outline" type="button">Next</button>
           </div>
-          <p class="privacy-note">A downloaded plan contains filenames, file IDs, review evidence, and your account/Sheet binding. Keep it private. An export is not an approval to rename Google Drive files; Phase 10B would require fresh file metadata checks and a separately requested Google Drive write grant. A patch cannot and does not silently change original media.</p>
+          <p class="privacy-note">A downloaded plan contains filenames, file IDs, review evidence, and your account/Sheet binding. Keep it private. Phase 10B permits exactly one explicitly chosen, separately authorized Drive rename at a time, after a complete live metadata preflight and a final confirmation. Google Drive has no atomic compare-and-swap for this update, so an outside editor can still race the final write. Google Sheets' Manifest filename is not updated by a Drive rename; reindex separately. Saved Windows sign-in remains read-only.</p>
         </section>
         <section id="renameDeskView" class="view hidden" aria-labelledby="renameDeskTitle">
           <div class="gallery-heading"><div>
