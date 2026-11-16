@@ -87,3 +87,10 @@ test('already-applied Sheet review is not incorrectly offered as a new approval'
  const model=m.managerDeskBuild([ready],new Map([[base.id,note]]),null,ctx);
  assert.equal(model.counts.approval,0);
 });
+
+test('malformed old local review does not crash the coordination desk',()=>{
+ const model=m.managerDeskBuild([base],
+  new Map([[base.id,{status:'reviewed',description:null,tags:null}]]),null,ctx);
+ assert.equal(model.counts.all,1);
+ assert.equal(model.counts.approval,0);
+});

@@ -365,6 +365,7 @@
       const newInDrive=x.newInDrive===true;
       const review=newInDrive||!['reviewed','source-reviewed'].includes(stage);
       const alreadyApplied=note?.status==='reviewed'&&
+        typeof note.description==='string'&&typeof note.tags==='string'&&
         x.description===note.description.trim()&&x.tags===note.tags.trim()&&
         x.review==='Reviewed by library owner in Image Vault';
       const approval=!alreadyApplied&&!newInDrive&&row!==null&&note?.status==='reviewed'&&
