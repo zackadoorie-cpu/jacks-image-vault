@@ -2991,6 +2991,7 @@
       const reviewLoadWarning=loadReviewNotes();
       state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWriteMessage='';
       state.sheetUndoPreview=null;state.sheetUndoMessage='';
+      state.managerFilter='all';state.managerQuery='';state.managerPage=1;
       loadActivityHistory();
       loadSavedSearches();
       loadSmartCollections();
@@ -3796,7 +3797,7 @@
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
-    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.sheetUndoPreview=null;state.sheetUndoMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.managerFilter='all';state.managerQuery='';state.managerPage=1;state.sheetUndoPreview=null;state.sheetUndoMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
