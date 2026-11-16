@@ -35,6 +35,7 @@ jobs:
           node scripts/build-command-center.cjs --check
           node scripts/build-command-controller.cjs --check
           node scripts/build-power-tools.cjs --check
+          node scripts/build-manager-desk.cjs --check
           node scripts/build-review-inbox.cjs --check
           node scripts/build-review-inbox-controller.cjs --check
           node scripts/build-rename-desk.cjs --check

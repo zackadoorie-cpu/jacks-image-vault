@@ -1,5 +1,19 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 9B-4 — Unified Library Desk (v2.1.27)
+
+The new **Library Desk** unifies the read-only status of Review Inbox,
+Rename Desk, Sheet Approvals, and Activity & Undo. Search up to 20,000
+loaded records by filename, Drive ID, folder, or Manifest row, inspect
+the indexed Sheet values next to local reviews, and see evidence-based
+filename proposals and recorded undo eligibility without navigating
+through five screens. Buttons route to existing guarded read-only
+previews. Google Sheet writes still require separate authorization,
+preflight, and two explicit confirmations. No Drive renames, browser
+credential changes, background writes or new Google scopes.
+See docs/phase9b4-unified-library-desk.md.
+
+
 ## Phase 9B-3 — Conflict-safe approved Sheet undo (v2.1.26)
 
 Verified Sheet approvals now retain individual bounded before-and-after

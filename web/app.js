@@ -328,6 +328,92 @@
     return {SHEET_APPROVAL_LIMIT,SHEET_REVIEW_STATUS,sheetApprovalCandidate,sheetApprovalDraft,sheetApprovalCheck,sheetApprovalRequests,sheetUndoSnapshot,sheetUndoCheck,sheetUndoRequests};
   })();
   /* GENERATED SHEET APPROVAL END */
+  /* GENERATED MANAGER DESK START */
+  const managerDesk=(()=>{
+    const MANAGER_DESK_SCHEMA=1;
+    const MANAGER_DESK_MAX_SCAN=20000;
+    const MANAGER_DESK_PAGE_SIZE=12;
+    const MANAGER_DESK_FILTERS=Object.freeze(['all','review','approval','undo','naming','new']);
+    function managerDeskBuild(records=[],notes=new Map(),history=null,{account='',sheetId=''}={}){
+     const connected=typeof account==='string'&&!!account&&typeof sheetId==='string'&&!!sheetId&&Array.isArray(records);
+     const counts={all:0,review:0,approval:0,undo:0,naming:0,new:0};
+     if(!connected)return {schema:MANAGER_DESK_SCHEMA,connected:false,counts,rows:[],scanned:0,truncated:false};
+     const undoByFile=new Map();
+     // The history was validated against one account/Sheet before reaching this
+     // builder. Check both again; no cross-account candidate is ever offered.
+     if(history?.account===account&&history?.sheetId===sheetId&&Array.isArray(history.items)){
+      for(const event of history.items){
+       if(event?.kind!=='sheet-write'||event.status!=='complete'||
+          typeof event.fileId!=='string'||undoByFile.has(event.fileId)||
+          !event.sheetChange||event.sheetChange.fileId!==event.fileId||
+          !Number.isSafeInteger(event.sheetChange.row)||event.sheetChange.row<2||
+          typeof event.id!=='string')continue;
+       undoByFile.set(event.fileId,{id:event.id,row:event.sheetChange.row});
+      }
+     }
+     const seen=new Set(),rows=[];
+     const limit=Math.min(records.length,MANAGER_DESK_MAX_SCAN);
+     const lookup=notes instanceof Map?notes:new Map();
+     for(let i=0;i<limit;i++){
+      const x=records[i];
+      if(!x||x.demo||typeof x.id!=='string'||!/^[A-Za-z0-9_-]{10,100}$/.test(x.id)||seen.has(x.id))continue;
+      seen.add(x.id);
+      const note=lookup.get(x.id);
+      const row=Number.isSafeInteger(x.manifestRow)&&x.manifestRow>=2?x.manifestRow:null;
+      const stage=typeof x.stage==='string'?x.stage:'';
+      const fileId=x.id,folder=typeof x.folder==='string'?x.folder:'';
+      const newInDrive=x.newInDrive===true;
+      const review=newInDrive||!['reviewed','source-reviewed'].includes(stage);
+      const alreadyApplied=note?.status==='reviewed'&&
+        typeof note.description==='string'&&typeof note.tags==='string'&&
+        x.description===note.description.trim()&&x.tags===note.tags.trim()&&
+        x.review==='Reviewed by library owner in Image Vault';
+      const approval=!alreadyApplied&&!newInDrive&&row!==null&&note?.status==='reviewed'&&
+        typeof note.description==='string'&&!!note.description.trim()&&note.description.length<=2000&&
+        typeof note.tags==='string'&&note.tags.length<=400&&
+        Number.isSafeInteger(note.updatedAt)&&note.updatedAt>0;
+      const recorded=undoByFile.get(fileId);
+      const undo=!!recorded&&row!==null&&recorded.row===row&&!newInDrive;
+      const suggestion=typeof x.suggestion==='string'&&x.suggestion!==x.name?x.suggestion:'';
+      const naming=!!suggestion;
+      const flags={review,approval,undo,naming,new:newInDrive};
+      const rank=newInDrive?0:approval?1:undo?2:review?3:naming?4:5;
+      const local=note&&typeof note==='object'?{
+       description:typeof note.description==='string'?note.description:'',
+       tags:typeof note.tags==='string'?note.tags:'',
+       status:typeof note.status==='string'?note.status:''
+      }:null;
+      rows.push({fileId,row,name:typeof x.name==='string'?x.name:'Unnamed file',
+       folder,mime:typeof x.mime==='string'?x.mime:'',stage,rank,flags,
+       suggestion,undoId:undo?recorded.id:'',
+       sheet:{description:typeof x.description==='string'?x.description:'',
+         tags:typeof x.tags==='string'?x.tags:'',
+         review:typeof x.review==='string'?x.review:''},
+       local});
+      counts.all++;
+      for(const key of ['review','approval','undo','naming','new'])if(flags[key])counts[key]++;
+     }
+     rows.sort((a,b)=>a.rank-b.rank||a.folder.localeCompare(b.folder)||
+      a.name.localeCompare(b.name)||a.fileId.localeCompare(b.fileId));
+     return {schema:MANAGER_DESK_SCHEMA,connected:true,counts,rows,
+      scanned:limit,truncated:records.length>limit};
+    }
+    function managerDeskPage(model,{filter='all',query='',page=1,pageSize=MANAGER_DESK_PAGE_SIZE}={}){
+     const selected=MANAGER_DESK_FILTERS.includes(filter)?filter:'all';
+     const q=String(query||'').toLocaleLowerCase('en-US').trim().slice(0,120);
+     const size=Math.max(1,Math.min(30,Number.isSafeInteger(pageSize)?pageSize:MANAGER_DESK_PAGE_SIZE));
+     const matching=(model?.rows||[]).filter(row=>
+      (selected==='all'||row.flags?.[selected]===true)&&
+      (!q||[row.name,row.folder,row.fileId,row.suggestion,String(row.row||'')]
+        .some(value=>String(value||'').toLocaleLowerCase('en-US').includes(q))));
+     const pages=Math.max(1,Math.ceil(matching.length/size));
+     const at=Math.min(pages,Math.max(1,Number.isSafeInteger(page)?page:1));
+     return {filter:selected,page:at,pages,total:matching.length,
+      items:matching.slice((at-1)*size,at*size)};
+    }
+    return {MANAGER_DESK_SCHEMA,MANAGER_DESK_MAX_SCAN,MANAGER_DESK_PAGE_SIZE,MANAGER_DESK_FILTERS,managerDeskBuild,managerDeskPage};
+  })();
+  /* GENERATED MANAGER DESK END */
   const startingPrefs = readPreferences();
   const state = {
     config: readSettings(),
@@ -401,6 +487,9 @@
     sheetWritePage: 1,
     sheetWriteMessage: '',
     sheetWriteBusy: false,
+    managerFilter: 'all',
+    managerQuery: '',
+    managerPage: 1,
     sheetUndoPreview: null,
     sheetUndoMessage: '',
     activityHistory: null,
@@ -2902,6 +2991,7 @@
       const reviewLoadWarning=loadReviewNotes();
       state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWriteMessage='';
       state.sheetUndoPreview=null;state.sheetUndoMessage='';
+      state.managerFilter='all';state.managerQuery='';state.managerPage=1;
       loadActivityHistory();
       loadSavedSearches();
       loadSmartCollections();
@@ -3707,7 +3797,7 @@
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
-    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.sheetUndoPreview=null;state.sheetUndoMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.managerFilter='all';state.managerQuery='';state.managerPage=1;state.sheetUndoPreview=null;state.sheetUndoMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -4225,6 +4315,7 @@
     {id:'photos',label:'Photos',description:'Open photo albums'},
     {id:'video-library',label:'Video Library',description:'Open video collection'},
     {id:'favorites',label:'Favorites',description:'Browse local favorites'},
+    {id:'manager-desk',label:'Library Desk',description:'Unified review, filename and Sheet approval workspace'},
     {id:'review-inbox',label:'Review Inbox',description:'Work through visual reviews'},
     {id:'review',label:'Needs Review',description:'Find unreviewed media'},
     {id:'rename-desk',label:'Rename Desk',description:'Preview filename suggestions, no Drive writes'},
@@ -4749,7 +4840,7 @@
   function displayPage(view,{reset=true,scroll=true}={}) {
     powerContextClose();
     if(state.connected&&browsingView())saveBrowsingPosition();
-    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'||view==='sheet-write'){
+    if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'||view==='sheet-write'||view==='manager-desk'){
       state.autoLoadObserver?.disconnect();
       state.autoLoadObserver=null;
       state.galleryRevision++;
@@ -4762,7 +4853,8 @@
       if($('folderSearch'))$('folderSearch').value='';
     }
     $('homeView').classList.toggle('hidden',view!=='home');
-    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'||view==='sheet-write');
+    $('galleryView').classList.toggle('hidden',view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'||view==='sheet-write'||view==='manager-desk');
+    $('managerDeskView').classList.toggle('hidden',view!=='manager-desk');
     $('reviewInboxView').classList.toggle('hidden',view!=='review-inbox');
     $('renameDeskView').classList.toggle('hidden',view!=='rename-desk');
     $('activityView').classList.toggle('hidden',view!=='activity');
@@ -4777,6 +4869,121 @@
     if(scroll)window.scrollTo({top:0,behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth'});
     updateScrollControls();
   }
+
+  // One read-only in-memory crosswalk for review, suggested names and verified
+  // approval history. Live Manifest changes always use the guarded desks.
+  function managerDeskInputs(){
+    if(!state.connected)return [];
+    const videos=new Map(renameDeskRows().map(row=>[row.id,row.proposed]));
+    return state.images.filter(item=>!item.demo).map(item=>{
+      const stage=reviewStage(item);
+      const suggestion=String(item.mime||'').startsWith('video/')?
+        videos.get(item.id)||'':
+        reviewInboxEngine.reviewInboxSuggest({
+          ...item,stage,description:effectiveDescription(item),tags:effectiveTags(item)
+        }).name;
+      return {...item,stage,suggestion};
+    });
+  }
+  function renderManagerDesk(){
+    const ctx=activityContext();
+    const model=managerDesk.managerDeskBuild(managerDeskInputs(),state.reviewEdits,
+      state.activityHistory,ctx||{});
+    const page=managerDesk.managerDeskPage(model,{
+      filter:state.managerFilter,query:state.managerQuery,page:state.managerPage
+    });
+    state.managerPage=page.page;
+    const view=$('managerDeskList');
+    const metrics={managerNew:'new',managerReview:'review',
+      managerApprovals:'approval',managerUndo:'undo',managerNaming:'naming'};
+    for(const [id,key] of Object.entries(metrics))
+      $(id).textContent=model.connected?format(model.counts[key]):'—';
+    $('managerDeskSearch').value=state.managerQuery;
+    $('managerDeskSearch').disabled=!model.connected;
+    $('managerDeskFilter').value=state.managerFilter;
+    $('managerDeskFilter').disabled=!model.connected;
+    $('managerDeskPage').textContent=model.connected?page.page+' / '+page.pages:'—';
+    $('managerDeskPrev').disabled=!model.connected||page.page<=1;
+    $('managerDeskNext').disabled=!model.connected||page.page>=page.pages;
+    $('managerDeskStatus').textContent=!model.connected?
+      'Connect a verified Drive account to browse existing review and approval records.':
+      format(page.total)+' matching items · '+format(model.counts.all)+
+        ' unique loaded files · '+(model.truncated?'Showing only the first '+model.scanned+' records. ':
+        'Current Sheet snapshot and loaded Drive records only. ')+
+        'All operations remain subject to their original safeguards.';
+    if(!model.connected){
+      view.innerHTML='<p class="activity-empty">Your connected library workflow will appear here. Nothing is exported or changed.</p>';
+      return;
+    }
+    if(!page.items.length){
+      view.innerHTML='<p class="activity-empty">No items match these filters. Try another workflow status or filename.</p>';
+      return;
+    }
+    view.innerHTML=page.items.map(item=>{
+      const e=escapeHTML,flags=item.flags;
+      const labels=[];
+      if(flags.new)labels.push('New in Drive');
+      if(flags.review)labels.push('Review needed');
+      if(flags.approval)labels.push('Local Sheet preview eligible');
+      if(flags.undo)labels.push('Undo history recorded');
+      if(flags.naming)labels.push('Filename suggestion');
+      if(!labels.length)labels.push('Indexed');
+      const badges=labels.map(label=>'<span>'+label+'</span>').join('');
+      const local=item.local;
+      const action=(name,label)=>'<button type="button" class="btn outline" data-manager-action="'+
+        name+'" data-manager-id="'+e(item.fileId)+'">'+label+'</button>';
+      return '<article class="manager-item"><div class="manager-head"><div>'+
+        '<p class="eyebrow">MANIFEST ROW '+e(item.row===null?'Not indexed':String(item.row))+'</p>'+
+        '<h3>'+e(item.name)+'</h3><p>'+e(item.folder)+'</p></div>'+
+        '<div class="manager-flags">'+badges+'</div></div>'+
+        '<p class="manager-meta">Drive ID: '+e(item.fileId)+'</p>'+
+        (item.suggestion?'<p class="manager-meta"><strong>Filename preview:</strong> '+e(item.suggestion)+
+          ' (not applied)</p>':'')+
+        '<details class="manager-details"><summary>Inspect exact indexed and local review values</summary>'+
+        '<div class="manager-comparison"><section><h4>Indexed Sheet snapshot</h4><dl>'+
+        '<dt>Description</dt><dd>'+e(item.sheet.description)+'</dd>'+
+        '<dt>Tags</dt><dd>'+e(item.sheet.tags)+'</dd>'+
+        '<dt>Review status</dt><dd>'+e(item.sheet.review)+'</dd></dl></section>'+
+        '<section><h4>Local review, not necessarily written</h4><dl>'+
+        '<dt>Description</dt><dd>'+e(local?.description||'No local edit')+'</dd>'+
+        '<dt>Tags</dt><dd>'+e(local?.tags||'')+'</dd>'+
+        '<dt>Status</dt><dd>'+e(local?.status||'No local review')+
+        '</dd></dl></section></div></details>'+
+        '<div class="manager-actions">'+action('open','Open media')+
+        (flags.approval?action('approval','Preview Sheet change'):'')+
+        (flags.undo?'<button type="button" class="btn outline" data-manager-action="undo" data-manager-id="'+
+          e(item.fileId)+'" data-manager-undo="'+e(item.undoId)+'">Preview Sheet undo</button>':'')+
+        (flags.naming?action('naming','Review filename'):'')+
+        '</div></article>';
+    }).join('');
+  }
+  function managerDeskClick(event){
+    const button=event.target.closest('button[data-manager-action]');
+    if(!button||!$('managerDeskList').contains(button)||!state.connected)return;
+    const id=button.dataset.managerId;
+    const item=state.images.find(x=>!x.demo&&x.id===id);
+    if(!item)return;
+    const action=button.dataset.managerAction;
+    if(action==='open'){openImage(id,button);return;}
+    if(action==='naming'){
+      displayPage(String(item.mime||'').startsWith('video/')?'rename-desk':'review-inbox');
+      return;
+    }
+    if(action==='approval'){
+      if(!sheetApproval.sheetApprovalCandidate(item,state.reviewEdits.get(id)))return;
+      displayPage('sheet-write');void sheetWritePreviewItem(id);return;
+    }
+    if(action==='undo'){
+      const eventId=button.dataset.managerUndo;
+      const history=state.activityHistory,ctx=activityContext();
+      const entry=history?.items.find(x=>x.id===eventId&&x.fileId===id);
+      if(!ctx||!history||!activityLedger.activityCanUndoSheet(entry,{
+        ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+      }).ok)return;
+      displayPage('activity');void sheetUndoPreviewEntry(eventId);
+    }
+  }
+
   // Phase 9B-2 approval desk: the only Google write route in this UI.
   // All other browsing, thumbnail and sync code remains GET-only.
   function sheetWriteCandidates(){
@@ -5343,7 +5550,7 @@
       state.activityError='';state.activityPage=1;renderActivity();
     }catch(err){$('activityStatus').textContent='Could not clear local activity: '+err.message;}
   }
-  function render() {if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else if(state.view==='rename-desk')renameDeskRender();else if(state.view==='activity')renderActivity();else if(state.view==='sheet-write')renderSheetWrite();else renderGallery();}
+  function render() {if(state.view==='manager-desk')renderManagerDesk();else if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else if(state.view==='rename-desk')renameDeskRender();else if(state.view==='activity')renderActivity();else if(state.view==='sheet-write')renderSheetWrite();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
     $('statImages').textContent=count(state.inventory.length);
@@ -6217,6 +6424,25 @@
   function initEvents() {
     setupSidebarGroups();
     document.querySelectorAll('[data-view]').forEach(btn=>btn.onclick=()=>displayPage(btn.dataset.view));
+    $('managerDeskSearch').oninput=event=>{
+      state.managerQuery=event.target.value.slice(0,120);
+      state.managerPage=1;renderManagerDesk();
+    };
+    $('managerDeskFilter').onchange=event=>{
+      state.managerFilter=event.target.value;
+      state.managerPage=1;renderManagerDesk();
+    };
+    $('managerDeskPrev').onclick=()=>{
+      state.managerPage=Math.max(1,state.managerPage-1);renderManagerDesk();
+    };
+    $('managerDeskNext').onclick=()=>{
+      state.managerPage++;renderManagerDesk();
+    };
+    $('managerDeskList').addEventListener('click',managerDeskClick);
+    $('managerOpenInbox').onclick=()=>displayPage('review-inbox');
+    $('managerOpenRename').onclick=()=>displayPage('rename-desk');
+    $('managerOpenApproval').onclick=()=>displayPage('sheet-write');
+    $('managerOpenActivity').onclick=()=>displayPage('activity');
     $('sheetWriteList').onclick=event=>{
       const button=event.target.closest('button[data-sheet-preview]');
       if(button&&$('sheetWriteList').contains(button))void sheetWritePreviewItem(button.dataset.sheetPreview);
@@ -6349,6 +6575,7 @@
     $('exploreButton').onclick=()=>displayPage('all');$('seeAllButton').onclick=()=>displayPage('all');
     $('homeActionReview').onclick=()=>displayPage('review-inbox');
     $('homeActionVideos').onclick=()=>displayPage('video-library');
+    $('homeActionDesk').onclick=()=>displayPage('manager-desk');
     $('homeActionRename').onclick=()=>displayPage('rename-desk');
     $('homeActionCollections').onclick=()=>displayPage('smart');
     $('homeActionHealth').onclick=()=>displayPage('health');
