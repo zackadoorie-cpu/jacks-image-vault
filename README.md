@@ -1,6 +1,6 @@
 # Jack's Image Vault — Windows image and media library
 
-## Phase 9B-3 — Conflict-safe approved Sheet undo (development branch)
+## Phase 9B-3 — Conflict-safe approved Sheet undo (v2.1.26)
 
 Verified Sheet approvals now retain individual bounded before-and-after
 snapshots for each Manifest row. Activity & Undo offers Preview Sheet undo

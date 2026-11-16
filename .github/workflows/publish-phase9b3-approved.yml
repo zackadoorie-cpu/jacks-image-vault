@@ -1,0 +1,31 @@
+# One-time gate: Phase 9B-3's explicitly consented, conflict-checked Sheet undo.
+# Publishing still uses release.yml's complete Windows/browser/test and checksum gates.
+name: Publish approved Phase 9B-3 remote undo
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Phase 9B-3 conflict-safe Sheet undo v2.1.26 (#66)')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish full verified v2.1.26 release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.26 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.26 already published; no duplicate release."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.26
+          echo "Requested complete release.yml build with Windows host and checksums."
