@@ -35,7 +35,10 @@ function managerDeskBuild(records=[],notes=new Map(),history=null,{account='',sh
   const fileId=x.id,folder=typeof x.folder==='string'?x.folder:'';
   const newInDrive=x.newInDrive===true;
   const review=newInDrive||!['reviewed','source-reviewed'].includes(stage);
-  const approval=!newInDrive&&row!==null&&note?.status==='reviewed'&&
+  const alreadyApplied=note?.status==='reviewed'&&
+    x.description===note.description.trim()&&x.tags===note.tags.trim()&&
+    x.review==='Reviewed by library owner in Image Vault';
+  const approval=!alreadyApplied&&!newInDrive&&row!==null&&note?.status==='reviewed'&&
     typeof note.description==='string'&&!!note.description.trim()&&note.description.length<=2000&&
     typeof note.tags==='string'&&note.tags.length<=400&&
     Number.isSafeInteger(note.updatedAt)&&note.updatedAt>0;

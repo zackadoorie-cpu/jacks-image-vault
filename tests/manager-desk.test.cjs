@@ -80,3 +80,10 @@ test('source bundle matches generated code and no new Google write path is creat
  assert.ok(app.includes('managerDesk.managerDeskBuild'));
  assert.ok(app.includes('managerDesk.managerDeskPage'));
 });
+
+test('already-applied Sheet review is not incorrectly offered as a new approval',()=>{
+ const ready={...base,description:note.description.trim(),tags:note.tags.trim(),
+  review:'Reviewed by library owner in Image Vault'};
+ const model=m.managerDeskBuild([ready],new Map([[base.id,note]]),null,ctx);
+ assert.equal(model.counts.approval,0);
+});
