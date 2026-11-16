@@ -127,3 +127,18 @@ test('verified row-level Sheet approvals become account-scoped, individually und
  ])assert.throws(()=>engine.activityAppend(log,changed,{...ctx,now:time}),/Invalid local/);
  assert.equal(engine.activityPage(log,{filter:'writes'}).count,1);
 });
+
+test('Drive rename audit is account-bound and retains exact name-only snapshots',()=>{
+ const change={fileId:'fixture_image_123456789',parentId:'fixture_folder_123456789',
+  beforeName:'IMG_129999.jpg',afterName:'Orange Cat - Reaction.jpg'};
+ const entry={id,at:time,kind:'drive-rename',status:'complete',fileId:change.fileId,
+  count:1,driveChange:change};
+ const log=engine.activityAppend(engine.activityEmpty(account,sheetId),entry,{...ctx,now:time});
+ const parsed=engine.activityParse(JSON.stringify(log),{...ctx,now:time});
+ assert.equal(parsed.items[0].driveChange.beforeName,'IMG_129999.jpg');
+ assert.equal(engine.activityPage(parsed,{filter:'writes'}).count,1);
+ assert.equal(engine.activityPage(parsed,{filter:'plans'}).count,1);
+ assert.throws(()=>engine.activityParse(JSON.stringify(log),{account:other,sheetId,now:time}),/does not match/);
+ assert.throws(()=>engine.activityAppend(log,{...entry,fileId:'another_media_123456'}, {...ctx,now:time}),/Invalid/);
+ assert.throws(()=>engine.activityAppend(log,{...entry,driveChange:{...change,afterName:'../wrong.jpg'}},{...ctx,now:time}),/Invalid/);
+});
