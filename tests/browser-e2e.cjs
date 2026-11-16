@@ -557,6 +557,36 @@ async function main(){
     await p.locator('[data-view="activity"]').click();
     await p.locator('#activityFilter').selectOption('writes');
     assert.match(await p.locator('#activityList').innerText(),/Approved Sheet reviews verified/);
+    assert.equal(await p.locator('[data-sheet-undo-preview]').count(),1,
+      'Every verified new Sheet row has an explicit undo preview');
+    approvals.getSheetRow().tags='outside collaborator edit';
+    await p.locator('[data-sheet-undo-preview]').click();
+    await p.waitForFunction(()=>document.querySelector('#activitySheetUndoStatus')?.textContent.includes('Undo blocked'),null,{timeout:15000});
+    assert.equal(await p.locator('#activitySheetUndoPanel').isVisible(),false);
+    assert.equal(approvals.getSheetWrites().length,1,'Conflict must block POST');
+    approvals.getSheetRow().tags='local cat, tagged';
+    await p.locator('[data-sheet-undo-preview]').click();
+    await p.waitForFunction(()=>!document.querySelector('#activitySheetUndoPanel')?.hidden,null,{timeout:15000});
+    assert.match(await p.locator('#activitySheetUndoApplied').innerText(),/Reviewed local cat photo/);
+    assert.match(await p.locator('#activitySheetUndoOriginal').innerText(),/Fabricated orange cat/);
+    assert.equal(approvals.getSheetWrites().length,1,'Preview must be GET-only');
+    p.once('dialog',dialog=>dialog.dismiss());
+    await p.locator('#activitySheetUndoApply').click();
+    assert.equal(approvals.getSheetWrites().length,1,'Declined consent must not POST');
+    p.on('dialog',acceptApprovals);
+    await p.locator('#activitySheetUndoApply').click();
+    await p.waitForFunction(()=>document.querySelector('#activitySheetUndoStatus')?.textContent.includes('Verified: original Manifest'),null,{timeout:18000})
+      .catch(async err=>{throw new Error('Sheet undo failed: '+
+        await p.locator('#activitySheetUndoStatus').innerText()+'; '+err.message);});
+    p.off('dialog',acceptApprovals);
+    assert.equal(approvals.getSheetWrites().length,2);
+    assert.deepEqual(approvals.getSheetWrites()[1].requests.map(r=>r.updateCells.start.columnIndex),[12,13,19]);
+    assert.equal(approvals.getSheetRow().description,'Fabricated orange cat');
+    assert.equal(approvals.getSheetRow().tags,'orange cat, reaction meme');
+    assert.equal(approvals.getSheetRow().review,'Original Drive still image visually verified, fixture only');
+    assert.equal(await p.locator('[data-sheet-undo-preview]').count(),0,'No duplicate undo is offered');
+    assert.match(await p.locator('#activityList').innerText(),/Approved Sheet review restored/);
+    assert.equal((await p.evaluate(()=>JSON.stringify(localStorage))).includes('fake-e2e-token'),false);
   }finally{await approvals.ctx.close();}
   // Theme persistence, token-free opt-in reconnect and wrong-account fail closed.
   const auto=await fixturePage(browser,url);
