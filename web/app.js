@@ -67,7 +67,7 @@
     const ACTIVITY_MAX_EVENTS=120;
     const ACTIVITY_MAX_BYTES=480*1024;
     const ACTIVITY_AGE_MS=90*24*60*60*1000;
-    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified']);
+    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified']);
     function activityReview(value){
       if(value==null)return null;
       if(typeof value!=='object'||Array.isArray(value)||
@@ -84,6 +84,21 @@
       return !!left&&!!right&&left.description===right.description&&
         left.tags===right.tags&&left.status===right.status&&left.updatedAt===right.updatedAt;
     }
+    function activitySheetUndoSnapshot(change){
+     if(!change||typeof change!=='object'||Array.isArray(change)||
+        !Number.isSafeInteger(change.row)||change.row<2||change.row>100000||
+        !/^[a-zA-Z0-9_-]{10,100}$/.test(String(change.fileId||'')))return false;
+     for(const name of ['before','after']){
+      const fields=change[name];
+      if(!fields||typeof fields!=='object'||Array.isArray(fields))return false;
+      for(const key of ['description','tags','review']){
+       const value=fields[key];
+       if(typeof value!=='string'||value.length>8192||value.startsWith('='))return false;
+      }
+     }
+     return change.after.review==='Reviewed by library owner in Image Vault'&&
+       !!change.after.description.trim();
+    }
     function activityValidEntry(entry,now){
       if(!entry||typeof entry!=='object'||Array.isArray(entry)||
          typeof entry.id!=='string'||!/^[a-f0-9-]{36}$/i.test(entry.id)||
@@ -94,7 +109,9 @@
          (entry.fileId!==''&&!/^[a-zA-Z0-9_-]{10,100}$/.test(entry.fileId))||
          !Number.isSafeInteger(entry.count)||entry.count<0||entry.count>20000||
          entry.before!==undefined&&activityReview(entry.before)===undefined||
-         entry.after!==undefined&&activityReview(entry.after)===undefined)return false;
+         entry.after!==undefined&&activityReview(entry.after)===undefined||
+         entry.sheetChange!==undefined&&(entry.kind!=='sheet-write'||!activitySheetUndoSnapshot(entry.sheetChange))||
+         entry.kind==='sheet-undo'&&entry.fileId==='')return false;
       if(['review-save','review-reset'].includes(entry.kind)){
         if(!entry.fileId||!Object.hasOwn(entry,'after')||!Object.hasOwn(entry,'before'))return false;
         if(entry.kind==='review-save'&&entry.after==null)return false;
@@ -102,6 +119,7 @@
       }else if(entry.before!==undefined||entry.after!==undefined){
         return false;
       }
+      if(entry.sheetChange!==undefined&&(entry.fileId!==entry.sheetChange.fileId||entry.count!==1))return false;
       return true;
     }
     function activityEmpty(account,sheetId){
@@ -152,6 +170,22 @@
         return {ok:false,reason:'This review changed after the recorded action. Undo is blocked to protect newer work.'};
       return {ok:true,reason:'Only this device’s local review note will be restored.'};
     }
+    function activityCanUndoSheet(entry,{account,sheetId,entryAccount,entrySheetId}={}){
+     if(!account||!sheetId||account!==entryAccount||sheetId!==entrySheetId)
+      return {ok:false,reason:'This Sheet edit belongs to a different Google account or inventory.'};
+     if(!entry||entry.kind!=='sheet-write'||entry.status!=='complete'||
+        !activitySheetUndoSnapshot(entry.sheetChange)||entry.fileId!==entry.sheetChange.fileId)
+      return {ok:false,reason:'No verified before-and-after values are available for this Sheet edit.'};
+     return {ok:true,reason:'Preview the live Manifest row before requesting temporary edit permission.'};
+    }
+    function activityMarkSheetUndone(log,id,{account,sheetId}){
+     if(!log||log.account!==account||log.sheetId!==sheetId)
+      throw new Error('Sheet activity belongs to another Google account or inventory.');
+     const entry=log.items.find(e=>e.id===id);
+     if(!activityCanUndoSheet(entry,{account,sheetId,entryAccount:log.account,entrySheetId:log.sheetId}).ok)
+      throw new Error('Only a verified, completed Sheet approval can be marked undone.');
+     return {...log,items:log.items.map(e=>e.id===id?{...e,status:'undone'}:e)};
+    }
     function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
       const categories=['all','review','imports','plans','inventory','writes'];
       const chosen=categories.includes(filter)?filter:'all';
@@ -161,7 +195,7 @@
         if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
         if(chosen==='plans'&&!['rename-plan','rename-clear'].includes(e.kind))return false;
         if(chosen==='inventory'&&e.kind!=='inventory')return false;
-        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified'].includes(e.kind))return false;
+        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified'].includes(e.kind))return false;
         return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
       });
       const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
@@ -169,7 +203,7 @@
       const at=Math.max(1,Math.min(pages,Math.floor(page)||1));
       return {filter:chosen,page:at,pages,count:list.length,items:list.slice((at-1)*size,at*size)};
     }
-    return {ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage};
+    return {ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone};
   })();
   /* GENERATED ACTIVITY LEDGER END */
   /* GENERATED SHEET APPROVAL START */
@@ -240,7 +274,58 @@
      }
      return {requests,includeSpreadsheetInResponse:false};
     }
-    return {SHEET_APPROVAL_LIMIT,SHEET_REVIEW_STATUS,sheetApprovalCandidate,sheetApprovalDraft,sheetApprovalCheck,sheetApprovalRequests};
+    
+    const SHEET_UNDO_FIELDS=['description','tags','review'];
+    function sheetUndoSnapshot(plan){
+     if(!plan||!Number.isSafeInteger(plan.row)||plan.row<2||plan.row>100000||
+        !/^[A-Za-z0-9_-]{10,100}$/.test(String(plan.fileId||'')))
+       throw new Error('Undo needs an exact verified Manifest row and Drive ID.');
+     const before={},after={};
+     for(const key of SHEET_UNDO_FIELDS){
+      if(typeof plan.before?.[key]!=='string'||typeof plan.after?.[key]!=='string')
+       throw new Error('Undo needs every original and applied Manifest value.');
+      const original=plan.before[key],applied=plan.after[key];
+      if(original.startsWith('=')||applied.startsWith('='))
+       throw new Error('Formula-like Sheet values cannot be safely restored from a text-only snapshot.');
+      if(original.length>8192||applied.length>8192)
+       throw new Error('A Manifest field is too long for a bounded undo history.');
+      before[key]=original;after[key]=applied;
+     }
+     if(after.review!==SHEET_REVIEW_STATUS||!after.description.trim())
+      throw new Error('Undo snapshot does not represent a verified owner approval.');
+     return {fileId:plan.fileId,row:plan.row,before,after};
+    }
+    function sheetUndoCheck(change,live){
+     if(!change||!Number.isSafeInteger(change.row)||change.row<2||
+       !/^[A-Za-z0-9_-]{10,100}$/.test(String(change.fileId||'')))
+       return {ok:false,reason:'The original Manifest identity is not available.'};
+     if(!live||live.fileId!==change.fileId)
+       return {ok:false,reason:'Manifest Drive file ID changed. This row cannot be restored.'};
+     for(const key of SHEET_UNDO_FIELDS){
+      if(typeof change.before?.[key]!=='string'||typeof change.after?.[key]!=='string'||
+       typeof live[key]!=='string'||change.before[key].startsWith('=')||
+       change.after[key].startsWith('=')||live[key].startsWith('='))
+       return {ok:false,reason:'A formula-like or invalid '+key+' value blocks this undo.'};
+      if(change.after[key]!==live[key])
+       return {ok:false,reason:'Manifest '+key+' changed since approval. Undo is blocked to protect newer edits.'};
+     }
+     return {ok:true,reason:'Exact Drive ID and all three applied Sheet values still match.'};
+    }
+    function sheetUndoRequests(change,tabID){
+     if(!Number.isSafeInteger(tabID)||tabID<0)
+       throw new Error('Undo requires the live Manifest tab ID.');
+     // Verify snapshot shape and field bounds, and build ONLY text values for M/N/T.
+     // This builder can never emit formulas or modify Drive originals.
+     const safe=sheetUndoSnapshot({...change,after:change.after});
+     return {requests:[[12,'description'],[13,'tags'],[19,'review']].map(([columnIndex,key])=>({
+      updateCells:{
+       start:{sheetId:tabID,rowIndex:safe.row-1,columnIndex},
+       rows:[{values:[{userEnteredValue:{stringValue:safe.before[key]}}]}],
+       fields:'userEnteredValue'
+      }
+     })),includeSpreadsheetInResponse:false};
+    }
+    return {SHEET_APPROVAL_LIMIT,SHEET_REVIEW_STATUS,sheetApprovalCandidate,sheetApprovalDraft,sheetApprovalCheck,sheetApprovalRequests,sheetUndoSnapshot,sheetUndoCheck,sheetUndoRequests};
   })();
   /* GENERATED SHEET APPROVAL END */
   const startingPrefs = readPreferences();
@@ -316,6 +401,8 @@
     sheetWritePage: 1,
     sheetWriteMessage: '',
     sheetWriteBusy: false,
+    sheetUndoPreview: null,
+    sheetUndoMessage: '',
     activityHistory: null,
     activityError: '',
     activityFilter: 'all',
@@ -1673,13 +1760,14 @@
     state.activityHistory=history;
     state.activityError='';
   }
-  function logActivity(kind,{fileId='',count=0,before,after}={}){
+  function logActivity(kind,{fileId='',count=0,before,after,sheetChange}={}){
     const ctx=activityContext();
     if(!ctx||!state.activityHistory)return false;
     const entry={id:crypto.randomUUID(),at:Date.now(),kind,status:'complete',
       fileId:String(fileId||''),count};
     if(before!==undefined)entry.before=before;
     if(after!==undefined)entry.after=after;
+    if(sheetChange!==undefined)entry.sheetChange=sheetChange;
     try{
       storeActivityHistory(activityLedger.activityAppend(state.activityHistory,entry,ctx));
       if(state.view==='activity')renderActivity();
@@ -2813,6 +2901,7 @@
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       const reviewLoadWarning=loadReviewNotes();
       state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWriteMessage='';
+      state.sheetUndoPreview=null;state.sheetUndoMessage='';
       loadActivityHistory();
       loadSavedSearches();
       loadSmartCollections();
@@ -3618,7 +3707,7 @@
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
-    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.sheetUndoPreview=null;state.sheetUndoMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -4880,6 +4969,9 @@
     renderSheetWrite();
     let submitted=false;
     try{
+      // A verified approval gets a separate, bounded undo record for EACH
+      // exact Manifest row. Reject unsafe/oversized snapshots before any POST.
+      const undoSnapshots=plans.map(plan=>sheetApproval.sheetUndoSnapshot(plan));
       const writeToken=await sheetWriteAuthorize();
       if(epoch!==state.authEpoch||!state.connected||state.driveIdentity!==ctx.account||
         state.config.sheetId!==ctx.sheetId||state.view!=='sheet-write')
@@ -4939,9 +5031,16 @@
         }
         state.sheetWriteStaged.delete(plan.fileId);
       }
-      logActivity('sheet-write',{count:plans.length});
+      let recorded=0;
+      for(let i=0;i<plans.length;i++){
+        const plan=plans[i];
+        if(logActivity('sheet-write',{fileId:plan.fileId,count:1,sheetChange:undoSnapshots[i]}))recorded++;
+      }
       state.sheetWritePreview=null;
-      state.sheetWriteMessage='Verified '+plans.length+' approved review(s) in the live Manifest. Drive files and filenames were untouched.';
+      state.sheetWriteMessage='Verified '+plans.length+' approved review(s) in the live Manifest. '+
+        (recorded===plans.length?'Each row has a private, conflict-checked Sheet undo record.':
+         'WARNING: '+(plans.length-recorded)+' undo record(s) could not be saved locally. Export your data before closing.')+
+        ' Drive originals remain untouched.';
       updateReviewCounts();
     }catch(error){
       if(epoch===state.authEpoch){
@@ -4966,6 +5065,8 @@
       'rename-clear':'Rename staging cleared',
       'undo-review':'Local review change reversed',
       'sheet-write':'Approved Sheet reviews verified',
+      'sheet-undo':'Approved Sheet review restored',
+      'sheet-undo-unverified':'Sheet undo outcome requires manual check',
       'sheet-write-unverified':'Sheet write requires manual verification'
     }[kind]||'Local activity';
   }
@@ -4977,6 +5078,19 @@
     });
     state.activityPage=page.page;
     const ctx=activityContext();
+    const currentUndo=state.sheetUndoPreview;
+    $('activitySheetUndoPanel').hidden=!currentUndo;
+    $('activitySheetUndoStatus').textContent=state.sheetUndoMessage;
+    $('activitySheetUndoApply').disabled=state.sheetWriteBusy||!active||!currentUndo;
+    if(currentUndo){
+      const change=currentUndo.change;
+      $('activitySheetUndoApplied').textContent=JSON.stringify({
+        fileId:change.fileId,row:change.row,...change.after
+      },null,2);
+      $('activitySheetUndoOriginal').textContent=JSON.stringify({
+        fileId:change.fileId,row:change.row,...change.before
+      },null,2);
+    }
     const undoable=active?history.items.filter(entry=>activityLedger.activityCanUndo(
       entry,state.reviewEdits.get(entry.fileId)||null,{
         ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
@@ -5012,12 +5126,15 @@
       const guard=activityLedger.activityCanUndo(entry,current,{
         ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
       });
+      const remoteGuard=activityLedger.activityCanUndoSheet(entry,{
+        ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+      });
       const media=byId.get(entry.fileId);
       const label=media?media.name:(entry.fileId?'Media not in current inventory':'');
       const type=['review-save','review-reset','undo-review'].includes(entry.kind)?'LOCAL REVIEW':
         ['review-import','review-backup'].includes(entry.kind)?'REVIEW IMPORT':
         ['rename-plan','rename-clear'].includes(entry.kind)?'FILENAME PLANNING':
-        ['sheet-write','sheet-write-unverified'].includes(entry.kind)?'SHEET APPROVAL':'INVENTORY READ';
+        ['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified'].includes(entry.kind)?'SHEET APPROVAL':'INVENTORY READ';
       const count=entry.count>1?' · '+entry.count+' records':'';
       const date=new Date(entry.at).toLocaleString();
       const status=entry.status==='undone'?' · already undone':
@@ -5030,8 +5147,145 @@
         (label?'<p>'+escapeHTML(label)+'</p>':'')+
         '</div>'+
         (guard.ok?'<button class="btn outline" type="button" data-activity-undo="'+escapeHTML(entry.id)+'">Undo local review</button>':'')+
+        (remoteGuard.ok?'<button class="btn outline" type="button" data-sheet-undo-preview="'+escapeHTML(entry.id)+'">Preview Sheet undo</button>':'')+
         '</article>';
     }).join('');
+  }
+
+  // Remote Manifest undo is a separate, explicit, row-at-a-time operation.
+  // Old aggregate-only activity events have no snapshots and are NOT undoable.
+  async function sheetUndoPreviewEntry(id){
+    if(state.sheetWriteBusy||!state.connected||!state.activityHistory)return;
+    const ctx=activityContext(),history=state.activityHistory;
+    const entry=history.items.find(e=>e.id===id);
+    const allowed=activityLedger.activityCanUndoSheet(entry,{
+      ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+    });
+    state.sheetUndoPreview=null;
+    if(!allowed.ok){state.sheetUndoMessage=allowed.reason;renderActivity();return;}
+    const change=entry.sheetChange;
+    const item=state.images.find(x=>!x.demo&&x.id===change.fileId);
+    if(!item||item.manifestRow!==change.row){
+      state.sheetUndoMessage='The indexed Manifest row mapping changed. Restore is blocked.';
+      renderActivity();return;
+    }
+    const epoch=state.authEpoch;
+    state.sheetUndoMessage='Read-only preflight: checking exact current Manifest values…';
+    renderActivity();
+    try{
+      const live=await sheetWriteReadRow(change.row,state.accessToken);
+      if(epoch!==state.authEpoch||!state.connected||state.driveIdentity!==ctx.account||
+         state.config.sheetId!==ctx.sheetId)return;
+      const check=sheetApproval.sheetUndoCheck(change,live);
+      if(!check.ok)throw new Error(check.reason);
+      state.sheetUndoPreview={activityId:id,change,account:ctx.account,sheetId:ctx.sheetId};
+      state.sheetUndoMessage='This individual row still matches the verified approval. '+
+        'Preview the exact original values. No Sheet changes have been submitted.';
+    }catch(error){
+      state.sheetUndoMessage='Undo blocked: '+(error.message||'Cannot verify the live Manifest row.');
+    }
+    renderActivity();
+  }
+  async function sheetUndoApply(){
+    const preview=state.sheetUndoPreview;
+    if(!preview||state.sheetWriteBusy||!state.connected||state.view!=='activity')return;
+    const ctx=activityContext(),epoch=state.authEpoch;
+    if(!ctx||ctx.account!==preview.account||ctx.sheetId!==preview.sheetId)return;
+    const entry=state.activityHistory?.items.find(e=>e.id===preview.activityId);
+    const current=activityLedger.activityCanUndoSheet(entry,{
+      ...ctx,entryAccount:state.activityHistory.account,entrySheetId:state.activityHistory.sheetId
+    });
+    if(!current.ok||entry.sheetChange!==preview.change){
+      state.sheetUndoPreview=null;state.sheetUndoMessage='Undo record changed. Preview the live row again.';
+      renderActivity();return;
+    }
+    if(!confirm('Request a TEMPORARY Google Sheets edit grant to restore the previous values of ONE verified Manifest row? '+
+      'This is a real Sheet write, not an app-version rollback. Other rows will remain unchanged.'))return;
+    state.sheetWriteBusy=true;
+    state.sheetUndoMessage='Waiting for separate Google Sheets edit authorization…';
+    renderActivity();
+    let submitted=false,verified=false;
+    const change=preview.change;
+    try{
+      const writeToken=await sheetWriteAuthorize();
+      if(epoch!==state.authEpoch||!state.connected||state.view!=='activity'||
+        state.driveIdentity!==ctx.account||state.config.sheetId!==ctx.sheetId)
+        throw new Error('The account or workspace changed before undo. No write was submitted.');
+      const identity=await fetch('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',{
+        method:'GET',mode:'cors',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',
+        headers:{Authorization:'Bearer '+writeToken}
+      });
+      if(!identity.ok||(await identity.json()).user?.permissionId!==ctx.account)
+        throw new Error('The temporary write token does not match this Drive account.');
+      const item=state.images.find(x=>!x.demo&&x.id===change.fileId);
+      if(!item||item.manifestRow!==change.row)
+        throw new Error('The source Manifest row mapping changed.');
+      const latest=state.activityHistory?.items.find(e=>e.id===preview.activityId);
+      const eligible=activityLedger.activityCanUndoSheet(latest,{
+        ...ctx,entryAccount:state.activityHistory.account,entrySheetId:state.activityHistory.sheetId
+      });
+      if(!eligible.ok||latest.sheetChange!==change)
+        throw new Error('The verified approval history changed. Preview again.');
+      const tabID=await sheetWriteManifestID(writeToken);
+      const live=await sheetWriteReadRow(change.row,writeToken);
+      const check=sheetApproval.sheetUndoCheck(change,live);
+      if(!check.ok)throw new Error(check.reason);
+      if(!confirm('FINAL CONFIRMATION: restore original Manifest M/N/T values for Drive ID '+
+        change.fileId+' on row '+change.row+'? Concurrent Sheet edits cannot be prevented atomically.'))
+        throw new Error('Final confirmation cancelled. No undo was submitted.');
+      // Re-read after the user confirmation to limit, not eliminate, TOCTOU.
+      const fresh=await sheetWriteReadRow(change.row,writeToken);
+      const guard=sheetApproval.sheetUndoCheck(change,fresh);
+      if(!guard.ok)throw new Error('Changed during confirmation: '+guard.reason);
+      if(epoch!==state.authEpoch||!state.connected||state.view!=='activity'||
+        state.driveIdentity!==ctx.account||state.config.sheetId!==ctx.sheetId)
+        throw new Error('Account or workspace changed after confirmation.');
+      const payload=sheetApproval.sheetUndoRequests(change,tabID);
+      const url='https://sheets.googleapis.com/v4/spreadsheets/'+
+        encodeURIComponent(ctx.sheetId)+':batchUpdate';
+      // Once submitted, an ambiguous API response is NOT safe to auto-retry.
+      submitted=true;
+      const result=await sheetWriteFetch(url,writeToken,{method:'POST',payload});
+      if(!Array.isArray(result.replies)||result.replies.length!==payload.requests.length)
+        throw new Error('Google did not confirm all three updated cells.');
+      const applied=await sheetWriteReadRow(change.row,writeToken);
+      if(applied.fileId!==change.fileId||
+        ['description','tags','review'].some(k=>applied[k]!==change.before[k]))
+        throw new Error('The read-back differs from the original values. Inspect the Sheet manually.');
+      verified=true;
+      if(epoch!==state.authEpoch||!state.connected)return;
+      for(const arr of [state.images,state.inventory]){
+        const item=arr.find(x=>x.id===change.fileId);
+        if(item){
+          item.description=change.before.description;
+          item.tags=change.before.tags;
+          item.review=change.before.review;
+        }
+      }
+      let journalSaved=true;
+      try{
+        const history=state.activityHistory;
+        const marked=activityLedger.activityMarkSheetUndone(history,preview.activityId,ctx);
+        const event={id:crypto.randomUUID(),at:Date.now(),kind:'sheet-undo',
+          status:'complete',fileId:change.fileId,count:1};
+        storeActivityHistory(activityLedger.activityAppend(marked,event,ctx));
+      }catch{journalSaved=false;}
+      state.sheetUndoPreview=null;
+      state.sheetUndoMessage=journalSaved?
+        'Verified: original Manifest M/N/T values restored for this one row. Other rows and Drive originals unchanged.':
+        'Manifest undo was verified, but this device could not save the undo history. Check or export your activity data.';
+      updateReviewCounts();
+    }catch(error){
+      if(epoch===state.authEpoch){
+        state.sheetUndoMessage=(submitted?
+          'UNDO MAY HAVE OCCURRED; read-back was incomplete. Inspect the live Manifest; do not retry blindly: ':
+          'Nothing was submitted by this attempt: ')+(error.message||'Unexpected error.');
+        if(submitted&&!verified)logActivity('sheet-undo-unverified',{fileId:change.fileId,count:1});
+      }
+    }finally{
+      state.sheetWriteBusy=false;
+      if(state.view==='activity')renderActivity();
+    }
   }
   function undoActivityReview(id){
     if(!state.connected||!state.activityHistory)return;
@@ -6003,9 +6257,14 @@
     $('activityPrev').onclick=()=>{state.activityPage=Math.max(1,state.activityPage-1);renderActivity();};
     $('activityNext').onclick=()=>{state.activityPage++;renderActivity();};
     $('activityList').onclick=event=>{
+      const remote=event.target.closest('button[data-sheet-undo-preview]');
+      if(remote&&$('activityList').contains(remote)){
+        void sheetUndoPreviewEntry(remote.dataset.sheetUndoPreview);return;
+      }
       const button=event.target.closest('button[data-activity-undo]');
       if(button&&$('activityList').contains(button))undoActivityReview(button.dataset.activityUndo);
     };
+    $('activitySheetUndoApply').onclick=()=>void sheetUndoApply();
     $('activityExport').onclick=exportActivityHistory;
     $('activityClear').onclick=clearActivityHistory;
     $('activityOpenInbox').onclick=()=>displayPage('review-inbox');

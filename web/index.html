@@ -449,7 +449,7 @@
           </div>
           <div class="activity-metrics" aria-label="Private activity counts">
             <div><span>History entries</span><strong id="activityTotal">—</strong><small>At most 120 retained</small></div>
-            <div><span>Local edits eligible for undo</span><strong id="activityUndoable">—</strong><small>Checked again before restoring</small></div>
+            <div><span>Local edits eligible for undo</span><strong id="activityUndoable">—</strong><small>Local notes only; remote Sheet rows are previewed separately</small></div>
             <div><span>Drive originals renamed</span><strong>0</strong><small>Sheet reviews require separate authorization</small></div>
           </div>
           <div class="activity-toolbar">
@@ -472,13 +472,23 @@
             </div>
           </div>
           <p class="activity-status" role="status" aria-live="polite" id="activityStatus">Connect Drive to see activity from this device.</p>
+          <p class="activity-status" role="status" aria-live="polite" id="activitySheetUndoStatus"></p>
+          <section id="activitySheetUndoPanel" class="activity-boundary sheet-write-panel" aria-label="Verified Sheet undo preview" hidden>
+            <h2>Restore one verified Manifest row</h2>
+            <p>Read-only live comparison passed. Review the exact last-applied and original values. An undo writes only columns M, N and T, and requires temporary Google edit permission plus two confirmations. Other approved rows are unaffected.</p>
+            <div class="sheet-write-diff">
+              <div><strong>Most recently applied</strong><pre id="activitySheetUndoApplied"></pre></div>
+              <div><strong>Restore these original values</strong><pre id="activitySheetUndoOriginal"></pre></div>
+            </div>
+            <button type="button" class="btn primary" id="activitySheetUndoApply">Authorize &amp; restore this row</button>
+          </section>
           <div id="activityList" class="activity-list" aria-label="Private activity history"></div>
           <div class="activity-pages">
             <button id="activityPrev" class="btn outline" type="button">Previous</button>
             <span id="activityPage" aria-live="polite">—</span>
             <button id="activityNext" class="btn outline" type="button">Next</button>
           </div>
-          <p class="privacy-note">History includes local review-note snapshots and records verified or uncertain Sheet approval outcomes. Exports can contain descriptions, tags and Drive file IDs, so store them securely. No access token, client secret, password or photo bytes are included. Clearing history removes only local undo records, never changes Sheet or Drive data.</p>
+          <p class="privacy-note">New verified Sheet approvals also keep bounded, per-row original and applied M/N/T values for separately authorized conflict-checked undo. Older count-only entries cannot be undone, and there is no atomic compare-and-swap against other Sheet editors. History includes local review-note snapshots and records verified or uncertain Sheet approval outcomes. Exports can contain descriptions, tags and Drive file IDs, so store them securely. No access token, client secret, password or photo bytes are included. Clearing history removes only local undo records, never changes Sheet or Drive data.</p>
         </section>
         <section id="sheetWriteView" class="view hidden" aria-labelledby="sheetWriteTitle">
           <div class="gallery-heading"><div>
@@ -525,7 +535,7 @@
             </div>
             <p class="activity-status" id="sheetWriteApplyStatus" role="status" aria-live="polite"></p>
           </div>
-          <p class="privacy-note">Only Manifest columns M (review description), N (tags), and T (review status) are eligible. Every selected row must still match its original Drive ID and staged before-values immediately before submission. No bulk auto-sync, auto-approval, or hidden background writes. Undo for Sheet edits is not enabled yet; your app-version rollback does not reverse Google Sheet changes.</p>
+          <p class="privacy-note">Only Manifest columns M (review description), N (tags), and T (review status) are eligible. Every selected row must still match its original Drive ID and staged before-values immediately before submission. No bulk auto-sync, auto-approval, or hidden background writes. Newly verified Sheet approvals get individual, conflict-checked undo previews in Activity &amp; Undo. Each restore needs new temporary authorization and two confirmations, and app-version rollback never reverses Sheet edits. Older approvals without original values cannot be undone.</p>
         </section>
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
           <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original spreadsheet snapshot with current Drive files. New subfolders under the verified Memes and Jacks Photos roots are discovered automatically.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Discover &amp; verify folders</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
