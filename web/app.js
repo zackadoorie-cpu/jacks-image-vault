@@ -3342,7 +3342,7 @@
   }
   async function readSpreadsheetSnapshot() {
       const id = encodeURIComponent(state.config.sheetId);
-      const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G", "'Manifest'!T:T", "'Manifest'!AC:AC"];
+      const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G", "'Manifest'!T:T", "'Manifest'!AC:AC", "'Manifest'!R:R", "'Manifest'!AD:AD"];
       const params = ranges.map(x => `ranges=${encodeURIComponent(x)}`).join('&');
       const data = await googleGet(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchGet?${params}&valueRenderOption=FORMATTED_VALUE`);
       const index = data.valueRanges?.[0]?.values || [];
@@ -3350,6 +3350,8 @@
       const folders = data.valueRanges?.[2]?.values || [];
       const reviewStatuses = data.valueRanges?.[3]?.values || [];
       const analysisMethods = data.valueRanges?.[4]?.values || [];
+      const proposedFilenames = data.valueRanges?.[5]?.values || [];
+      const currentFilenames = data.valueRanges?.[6]?.values || [];
       if ((index[0] || [])[0] !== 'Collection' || (manifest[0] || [])[0] !== 'Collection' ||
           reviewStatuses[0]?.[0] !== 'Review status' || analysisMethods[0]?.[0] !== 'Analysis method')
         throw new Error('This inventory needs Search Index and Manifest visual-review columns. No existing data was changed.');
@@ -3360,6 +3362,8 @@
           url:r[4]||'',mime:r[5]||'',size:Number(r[6]||0),
           review:reviewStatuses[row]?.[0]||'',analysisMethod:analysisMethods[row]?.[0]||'',
           manifestRow:row+1,manifestOriginalName:r[2]||'',
+          manifestProposedName:proposedFilenames[row]?.[0]||'',
+          manifestCurrentName:currentFilenames[row]?.[0]||'',
           filenameDate:r[9]||'',filenameDateEvidence:r[10]||'',
           driveCreatedAt:r[7]||'',driveModifiedAt:r[8]||''
         });
@@ -3373,7 +3377,8 @@
         found.add(id);
         images.push(mediaContract.normalizeMediaRecord({id,collection:r[0]||'',folder:r[1]||'',name:r[2]||'Untitled image',description:r[4]||'',tags:r[5]||'',captureDate:r[7]||'',filenameDate:source.filenameDate,filenameDateEvidence:source.filenameDateEvidence,
         driveCreatedAt:source.driveCreatedAt,driveModifiedAt:source.driveModifiedAt,review:source.review||r[9]||'',analysisMethod:source.analysisMethod,confidence:r[11]||'',category:r[12]||'',mime:source.mime,size:source.size,url:linkToDrive({id}),demo:false,
-          manifestRow:source.manifestRow,indexRow:ix+1,manifestOriginalName:source.manifestOriginalName}));
+          manifestRow:source.manifestRow,indexRow:ix+1,manifestOriginalName:source.manifestOriginalName,
+          manifestProposedName:source.manifestProposedName,manifestCurrentName:source.manifestCurrentName}));
       }
       if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
       const baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
@@ -4376,6 +4381,13 @@
         source:'Original filename',suggested:false};
     }
     // This is only an on-screen title. It NEVER changes a Drive filename.
+    // A reviewed, Windows-safe Manifest R proposal can be shown as a title.
+    const sheetName=String(item?.manifestProposedName||'');
+    if(sheetName&&['reviewed','source-reviewed'].includes(reviewStage(item))&&
+       renameDeskEngine.renameDeskSafeName(sheetName,filename).ok){
+      return {title:sheetName.replace(/\.[^.]+$/,''),
+        source:'Proposed filename from Manifest!R · Drive unchanged',suggested:true};
+    }
     // Existing Sheet or user-local visual notes are the sole content source.
     const description=String(effectiveDescription(item)||'').trim();
     if(!description)return {title:filename,source:'Original filename · no visual summary',suggested:false};
@@ -5118,8 +5130,12 @@
         const row=renameDeskEngine.renameDeskRow(item,info,reviewStage(item),
           evidence.label+' · '+evidence.origin);
         if(!row)return null;
+        const sheetName=String(item.manifestProposedName||'');
+        const useSheetName=row.eligible&&
+          renameDeskEngine.renameDeskSafeName(sheetName,item.name).ok;
         return {...row,proposed:state.renameDrafts.has(item.id)?
-          state.renameDrafts.get(item.id):row.proposed};
+          state.renameDrafts.get(item.id):(useSheetName?sheetName:row.proposed),
+          evidence:row.evidence+(useSheetName?' · Manifest!R proposal (not a Drive filename)':'')};
       }).filter(Boolean);
   }
   function renameDeskVisible(rows){
