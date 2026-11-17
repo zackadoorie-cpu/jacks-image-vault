@@ -5563,6 +5563,75 @@
     displayPage('filename-review');renderFilenameReview();
     return true;
   }
+
+  // Phase 10G: filename proposals are NOT visual review batches.
+  // Imported plans are private memory-only queues for explicit one-file workflows.
+  function isFilenamePlanData(data){
+    return !!data&&typeof data==='object'&&(
+      data.schema===filenameReview.FILENAME_REVIEW_SCHEMA&&data.kind==='review-only-filename-plan'||
+      data.schema==='image-vault-rename-plan-v1'&&data.kind==='approval-review-only');
+  }
+  async function importFilenamePlanRaw(raw,{fromVisualImporter=false}={}){
+    if(!state.connected||!activityContext())
+      throw new Error('Connect the matching Google account and spreadsheet first.');
+    if(state.renameBusy||state.sheetWriteBusy)
+      throw new Error('Finish the existing Drive or Sheet approval first.');
+    if(typeof raw!=='string'||raw.length>200000)
+      throw new Error('Filename plans must be at most 200 KB.');
+    let data;try{data=JSON.parse(raw);}catch{throw new Error('Filename plan is not valid JSON.');}
+    const ctx=activityContext(),model=filenameReviewModel();
+    const result=filenameReview.filenameReviewImportPlan(data,model,state.images,ctx);
+    if(state.filenameStaged.size)
+      throw new Error('Another filename is staged. Clear local staging before importing a plan.');
+    if(!confirm('Import '+result.entries.length+' filename proposal(s) into a PRIVATE, one-at-a-time queue? '+
+      'No Google Drive files or Sheets will be edited. Each rename and Sheet reconciliation still needs explicit approval.'))
+      return false;
+    if(!activityContext()||JSON.stringify(activityContext())!==JSON.stringify(ctx))
+      throw new Error('Your Google account or inventory changed during import.');
+    filenameReview.filenameReviewImportPlan(data,filenameReviewModel(),state.images,ctx);
+    state.filenameImportedQueue=result.entries;
+    state.renamePrepared=null;
+    state.filenameFilter='all';state.filenameQuery='';state.filenamePage=1;
+    state.filenameMessage=(fromVisualImporter?'Filename plan detected; redirected from visual review import. ':'')+
+      'Imported '+result.entries.length+' proposals as a local queue. '+
+      'Use Prepare next imported filename. No Drive or Sheet records changed.';
+    displayPage('filename-review');renderFilenameReview();
+    return true;
+  }
+  async function importFilenamePlanFile(file,options={}){
+    if(!file)return false;
+    if(file.size>200000)throw new Error('Filename plan exceeds 200 KB.');
+    return importFilenamePlanRaw(await file.text(),options);
+  }
+  function filenameReviewNextImported(){
+    if(!state.connected||state.renameBusy||!state.filenameImportedQueue.length)return false;
+    if(state.filenameStaged.size){
+      state.filenameMessage='An item is already staged. Finish or unstage it before preparing the next import.';
+      renderFilenameReview();return false;
+    }
+    const item=state.filenameImportedQueue[0],model=filenameReviewModel();
+    const row=model.rows.find(x=>x.fileId===item.fileId);
+    const current=state.images.find(x=>x.id===item.fileId&&!x.demo);
+    if(!row||!current||!row.eligible||
+       !['reviewed','source-reviewed'].includes(row.stage)||
+       row.row!==item.manifestRow||row.oldName!==item.oldName||
+       current.name!==item.oldName||current.folder!==item.folder||current.mime!==item.mime||
+       !filenameReview.filenameReviewValidate(row,item.proposed,state.images).ok){
+      state.filenameMessage='The next imported name is stale or conflicts with the loaded library. '+
+        'Refresh and re-export the plan; no item was staged or renamed.';
+      renderFilenameReview();return false;
+    }
+    state.filenameDrafts.set(item.fileId,item.proposed);
+    state.filenameStaged.add(item.fileId);
+    state.renamePrepared=null;state.filenameFilter='all';
+    state.filenameQuery=item.oldName;state.filenamePage=1;
+    state.filenameMessage='Prepared 1 of '+state.filenameImportedQueue.length+' remaining imported names: '+
+      item.oldName+' → '+item.proposed+
+      '. Inspect it and click Verify one staged Drive rename. No file has changed.';
+    displayPage('filename-review');renderFilenameReview();
+    return true;
+  }
+
   function renderFilenameReview(){
     const model=filenameReviewModel();
     const page=filenameReview.filenameReviewPage(model,{
@@ -5575,6 +5644,11 @@
     for(const [element,key] of Object.entries(keys))
       $(element).textContent=model.connected?format(model.counts[key]):'—';
     $('filenameStaged').textContent=model.connected?format(state.filenameStaged.size):'—';
+    $('filenameNextImported').disabled=state.renameBusy||!model.connected||
+      !state.filenameImportedQueue.length;
+    $('filenameImportStatus').textContent=state.filenameImportedQueue.length?
+      state.filenameImportedQueue.length+' imported filenames remain (one approved rename at a time).':
+      'No imported plan. Manifest R suggestions can be used directly without JSON.';
     $('filenameNextSheet').disabled=state.renameBusy||!model.connected||
       !model.rows.some(row=>row.sheetProposal&&row.status==='ready');
     $('filenameKinds').textContent=model.connected?
@@ -7802,6 +7876,14 @@
       if(b&&$('filenameReviewList').contains(b)&&state.connected)openImage(b.dataset.filenameOpen,b);
     });
     $('filenameReviewExport').onclick=filenameReviewExportSelected;
+    $('filenamePlanImport').onclick=()=>$('filenamePlanImportFile').click();
+    $('filenamePlanImportFile').onchange=async event=>{
+      const file=event.target.files?.[0];if(!file)return;
+      try{await importFilenamePlanFile(file);}
+      catch(error){state.filenameMessage='Filename plan import failed: '+error.message;renderFilenameReview();}
+      finally{event.target.value='';}
+    };
+    $('filenameNextImported').onclick=filenameReviewNextImported;
     $('filenameNextSheet').onclick=()=>filenameReviewFocusSheet();
     $('filenameOpenReconcile').onclick=()=>displayPage('sheet-write');
     $('filenameRenamePreview').onclick=()=>void driveRenamePreview();
@@ -8073,8 +8155,14 @@
     $('reviewBatchImportFile').onchange=async event=>{
       const file=event.target.files?.[0];
       if(!file)return;
-      try{await importChatGPTReviewBatch(file);}
-      catch(error){alertUser('Review batch import failed: '+error.message,'error');}
+      try{
+        if(file.size>MAX_REVIEW_BYTES)throw new Error('JSON import exceeds the local size limit.');
+        const raw=await file.text();let parsed;
+        try{parsed=JSON.parse(raw);}catch{throw new Error('Import JSON is invalid.');}
+        if(isFilenamePlanData(parsed))await importFilenamePlanRaw(raw,{fromVisualImporter:true});
+        else await importChatGPTReviewBatch(file);
+      }catch(error){alertUser('JSON import failed: '+error.message+
+        ' Filename plans belong in Filename Review; visual batches contain inspected descriptions.','error');}
       finally{event.target.value='';}
     };
     $('reviewImport').onclick=()=>$('reviewImportFile').click();
