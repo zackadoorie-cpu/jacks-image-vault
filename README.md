@@ -1,5 +1,25 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 10D — Verified filename index reconciliation (v2.1.31)
+
+A new independent panel in **Sheet Review Approvals** locates recent
+**verified** Drive filename changes in your account-bound private Activity
+history. It previews the exact Drive filename plus the old filename in
+**Manifest!C** and **Search Index!C**, and verifies both rows' Drive
+identities (**Manifest!D**, **Search Index!K**) against the real Drive file.
+On one individually approved item, it writes *only* those two column-C
+cells in a single Sheet update after separate temporary Google Sheets
+permission and two user confirmations. A post-write read checks both
+cells and the Drive file, while an uncertain write is never retried
+automatically. Newly staged filenames alone cannot trigger a Sheet write.
+
+The workflow is restricted to one file at a time, uses the already
+working temporary Sheets authorization, and leaves the Windows encrypted
+read-only sign-in alone. See
+[Phase 10D safety details](docs/phase10d-filename-reconciliation.md).
+It neither renames Drive files nor modifies reviewed descriptions, tags,
+statuses, photos or video contents.
+
 ## Phase 10C — Safe Rename Undo (planned v2.1.30)
 
 **Activity & Undo** now offers **Preview Drive rename undo** for a verified
