@@ -451,6 +451,38 @@ async function main(){
       'export cannot call Google write endpoints');
     await p.locator('#filenameClear').click();
     assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'0');
+    // User accidentally chooses a saved filename-plan JSON via visual-review
+    // importer. It must be correctly routed into the filename queue, not rejected.
+    p.once('dialog',dialog=>dialog.accept());
+    await p.locator('#reviewBatchImportFile').setInputFiles({
+      name:'staged-filenames.json',mimeType:'application/json',
+      buffer:Buffer.from(JSON.stringify(namePlan))
+    });
+    await p.waitForFunction(()=>document.querySelector('#filenameImportStatus')?.textContent.includes('1 imported filenames remain'));
+    assert.equal(await p.locator('#filenameReviewView').isVisible(),true);
+    assert.match(await p.locator('#filenameReviewMessage').innerText(),/redirected from visual review import/);
+    assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'0');
+    await p.locator('#filenameNextImported').click();
+    assert.equal(await p.locator('[data-filename-stage="'+id+'"]').isChecked(),true);
+    assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'1');
+    assert.equal(connected.requests.every(x=>x==='GET'),true,'Importing filename JSON must never perform writes');
+    await p.locator('#filenameClear').click();
+    assert.match(await p.locator('#filenameImportStatus').innerText(),/No imported plan/);
+    const wrongPlan={...namePlan,sourceAccount:'wrong_google_account_1234'};
+    await p.locator('#filenamePlanImportFile').setInputFiles({
+      name:'wrong-account.json',mimeType:'application/json',
+      buffer:Buffer.from(JSON.stringify(wrongPlan))
+    });
+    await p.waitForFunction(()=>document.querySelector('#filenameReviewMessage')?.textContent.includes('Filename plan import failed'));
+    assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'0');
+    assert.equal(connected.requests.every(x=>x==='GET'),true);
+    p.once('dialog',dialog=>dialog.accept());
+    await p.locator('#filenamePlanImportFile').setInputFiles({
+      name:'reviewed-plan.json',mimeType:'application/json',
+      buffer:Buffer.from(JSON.stringify(namePlan))
+    });
+    await p.waitForFunction(()=>document.querySelector('#filenameImportStatus')?.textContent.includes('1 imported filenames remain'));
+    await p.locator('#filenameClear').click();
     await p.locator('#filenameReviewSearch').fill('');
     await p.locator('#filenameReviewFilter').selectOption('sheet');
     assert.equal(await p.locator('#filenameReviewList .filename-card').count(),1);
