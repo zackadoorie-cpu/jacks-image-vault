@@ -1,5 +1,25 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 10C — Safe Rename Undo (planned v2.1.30)
+
+**Activity & Undo** now offers **Preview Drive rename undo** for a verified
+one-file Drive rename in the private, account-and-Sheet-bound history.
+A read-only preflight checks the exact recorded current name, file ID,
+parent folder, MIME, edit permission, version and all sibling filenames
+for a collision with the original name. A separate temporary, restricted
+Google `drive.metadata` authorization and two confirmations are required
+before a single name-only PATCH, followed by independent read-back.
+
+Older or uncertain changes to the same file block replay of previous
+history. Verified undo marks the original rename undone and records its
+own activity entry. The Google Sheet is never modified. No token is
+persisted or reused for the Windows Stay Signed In session. The native
+OAuth broker from the **full v2.1.29 Windows Desktop Bundle** remains
+required; this stage adds no new native authorization endpoint.
+
+Read [the Phase 10C safety notes](docs/phase10c-safe-rename-undo.md)
+before trying a real undo. No real user's Google files are modified by tests.
+
 ## Phase 10B — Explicit Google Drive rename (v2.1.29)
 
 Filename Review now offers a separate, one-file-at-a-time **Verify one
