@@ -246,6 +246,149 @@
     return {ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone,activityDriveRenameSnapshot,activityCanUndoDrive,activityMarkDriveUndone};
   })();
   /* GENERATED ACTIVITY LEDGER END */
+  /* GENERATED SMART RENAME QUEUE START */
+  const smartRenameQueue=(()=>{
+    const SMART_RENAME_SCHEMA=1;
+    const SMART_RENAME_LIMIT=25;
+    const SMART_RENAME_HISTORY_LIMIT=100;
+    const SMART_RENAME_MAX_BYTES=80*1024;
+    const SMART_RENAME_AGE_MS=90*24*60*60*1000;
+    const SMART_RENAME_STATES=Object.freeze([
+     'ready','drive-submitting','drive-verified','drive-uncertain',
+     'sheet-submitting','synced','sheet-uncertain','blocked',
+     'undo-drive-submitting','undo-drive-verified','undo-drive-uncertain',
+     'undo-sheet-submitting','undone','undo-sheet-uncertain'
+    ]);
+    const SMART_RENAME_TRANSITIONS={
+     ready:['drive-submitting','blocked'],
+     'drive-submitting':['drive-verified','drive-uncertain'],
+     'drive-verified':['sheet-submitting','synced','blocked'],
+     'sheet-submitting':['synced','sheet-uncertain'],
+     synced:['undo-drive-submitting'],
+     'undo-drive-submitting':['undo-drive-verified','undo-drive-uncertain'],
+     'undo-drive-verified':['undo-sheet-submitting','undone','blocked'],
+     'undo-sheet-submitting':['undone','undo-sheet-uncertain'],
+     blocked:['drive-submitting','sheet-submitting','undo-sheet-submitting']
+    };
+    function smartRenameID(s){return typeof s==='string'&&/^[A-Za-z0-9_-]{10,100}$/.test(s);}
+    function smartRenameValidName(s){
+     return typeof s==='string'&&!!s&&s.length<=96&&s.trim()===s&&
+      !/[\\/:*?"<>|\u0000-\u001f\u007f]/.test(s)&&!/[ .]$/.test(s);
+    }
+    function smartRenameBuild(model,media,selected,drafts,folders,{account,sheetId}={}){
+     if(!model?.connected||model.account!==account||model.sheetId!==sheetId||
+        !(selected instanceof Set)||selected.size<1||selected.size>SMART_RENAME_LIMIT)
+      throw new Error('Select 1–25 reviewed Manifest R proposals for the connected account and Sheet.');
+     const items=Array.isArray(media)?media:[],rows=new Map(model.rows.map(x=>[x.fileId,x]));
+     const edits=drafts instanceof Map?drafts:new Map(),dirs=Array.isArray(folders)?folders:[];
+     const proposals=[],seen=new Set();
+     for(const id of selected){
+      if(!smartRenameID(id)||seen.has(id))throw new Error('Duplicate or invalid Drive ID in selection.');
+      seen.add(id);
+      const row=rows.get(id),item=items.find(x=>x.id===id&&!x.demo);
+      const folder=dirs.find(x=>x.path===row?.folder&&!x.missing);
+      if(!row||!item||row.status!=='ready'||!row.eligible||!row.sheetProposal||
+         !['reviewed','source-reviewed'].includes(row.stage)||
+         !Number.isSafeInteger(row.row)||row.row<2||
+         !Number.isSafeInteger(item.indexRow)||item.indexRow<2||
+         row.row!==item.manifestRow||row.oldName!==item.name||
+         item.manifestOriginalName!==row.oldName||
+         !!item.manifestCurrentName&&item.manifestCurrentName!==row.oldName||
+         row.mime!==item.mime||row.folder!==item.folder||item.newInDrive||
+         !smartRenameID(folder?.id))
+       throw new Error('Selected filename lacks verified Manifest R review, unchanged source/index rows or parent folder: '+String(row?.oldName||id));
+      const proposal=edits.get(id)??row.proposed;
+      const oldExt=/\.[A-Za-z0-9]{2,6}$/.exec(row.oldName)?.[0].toLowerCase();
+      const newExt=/\.[A-Za-z0-9]{2,6}$/.exec(proposal)?.[0].toLowerCase();
+      if(!smartRenameValidName(proposal)||!oldExt||newExt!==oldExt||
+         proposal===row.oldName)
+       throw new Error('Invalid or changed-extension filename proposal for '+row.oldName);
+      const proposedKey=row.folder.normalize('NFKC').toLocaleLowerCase('en-US')+'\0'+proposal.normalize('NFKC').toLocaleLowerCase('en-US');
+      if(proposals.some(x=>x.key===proposedKey)||items.some(x=>x.id!==id&&
+          x.folder===row.folder&&typeof x.name==='string'&&
+          x.name.normalize('NFKC').toLocaleLowerCase('en-US')===proposal.normalize('NFKC').toLocaleLowerCase('en-US')))
+       throw new Error('Two proposals or an existing library file would have the same name in '+row.folder);
+      proposals.push({fileId:id,oldName:row.oldName,newName:proposal,
+        folder:row.folder,folderId:folder.id,mimeType:row.mime,
+        manifestRow:row.row,indexRow:item.indexRow,account,sheetId,
+        source:'Reviewed Manifest R',key:proposedKey});
+     }
+     return proposals.map(({key,...p})=>p);
+    }
+    function smartRenameEmpty(account,sheetId){
+     if(!account||!sheetId)return null;
+     return {schema:SMART_RENAME_SCHEMA,account,sheetId,updated:Date.now(),entries:[]};
+    }
+    function smartRenameValidEntry(e){
+     return !!e&&typeof e==='object'&&!Array.isArray(e)&&
+       smartRenameID(e.fileId)&&smartRenameID(e.folderId)&&
+       smartRenameValidName(e.oldName)&&smartRenameValidName(e.newName)&&
+       e.oldName!==e.newName&&typeof e.folder==='string'&&e.folder.length<512&&
+       typeof e.mimeType==='string'&&e.mimeType.length<128&&
+       Number.isSafeInteger(e.manifestRow)&&e.manifestRow>=2&&e.manifestRow<=100000&&
+       Number.isSafeInteger(e.indexRow)&&e.indexRow>=2&&e.indexRow<=100000&&
+       SMART_RENAME_STATES.includes(e.status)&&
+       Number.isSafeInteger(e.updated)&&e.updated>0&&
+       typeof e.note==='string'&&e.note.length<=300;
+    }
+    function smartRenameParse(raw,{account,sheetId,now=Date.now()}={}){
+     if(!account||!sheetId)throw new Error('Connect the correct Google account and Sheet first.');
+     if(!raw)return smartRenameEmpty(account,sheetId);
+     if(typeof raw!=='string'||raw.length>SMART_RENAME_MAX_BYTES)
+      throw new Error('Smart Rename progress journal is too large; export it for inspection.');
+     let log;try{log=JSON.parse(raw);}catch{throw new Error('Smart Rename progress journal is damaged. Do not overwrite it.');}
+     if(!log||log.schema!==SMART_RENAME_SCHEMA||log.account!==account||log.sheetId!==sheetId||
+        !Number.isSafeInteger(log.updated)||log.updated>now+60000||
+        !Array.isArray(log.entries)||log.entries.length>SMART_RENAME_HISTORY_LIMIT||
+        log.entries.some(e=>!smartRenameValidEntry(e)||e.updated>now+60000)||
+        new Set(log.entries.map(e=>e.fileId)).size!==log.entries.length)
+      throw new Error('Smart Rename progress belongs to another account or contains unsupported entries.');
+     return log;
+    }
+    function smartRenameAppend(log,plans,{account,sheetId,now=Date.now()}={}){
+     if(!log||log.account!==account||log.sheetId!==sheetId||
+       !Array.isArray(plans)||!plans.length||plans.length>SMART_RENAME_LIMIT)
+      throw new Error('Smart Rename batch must contain 1–25 proposals for the connected account.');
+     const prior=new Set(log.entries.map(e=>e.fileId));
+     if(plans.some(p=>prior.has(p.fileId)||!smartRenameID(p.fileId)||
+        !smartRenameID(p.folderId)||!smartRenameValidName(p.newName)||
+        !Number.isSafeInteger(p.indexRow)))
+      throw new Error('Some selected items already exist in the progress journal or lack stable IDs.');
+     const entries=plans.map(p=>({fileId:p.fileId,folderId:p.folderId,
+      oldName:p.oldName,newName:p.newName,folder:p.folder,mimeType:p.mimeType,
+      manifestRow:p.manifestRow,indexRow:p.indexRow,
+      status:'ready',note:'Approved selection; no write sent',updated:now}));
+     const older=log.entries.filter(e=>now-e.updated<=SMART_RENAME_AGE_MS);
+     const next={...log,updated:now,entries:[...entries,...older].slice(0,SMART_RENAME_HISTORY_LIMIT)};
+     if(JSON.stringify(next).length>SMART_RENAME_MAX_BYTES)
+      throw new Error('Smart Rename progress journal is full; export completed entries before another run.');
+     return next;
+    }
+    function smartRenameMove(log,fileId,status,note='',now=Date.now()){
+     if(!log||!SMART_RENAME_STATES.includes(status)||typeof note!=='string'||
+        note.length>300)throw new Error('Unsupported Smart Rename progress transition.');
+     const existing=log.entries.find(e=>e.fileId===fileId);
+     if(!existing||!SMART_RENAME_TRANSITIONS[existing.status]?.includes(status))
+      throw new Error('Unsafe or repeated progress transition from '+String(existing?.status||'missing')+' to '+status);
+     return {...log,updated:now,entries:log.entries.map(e=>e.fileId===fileId?
+      {...e,status,note,updated:now}:e)};
+    }
+    function smartRenameTotals(log){
+     const counts={total:0,synced:0,undone:0,needsSheet:0,uncertain:0,pending:0,blocked:0};
+     for(const e of log?.entries||[]){
+      counts.total++;
+      if(e.status==='synced')counts.synced++;
+      else if(e.status==='undone')counts.undone++;
+      else if(['drive-verified','undo-drive-verified'].includes(e.status))counts.needsSheet++;
+      else if(/uncertain|submitting/.test(e.status))counts.uncertain++;
+      else if(e.status==='blocked')counts.blocked++;
+      else counts.pending++;
+     }
+     return counts;
+    }
+    return {SMART_RENAME_SCHEMA,SMART_RENAME_LIMIT,SMART_RENAME_HISTORY_LIMIT,SMART_RENAME_MAX_BYTES,SMART_RENAME_STATES,smartRenameID,smartRenameValidName,smartRenameBuild,smartRenameEmpty,smartRenameValidEntry,smartRenameParse,smartRenameAppend,smartRenameMove,smartRenameTotals};
+  })();
+  /* GENERATED SMART RENAME QUEUE END */
   /* GENERATED FILENAME RECONCILE START */
   const filenameReconcile=(()=>{
     const RECONCILE_DRIVE_KINDS=['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'];
@@ -959,6 +1102,13 @@
     filenameDrafts: new Map(),
     filenameStaged: new Set(),
     filenameImportedQueue: [],
+    smartSelected: new Set(),
+    smartPreview: null,
+    smartUndoPreview: null,
+    smartBusy: false,
+    smartJournal: null,
+    smartMessage: '',
+    smartJournalError: '',
     filenameMessage: '',
     renamePrepared: null,
     renameBusy: false,
@@ -3477,6 +3627,7 @@
       state.managerFilter='all';state.managerQuery='';state.managerPage=1;
       filenameReviewReset();
       loadActivityHistory();
+      loadSmartJournal();
       loadSavedSearches();
       loadSmartCollections();
       state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};
@@ -4285,7 +4436,7 @@
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
-    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.reconcilePrepared=null;state.reconcileMessage='';state.managerFilter='all';state.managerQuery='';state.managerPage=1;filenameReviewReset();state.sheetUndoPreview=null;state.sheetUndoMessage='';state.driveUndoPreview=null;state.driveUndoMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.reconcilePrepared=null;state.reconcileMessage='';state.managerFilter='all';state.managerQuery='';state.managerPage=1;filenameReviewReset();state.sheetUndoPreview=null;state.sheetUndoMessage='';state.driveUndoPreview=null;state.driveUndoMessage='';state.smartJournal=null;state.smartJournalError='';state.smartMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -5515,6 +5666,7 @@
     state.filenameFilter='all';state.filenameQuery='';state.filenamePage=1;
     state.filenameDrafts.clear();state.filenameStaged.clear();
     state.filenameImportedQueue=[];state.filenameMessage='';
+    state.smartSelected.clear();state.smartPreview=null;state.smartUndoPreview=null;
     state.renamePrepared=null;
   }
   function filenameReviewCurrent(row){
@@ -5632,7 +5784,579 @@
     return true;
   }
 
+
+  // A session-only selection and account-bound local progress journal. The
+  // progress record contains NO tokens, OAuth secrets, or media bytes.
+  function smartJournalKey(){
+    const ctx=activityContext();
+    return ctx?'jack-vault-smart-rename-v1-'+ctx.account+'-'+ctx.sheetId:'';
+  }
+  function loadSmartJournal(){
+    state.smartJournal=null;state.smartJournalError='';
+    const ctx=activityContext();
+    if(!ctx)return;
+    try{state.smartJournal=smartRenameQueue.smartRenameParse(localStorage.getItem(smartJournalKey()),ctx);}
+    catch(error){state.smartJournalError=error.message||'Smart Rename journal unavailable.';}
+  }
+  function smartStoreJournal(log){
+    const ctx=activityContext(),key=smartJournalKey();
+    if(!ctx||!key||!state.connected||state.smartJournalError||
+       !log||log.account!==ctx.account||log.sheetId!==ctx.sheetId)
+      throw new Error('Cannot safely write the private rename journal for this account.');
+    const text=JSON.stringify(log);
+    if(text.length>smartRenameQueue.SMART_RENAME_MAX_BYTES)
+      throw new Error('Private rename progress is full.');
+    localStorage.setItem(key,text);
+    state.smartJournal=log;
+  }
+  function smartMove(fileId,status,note){
+    const next=smartRenameQueue.smartRenameMove(state.smartJournal,fileId,status,note);
+    smartStoreJournal(next);
+    if(state.view==='filename-review')renderSmartQueue();
+  }
+  function smartSession(ctx,epoch){
+    return epoch===state.authEpoch&&state.connected&&state.view==='filename-review'&&
+      state.driveIdentity===ctx.account&&state.config.sheetId===ctx.sheetId;
+  }
+  function smartQueueCandidatePlans(){
+    const ctx=activityContext(),model=filenameReviewModel();
+    const candidates=smartRenameQueue.smartRenameBuild(model,state.images,
+      state.smartSelected,new Map(),state.folderSources,ctx||{});
+    return candidates.map(entry=>{
+      const plan=driveRename.driveRenamePlan({
+        fileId:entry.fileId,row:entry.manifestRow,oldName:entry.oldName,
+        folder:entry.folder,mime:entry.mimeType,source:entry.source,
+        eligible:true,newInDrive:false
+      },entry.newName,{...ctx,folderId:entry.folderId});
+      return {entry,drivePlan:plan,reconcilePlan:{
+        fileId:entry.fileId,parentId:entry.folderId,mimeType:entry.mimeType,
+        oldName:entry.oldName,newName:entry.newName,manifestRow:entry.manifestRow,
+        indexRow:entry.indexRow,account:ctx.account,sheetId:ctx.sheetId
+      }};
+    });
+  }
+  function smartJournalEntry(id){
+    return state.smartJournal?.entries.find(x=>x.fileId===id);
+  }
+  function smartRecoveryPlan(entry,{reverse=false}={}){
+    if(!entry||!smartRenameQueue.smartRenameValidEntry(entry))
+      throw new Error('A verified local Smart Rename record is required.');
+    const ctx=activityContext(),item=state.images.find(x=>x.id===entry.fileId&&!x.demo);
+    const parent=state.folderSources.find(f=>f.path===entry.folder&&!f.missing);
+    if(!ctx||!item||!parent||parent.id!==entry.folderId||
+       item.manifestRow!==entry.manifestRow||item.indexRow!==entry.indexRow||
+       item.mime!==entry.mimeType||item.folder!==entry.folder||
+       item.manifestOriginalName!==entry.oldName)
+      throw new Error('The Sheet index or Drive folder mapping changed. Refresh and inspect manually.');
+    const oldName=reverse?entry.newName:entry.oldName;
+    const newName=reverse?entry.oldName:entry.newName;
+    return {fileId:entry.fileId,parentId:entry.folderId,mimeType:entry.mimeType,
+      oldName,newName,manifestRow:entry.manifestRow,indexRow:entry.indexRow,
+      account:ctx.account,sheetId:ctx.sheetId};
+  }
+  function smartQueueRenderProgress(){
+    const totals=smartRenameQueue.smartRenameTotals(state.smartJournal);
+    $('smartProgressSummary').textContent=state.smartJournalError?
+      'Progress journal unavailable: '+state.smartJournalError+
+      ' Keep the original file and inspect it before doing more writes.':
+      totals.total?'Journal: '+totals.total+' recorded · '+totals.synced+
+      ' synchronized · '+totals.undone+' undone · '+totals.needsSheet+
+      ' needs Sheet sync · '+totals.uncertain+' uncertain · '+totals.blocked+' blocked.':
+      'No rename operations recorded on this device.';
+    $('smartProgressList').innerHTML=(state.smartJournal?.entries||[]).length?
+      state.smartJournal.entries.slice(0,40).map(e=>{
+        const status=e.status==='synced'?'Drive and Sheet verified':
+          e.status==='undone'?'Verified undo complete':
+          e.status==='drive-verified'?'Drive verified; Sheet pending':
+          e.status==='undo-drive-verified'?'Undo verified; Sheet pending':
+          /uncertain|submitting/.test(e.status)?'NEEDS MANUAL INSPECTION':e.status;
+        const recover=['drive-verified','undo-drive-verified'].includes(e.status);
+        const canUndo=e.status==='synced'&&
+          !!state.activityHistory?.items.some(a=>a.fileId===e.fileId&&a.kind==='drive-rename'&&a.status==='complete');
+        return '<article class="activity-entry"><div class="activity-entry-main">'+
+          '<span class="activity-entry-type">'+escapeHTML(status)+'</span>'+
+          '<h3>'+escapeHTML(e.oldName)+' → '+escapeHTML(e.newName)+'</h3>'+
+          '<p>Manifest row '+e.manifestRow+' · '+escapeHTML(e.folder)+'</p>'+
+          '<small>'+escapeHTML(e.note||'')+'</small></div>'+
+          (recover?'<button type="button" class="btn outline" data-smart-resume="'+
+             escapeHTML(e.fileId)+'" '+(state.smartBusy?'disabled':'')+'>Finish Sheet sync</button>':'')+
+          (canUndo?'<button type="button" class="btn outline" data-smart-undo="'+
+             escapeHTML(e.fileId)+'" '+(state.smartBusy?'disabled':'')+'>Preview undo</button>':'')+
+          ((/uncertain|submitting/.test(e.status)||e.status==='blocked')?
+             '<button class="btn outline" type="button" data-smart-inspect="'+escapeHTML(e.fileId)+
+             '">Inspect history</button>':'')+'</article>';
+      }).join(''):
+      '<p class="activity-empty">No operations yet. Proposals may be selected and previewed without authorization.</p>';
+    $('smartUndoPanel').hidden=!state.smartUndoPreview;
+    if(state.smartUndoPreview){
+      const item=state.smartUndoPreview.plan;
+      $('smartUndoDetails').textContent=JSON.stringify({
+        fileId:item.fileId,renameFrom:item.oldName,restoreTo:item.newName,
+        manifestCell:'AD'+item.manifestRow,folderId:item.folderId,
+        baselineVersion:state.smartUndoPreview.version
+      },null,2);
+    }
+    $('smartUndoApply').disabled=state.smartBusy||!state.smartUndoPreview;
+  }
+  function renderSmartQueue(){
+    const connected=state.connected&&!!activityContext()&&!state.smartJournalError;
+    const model=filenameReviewModel();
+    const proposals=model.rows.filter(x=>x.sheetProposal&&x.status==='ready'&&
+      ['reviewed','source-reviewed'].includes(x.stage));
+    const journalIds=new Set((state.smartJournal?.entries||[]).filter(e=>e.status!=='ready').map(e=>e.fileId));
+    const eligible=proposals.filter(x=>!journalIds.has(x.fileId));
+    $('smartSelect25').disabled=!connected||state.smartBusy||state.renameBusy||state.sheetWriteBusy||!eligible.length;
+    $('smartClearSelected').disabled=state.smartBusy||!state.smartSelected.size;
+    $('smartPreviewSelected').disabled=!connected||state.smartBusy||state.renameBusy||
+      state.sheetWriteBusy||!state.smartSelected.size;
+    $('smartApprove').disabled=state.smartBusy||!state.smartPreview;
+    $('smartQueueStatus').textContent=state.smartMessage||
+      (connected?eligible.length+' reviewed Manifest R proposals available. Select up to 25 and preview first.':
+        'Connect your Google account and a verified inventory to begin.');
+    $('smartQueueList').innerHTML=eligible.length?
+      eligible.slice(0,80).map(x=>'<article class="activity-entry"><div class="activity-entry-main">'+
+        '<span class="activity-entry-type">'+escapeHTML(x.kind.toUpperCase())+
+        ' · MANIFEST '+x.row+'</span>'+
+        '<h3>'+escapeHTML(x.oldName)+'</h3>'+
+        '<p>Proposed: '+escapeHTML(x.proposed)+'</p>'+
+        '<small>'+escapeHTML(x.folder)+'</small></div>'+
+        '<label><input type="checkbox" data-smart-select="'+escapeHTML(x.fileId)+'" '+
+        (state.smartSelected.has(x.fileId)?'checked ':'')+
+        (state.smartBusy?'disabled ':'')+
+        'aria-label="Select '+escapeHTML(x.oldName)+'"> Select</label></article>').join(''):
+      '<p class="activity-empty">'+(connected?'No new reviewed Manifest R proposals are eligible, or existing operations are recorded in progress.':'Connect Drive to list proposals.')+'</p>';
+    $('smartQueuePreview').hidden=!state.smartPreview;
+    if(state.smartPreview){
+      $('smartPreviewSummary').textContent=state.smartPreview.entries.length+
+        ' files passed live Drive identity, permission, complete folder collision scan, version, exact Manifest/index Drive IDs, and source formula checks. Google has not been asked to edit anything.';
+      $('smartPreviewList').innerHTML=state.smartPreview.entries.map(x=>
+        '<article class="activity-entry"><div class="activity-entry-main"><strong>'+
+        escapeHTML(x.drivePlan.oldName)+' → '+escapeHTML(x.drivePlan.newName)+
+        '</strong><p>Manifest AD'+x.drivePlan.manifestRow+
+        ' · Drive version '+escapeHTML(x.version)+
+        ' · '+escapeHTML(x.drivePlan.fileId)+'</p></div></article>').join('');
+    }
+    smartQueueRenderProgress();
+  }
+  async function smartPreviewSelected(){
+    if(state.smartBusy||state.renameBusy||state.sheetWriteBusy||!state.connected)return;
+    const ctx=activityContext(),epoch=state.authEpoch;
+    if(!ctx||!state.smartJournal||state.smartJournalError)return;
+    state.smartPreview=null;state.smartUndoPreview=null;state.smartBusy=true;
+    state.smartMessage='Validating selected Manifest R proposals…';
+    renderSmartQueue();
+    try{
+      const plans=smartQueueCandidatePlans();
+      if(plans.some(p=>smartJournalEntry(p.entry.fileId)&&smartJournalEntry(p.entry.fileId).status!=='ready'))
+        throw new Error('A selected file already has a progress history; inspect it before reapplying.');
+      const items=[];
+      for(let i=0;i<plans.length;i++){
+        const {drivePlan,reconcilePlan,entry}=plans[i];
+        if(!smartSession(ctx,epoch))throw new Error('Account or screen changed during read-only preview.');
+        state.smartMessage='Read-only verification '+(i+1)+' of '+plans.length+': '+drivePlan.oldName;
+        renderSmartQueue();
+        const [live,siblings,sheet]=await Promise.all([
+          driveRenameLiveFile(entry.fileId,state.accessToken),
+          driveRenameLiveFolder(entry.folderId,state.accessToken),
+          reconcileReadSheet(reconcilePlan,state.accessToken)
+        ]);
+        const dc=driveRename.driveRenameCheck(drivePlan,live,siblings);
+        const sc=filenameReconcile.reconcileSheetCheck(reconcilePlan,sheet);
+        if(!dc.ok)throw new Error(drivePlan.oldName+': '+dc.reason);
+        if(!sc.ok)throw new Error(drivePlan.oldName+': '+sc.reason);
+        items.push({entry,drivePlan,reconcilePlan,version:dc.version,sheet});
+      }
+      if(!smartSession(ctx,epoch))throw new Error('Account changed during preview.');
+      state.smartPreview={entries:items,ctx,epoch,selection:[...state.smartSelected]};
+      state.smartMessage='All '+items.length+' records passed live read-only checks. Review the exact changes and approve the temporary Google permissions.';
+    }catch(error){
+      state.smartMessage='Preview blocked. No writes submitted: '+(error.message||'Verification failed.');
+    }finally{
+      state.smartBusy=false;
+      if(state.view==='filename-review')renderSmartQueue();
+    }
+  }
+
+
+  async function smartCheckWriteIdentity(token,account){
+    const identity=await driveRenameFetch('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',token);
+    if(identity.user?.permissionId!==account)
+      throw new Error('The temporary Google authorization belongs to another Drive account.');
+  }
+  async function smartCheckLiveRename(item,token,{checkVersion=true,sheetToken=null,originalSheet=null}={}){
+    const {entry,drivePlan,reconcilePlan,version}=item;
+    const current=state.images.find(x=>x.id===entry.fileId&&!x.demo);
+    const parent=state.folderSources.find(f=>f.path===entry.folder&&!f.missing);
+    if(!current||current.name!==entry.oldName||
+       current.manifestRow!==entry.manifestRow||
+       current.indexRow!==entry.indexRow||
+       current.mime!==entry.mimeType||current.folder!==entry.folder||
+       parent?.id!==entry.folderId)
+      throw new Error('Loaded Drive ID, original filename or Manifest row changed. Refresh the inventory.');
+    const [drive,siblings,sheet]=await Promise.all([
+      driveRenameLiveFile(entry.fileId,token),
+      driveRenameLiveFolder(entry.folderId,token),
+      reconcileReadSheet(reconcilePlan,sheetToken||token)
+    ]);
+    const dc=driveRename.driveRenameCheck(drivePlan,drive,siblings,
+      checkVersion?{baselineVersion:version}:{});
+    const sc=filenameReconcile.reconcileSheetCheck(reconcilePlan,sheet);
+    if(!dc.ok)throw new Error(dc.reason);
+    if(!sc.ok)throw new Error(sc.reason);
+    if(originalSheet&&JSON.stringify(sheet)!==JSON.stringify(originalSheet))
+      throw new Error('Source Sheet values changed since the reviewed preview.');
+    return {drive,sheet};
+  }
+  async function smartSyncSheet(entry,plan,token,tabIds,version,{undo=false,baseline=null}={}){
+    const ctx=activityContext(),epoch=state.authEpoch;
+    if(!ctx||!smartSession(ctx,epoch)||plan.account!==ctx.account||plan.sheetId!==ctx.sheetId)
+      throw new Error('Google account, Sheet or screen changed before synchronization.');
+    const beforeStatus=undo?'undo-drive-verified':'drive-verified';
+    const journal=smartJournalEntry(entry.fileId);
+    if(journal?.status!==beforeStatus)
+      throw new Error('A verified, unsynchronized Drive change is required before Sheet sync.');
+    const [drive,sheet]=await Promise.all([
+      driveRenameLiveFile(entry.fileId,token),
+      reconcileReadSheet(plan,token)
+    ]);
+    const dc=filenameReconcile.reconcileLiveDrive(plan,drive,{baselineVersion:version});
+    if(!dc.ok)throw new Error(dc.reason);
+    if(baseline&&JSON.stringify(baseline)!==JSON.stringify(sheet))
+      throw new Error('Sheet preview values changed while authorizing. No Sheet write was sent.');
+    const currentIsVerified=filenameReconcile.reconcileVerified(plan,sheet,drive);
+    if(currentIsVerified){
+      // A different editor already reconciled the exact value while we were
+      // paused. Independent live proof is sufficient; do NOT submit again.
+      smartMove(entry.fileId,undo?'undone':'synced',
+        'Already matched real Drive and formula-derived Sheet value; no Sheet POST sent.');
+      return;
+    }
+    const sc=filenameReconcile.reconcileSheetCheck(plan,sheet);
+    if(!sc.ok)throw new Error(sc.reason);
+    if(!smartSession(ctx,epoch))throw new Error('Account changed just before Sheet authorization was used.');
+    let submitted=false,verified=false;
+    try{
+      smartMove(entry.fileId,undo?'undo-sheet-submitting':'sheet-submitting',
+        'Sheet AD write may be in flight. Do not retry if interrupted.');
+      const request=filenameReconcile.reconcileRequests(plan,tabIds);
+      submitted=true;
+      const result=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+
+        encodeURIComponent(ctx.sheetId)+':batchUpdate',token,{method:'POST',payload:request});
+      if(!Array.isArray(result.replies)||result.replies.length!==1)
+        throw new Error('Google Sheets did not confirm exactly one Manifest AD cell update.');
+      const [readback,after]=await Promise.all([
+        reconcileReadSheet(plan,token),
+        driveRenameLiveFile(entry.fileId,token)
+      ]);
+      if(!filenameReconcile.reconcileVerified(plan,readback,after)||
+        readback.manifestOriginal!==sheet.manifestOriginal||
+        String(after.version)!==String(version))
+        throw new Error('Manifest AD, Search Index formula or Drive read-back differs.');
+      verified=true;
+      smartMove(entry.fileId,undo?'undone':'synced',
+        'Verified Manifest AD and formula-derived Search Index C against real Drive.');
+      for(const list of [state.images,state.inventory]){
+        const item=list.find(x=>x.id===entry.fileId);
+        if(item){item.name=plan.newName;item.manifestCurrentName=plan.newName;}
+      }
+      if(!logActivity('sheet-name-sync',{fileId:entry.fileId,count:1}))
+        state.smartMessage='Sheet synchronized, but local Activity history could not record the Sheet step.';
+      buildFolderIndex();
+    }catch(error){
+      if(submitted&&!verified){
+        try{smartMove(entry.fileId,undo?'undo-sheet-uncertain':'sheet-uncertain',
+          'Sheet POST may have happened; inspect Manifest AD and Search Index C before any retry.');}catch{}
+        logActivity('sheet-name-sync-unverified',{fileId:entry.fileId,count:1});
+      }
+      throw error;
+    }
+  }
+  async function smartApplyOne(prepared,driveToken,sheetToken,tabIds,ctx,epoch){
+    const {entry,drivePlan,reconcilePlan,version,sheet}=prepared;
+    if(!smartSession(ctx,epoch))throw new Error('Google account or view changed before Drive write.');
+    if(smartJournalEntry(entry.fileId)?.status!=='ready')
+      throw new Error('This file was already submitted or its progress is uncertain.');
+    // Authoritative checks run again immediately before EACH separate PATCH.
+    await smartCheckLiveRename(prepared,driveToken,{sheetToken,originalSheet:sheet});
+    if(!smartSession(ctx,epoch))throw new Error('Account changed after live verification.');
+    let submitted=false,verified=false;
+    try{
+      smartMove(entry.fileId,'drive-submitting',
+        'Drive name-only PATCH may be in flight; never retry without inspecting the real file.');
+      const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(entry.fileId)+
+        '?fields=id,name,mimeType,parents,trashed,version&supportsAllDrives=true';
+      submitted=true;
+      const response=await driveRenameFetch(url,driveToken,{
+        method:'PATCH',payload:driveRename.driveRenamePatch(drivePlan)});
+      if(!driveRename.driveRenameVerified(drivePlan,response))
+        throw new Error('Google Drive did not confirm the exact name-only update.');
+      const readback=await driveRenameLiveFile(entry.fileId,driveToken);
+      if(!driveRename.driveRenameVerified(drivePlan,readback))
+        throw new Error('Drive read-back did not verify new filename and parent folder.');
+      verified=true;
+      smartMove(entry.fileId,'drive-verified','Real Drive name verified; Sheet reconciliation is pending.');
+      if(!logActivity('drive-rename',{fileId:entry.fileId,count:1,
+        driveChange:{fileId:entry.fileId,parentId:entry.folderId,
+          beforeName:entry.oldName,afterName:entry.newName}}))
+        throw new Error('Drive succeeded but private Activity undo history was unavailable. Inspect it before proceeding.');
+      for(const list of [state.images,state.inventory]){
+        const item=list.find(x=>x.id===entry.fileId);
+        if(item)item.name=entry.newName;
+      }
+      state.filenameStaged.delete(entry.fileId);
+      state.smartSelected.delete(entry.fileId);
+      state.filenameImportedQueue=state.filenameImportedQueue.filter(x=>x.fileId!==entry.fileId);
+      buildFolderIndex();
+      await smartSyncSheet(entry,reconcilePlan,sheetToken,tabIds,readback.version,{baseline:sheet});
+    }catch(error){
+      if(submitted&&!verified){
+        try{smartMove(entry.fileId,'drive-uncertain',
+          'Drive PATCH may have happened. Inspect the real file, never retry blindly.');}catch{}
+        logActivity('drive-rename-unverified',{fileId:entry.fileId,count:1});
+      }else if(!submitted&&smartJournalEntry(entry.fileId)?.status==='ready'){
+        try{smartMove(entry.fileId,'blocked','No Drive PATCH submitted: '+String(error.message||'conflict').slice(0,220));}catch{}
+      }
+      throw error;
+    }
+  }
+  async function smartApproveSelected(){
+    const prepared=state.smartPreview,ctx=activityContext(),epoch=state.authEpoch;
+    if(state.smartBusy||state.renameBusy||state.sheetWriteBusy||!prepared||
+       !ctx||!smartSession(ctx,epoch)||!state.smartJournal||state.smartJournalError)return;
+    if(JSON.stringify(prepared.ctx)!==JSON.stringify(ctx)||
+       JSON.stringify(prepared.selection)!==JSON.stringify([...state.smartSelected]))
+      {state.smartPreview=null;state.smartMessage='Selection changed; preview again.';renderSmartQueue();return;}
+    if(!confirm('This is a REAL batch of '+prepared.entries.length+
+      ' separately verified, sequential Drive renames and Manifest AD Sheet reconciliations. '+
+      'Google grants broad temporary metadata and Sheet editing permission, not per-file scopes. '+
+      'No credentials or tokens will be saved. Authorize both Google grants?'))return;
+    state.smartBusy=true;state.renameBusy=true;state.sheetWriteBusy=true;
+    state.smartMessage='Requesting temporary Drive metadata and Sheets edit authorization…';
+    renderSmartQueue();
+    let driveToken='',sheetToken='',approved=false;
+    try{
+      driveToken=await driveRenameAuthorize('smartRenameDesktop');
+      sheetToken=await sheetWriteAuthorize('smartSheetDesktop');
+      if(!smartSession(ctx,epoch)||state.smartPreview!==prepared)
+        throw new Error('Account or preview changed while requesting Google consent.');
+      await Promise.all([
+        smartCheckWriteIdentity(driveToken,ctx.account),
+        smartCheckWriteIdentity(sheetToken,ctx.account)
+      ]);
+      const tabIds=await reconcileTabIDs(sheetToken);
+      if(!confirm('FINAL APPROVAL: Process '+prepared.entries.length+
+        ' reviewed filenames one by one? Each Drive file receives only a name PATCH, '+
+        'then one Manifest AD cell is synchronized. Search Index formulas stay untouched. '+
+        'Stop on a conflict or uncertain Google response.')){
+        state.smartMessage='Final approval cancelled. No Drive or Sheet write submitted.';return;
+      }
+      if(!smartSession(ctx,epoch)||state.smartPreview!==prepared)
+        throw new Error('Account or preview changed at final confirmation.');
+      // Write ahead before the first remote change, preventing silent replay
+      // after browser crash or Windows update.
+      const existing=prepared.entries.filter(x=>!smartJournalEntry(x.entry.fileId));
+      if(existing.length){
+        smartStoreJournal(smartRenameQueue.smartRenameAppend(state.smartJournal,
+          existing.map(x=>x.entry),ctx));
+      }
+      approved=true;
+      for(let i=0;i<prepared.entries.length;i++){
+        const item=prepared.entries[i];
+        if(!smartSession(ctx,epoch))throw new Error('Account or view changed during the queue.');
+        state.smartMessage='Processing '+(i+1)+' of '+prepared.entries.length+': '+
+          item.entry.oldName+' → '+item.entry.newName;
+        renderSmartQueue();
+        await smartApplyOne(item,driveToken,sheetToken,tabIds,ctx,epoch);
+      }
+      state.smartPreview=null;
+      state.smartMessage='All '+prepared.entries.length+
+        ' selected Drive filenames and Manifest AD cells were independently verified. '+
+        'Each file has a private undo record. No other Sheet cells were changed.';
+    }catch(error){
+      state.smartPreview=null;
+      state.smartMessage=(approved?'Queue STOPPED. Inspect recorded progress before retrying: ':
+        'No batch writes started: ')+(error.message||'Google approval or live verification failed.');
+    }finally{
+      driveToken='';sheetToken='';
+      state.smartBusy=false;state.renameBusy=false;state.sheetWriteBusy=false;
+      if(state.view==='filename-review')renderFilenameReview();
+    }
+  }
+  async function smartResumeSheet(fileId){
+    const journal=smartJournalEntry(fileId),ctx=activityContext(),epoch=state.authEpoch;
+    if(state.smartBusy||state.renameBusy||state.sheetWriteBusy||!ctx||
+       !['drive-verified','undo-drive-verified'].includes(journal?.status))return;
+    const undo=journal.status==='undo-drive-verified';
+    let plan;
+    try{plan=smartRecoveryPlan(journal,{reverse:undo});}
+    catch(error){state.smartMessage='Cannot resume: '+error.message;renderSmartQueue();return;}
+    if(!confirm('Verify and finish ONLY Manifest AD for '+plan.fileId+
+      '? The real Drive filename will NOT be renamed again. '+
+      'An uncertain Sheet POST is never retried automatically.'))return;
+    state.smartBusy=true;state.sheetWriteBusy=true;
+    let token='';
+    try{
+      token=await sheetWriteAuthorize('smartSheetDesktop');
+      if(!smartSession(ctx,epoch))throw new Error('Account changed during authorization.');
+      await smartCheckWriteIdentity(token,ctx.account);
+      const tabIds=await reconcileTabIDs(token);
+      const drive=await driveRenameLiveFile(fileId,token);
+      if(!filenameReconcile.reconcileLiveDrive(plan,drive).ok)
+        throw new Error('Real Drive name/version does not match recorded verified rename.');
+      const sheet=await reconcileReadSheet(plan,token);
+      const sc=filenameReconcile.reconcileSheetCheck(plan,sheet);
+      if(!sc.ok&&!filenameReconcile.reconcileVerified(plan,sheet,drive))
+        throw new Error(sc.reason);
+      if(!confirm('FINAL APPROVAL: write ONLY Manifest!AD'+plan.manifestRow+
+        ' to "'+plan.newName+'" after fresh verification?'))return;
+      await smartSyncSheet(journal,plan,token,tabIds,drive.version,{undo});
+      state.smartMessage='Recovered the pending Sheet sync for one verified Drive file. No Drive PATCH was sent.';
+    }catch(error){
+      state.smartMessage='Sheet recovery stopped without a blind retry: '+(error.message||'verification failed.');
+    }finally{
+      token='';state.smartBusy=false;state.sheetWriteBusy=false;
+      if(state.view==='filename-review')renderFilenameReview();
+    }
+  }
+
+
+  async function smartUndoPreviewEntry(fileId){
+    const ctx=activityContext(),epoch=state.authEpoch;
+    const journal=smartJournalEntry(fileId);
+    if(state.smartBusy||state.renameBusy||state.sheetWriteBusy||!ctx||
+       journal?.status!=='synced'||!state.activityHistory)return;
+    state.smartBusy=true;state.smartUndoPreview=null;
+    state.smartMessage='Read-only undo preview: verifying private history, Drive name and Sheet cells…';
+    renderSmartQueue();
+    try{
+      const history=state.activityHistory;
+      const activity=history.items.find(e=>e.fileId===fileId&&e.kind==='drive-rename'&&
+        e.status==='complete'&&e.driveChange?.beforeName===journal.oldName&&
+        e.driveChange?.afterName===journal.newName);
+      const allowed=activityLedger.activityCanUndoDrive(activity,history,{
+        ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+      });
+      if(!allowed.ok)throw new Error(allowed.reason);
+      const indexed=state.images.find(x=>x.id===fileId&&!x.demo);
+      if(!indexed||indexed.name!==journal.newName)
+        throw new Error('This file has changed since the verified rename. Undo is blocked.');
+      const plan=driveRename.driveRenameUndoPlan(activity,indexed,{
+        ...ctx,folderId:journal.folderId
+      });
+      const reconcilePlan=smartRecoveryPlan(journal,{reverse:true});
+      const [drive,siblings,sheet]=await Promise.all([
+        driveRenameLiveFile(fileId,state.accessToken),
+        driveRenameLiveFolder(journal.folderId,state.accessToken),
+        reconcileReadSheet(reconcilePlan,state.accessToken)
+      ]);
+      const dc=driveRename.driveRenameCheck(plan,drive,siblings);
+      const sc=filenameReconcile.reconcileSheetCheck(reconcilePlan,sheet);
+      if(!dc.ok)throw new Error(dc.reason);
+      if(!sc.ok)throw new Error(sc.reason);
+      if(!smartSession(ctx,epoch))throw new Error('Account changed during undo preview.');
+      state.smartUndoPreview={journal,activity,plan,reconcilePlan,
+        sheet,version:dc.version,ctx,epoch};
+      state.smartMessage='Verified safe undo for ONE file. Original-name collision and formula-backed Sheet checks passed. No write submitted.';
+    }catch(error){state.smartMessage='Undo blocked: '+(error.message||'verification failed.');}
+    finally{
+      state.smartBusy=false;
+      if(state.view==='filename-review')renderSmartQueue();
+    }
+  }
+  async function smartUndoApply(){
+    const preview=state.smartUndoPreview,ctx=activityContext(),epoch=state.authEpoch;
+    if(!preview||state.smartBusy||state.renameBusy||state.sheetWriteBusy||!ctx||
+       !smartSession(ctx,epoch)||preview.journal.status!=='synced')return;
+    if(!confirm('UNDO ONE file? This restores its verified original Drive filename, then updates ONLY Manifest AD. '+
+      'Two temporary, Google-wide metadata/Sheets grants are needed. No token will be saved.'))return;
+    state.smartBusy=true;state.renameBusy=true;state.sheetWriteBusy=true;
+    let driveToken='',sheetToken='',submitted=false,verified=false;
+    const {journal,activity,plan,reconcilePlan,version,sheet}=preview;
+    try{
+      driveToken=await driveRenameAuthorize('smartRenameDesktop');
+      sheetToken=await sheetWriteAuthorize('smartSheetDesktop');
+      if(!smartSession(ctx,epoch)||state.smartUndoPreview!==preview||
+         smartJournalEntry(journal.fileId)?.status!=='synced')
+        throw new Error('Undo preview or account changed during Google authorization.');
+      await Promise.all([
+        smartCheckWriteIdentity(driveToken,ctx.account),
+        smartCheckWriteIdentity(sheetToken,ctx.account)
+      ]);
+      const tabs=await reconcileTabIDs(sheetToken);
+      const history=state.activityHistory,latest=history?.items.find(e=>e.id===activity.id);
+      const allowed=activityLedger.activityCanUndoDrive(latest,history,{
+        ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+      });
+      if(!allowed.ok)throw new Error('Original Activity undo became invalid: '+allowed.reason);
+      const [live,siblings,liveSheet]=await Promise.all([
+        driveRenameLiveFile(plan.fileId,driveToken),
+        driveRenameLiveFolder(plan.folderId,driveToken),
+        reconcileReadSheet(reconcilePlan,sheetToken)
+      ]);
+      const dc=driveRename.driveRenameCheck(plan,live,siblings,{baselineVersion:version});
+      const sc=filenameReconcile.reconcileSheetCheck(reconcilePlan,liveSheet);
+      if(!dc.ok)throw new Error(dc.reason);
+      if(!sc.ok||JSON.stringify(liveSheet)!==JSON.stringify(sheet))
+        throw new Error('Original Sheet snapshot changed; undo is blocked.');
+      if(!confirm('FINAL UNDO CONFIRMATION: restore ONLY file '+plan.fileId+
+        ' from "'+plan.oldName+'" to "'+plan.newName+
+        '", then set Manifest AD'+plan.manifestRow+' to the restored name?'))return;
+      const [fresh,names,afterSheet]=await Promise.all([
+        driveRenameLiveFile(plan.fileId,driveToken),
+        driveRenameLiveFolder(plan.folderId,driveToken),
+        reconcileReadSheet(reconcilePlan,sheetToken)
+      ]);
+      const guard=driveRename.driveRenameCheck(plan,fresh,names,{baselineVersion:version});
+      if(!guard.ok||JSON.stringify(afterSheet)!==JSON.stringify(sheet)||
+         !smartSession(ctx,epoch)||state.smartUndoPreview!==preview)
+        throw new Error('A file, Sheet or account changed during final undo confirmation.');
+      smartMove(journal.fileId,'undo-drive-submitting',
+        'Original-name Drive PATCH may be in flight; do not retry blindly.');
+      const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(plan.fileId)+
+        '?fields=id,name,mimeType,parents,trashed,version&supportsAllDrives=true';
+      submitted=true;
+      const response=await driveRenameFetch(url,driveToken,{
+        method:'PATCH',payload:driveRename.driveRenamePatch(plan)});
+      if(!driveRename.driveRenameVerified(plan,response))
+        throw new Error('Google did not confirm the original restored filename.');
+      const after=await driveRenameLiveFile(plan.fileId,driveToken);
+      if(!driveRename.driveRenameVerified(plan,after))
+        throw new Error('Independent Drive undo read-back failed. Inspect the real file.');
+      verified=true;
+      smartMove(journal.fileId,'undo-drive-verified',
+        'Original Drive name verified; restoring Manifest AD is pending.');
+      // Preserve a verified, one-time Activity undo even if Sheet sync fails.
+      const marked=activityLedger.activityMarkDriveUndone(state.activityHistory,activity.id,ctx);
+      const event={id:crypto.randomUUID(),at:Date.now(),kind:'drive-undo',
+        status:'complete',fileId:plan.fileId,count:1};
+      storeActivityHistory(activityLedger.activityAppend(marked,event,ctx));
+      for(const list of [state.images,state.inventory]){
+        const item=list.find(x=>x.id===plan.fileId);
+        if(item)item.name=plan.newName;
+      }
+      state.smartUndoPreview=null;
+      await smartSyncSheet(journal,reconcilePlan,sheetToken,tabs,after.version,{
+        undo:true,baseline:sheet
+      });
+      state.smartMessage='Verified undo: original Drive filename restored and Manifest AD synchronized. Search Index formulas were preserved.';
+    }catch(error){
+      if(submitted&&!verified){
+        try{smartMove(journal.fileId,'undo-drive-uncertain',
+          'Undo PATCH may have happened; inspect the real file before attempting recovery.');}catch{}
+        logActivity('drive-undo-unverified',{fileId:journal.fileId,count:1});
+      }
+      state.smartMessage=(submitted?
+        'Undo STOPPED. Inspect recorded Drive and Sheet progress before another action: ':
+        'Undo not submitted: ')+(error.message||'verification unavailable.');
+    }finally{
+      driveToken='';sheetToken='';
+      state.smartBusy=false;state.renameBusy=false;state.sheetWriteBusy=false;
+      if(state.view==='filename-review')renderFilenameReview();
+    }
+  }
+
   function renderFilenameReview(){
+    renderSmartQueue();
     const model=filenameReviewModel();
     const page=filenameReview.filenameReviewPage(model,{
       filter:state.filenameFilter,query:state.filenameQuery,page:state.filenamePage,
@@ -5778,7 +6502,7 @@
   // Drive metadata grants are requested on-demand, never stored in the
   // encrypted Windows READ-ONLY sign-in or browser persistent storage.
   async function driveRenameAuthorize(credentialPrefix='filenameRenameDesktop'){
-    if(!['filenameRenameDesktop','activityDriveUndoDesktop'].includes(credentialPrefix))
+    if(!['filenameRenameDesktop','activityDriveUndoDesktop','smartRenameDesktop'].includes(credentialPrefix))
       throw new Error('Unsupported metadata authorization form.');
     // Both the WebView2 host and the Windows browser launcher can rely on
     // the native saved desktop session, never the embedded Google OAuth UI.
@@ -6362,11 +7086,13 @@
     state.sheetWriteMessage='Staged locally. No Google Sheet cells changed.';
     renderSheetWrite();
   }
-  async function sheetWriteAuthorize(){
+  async function sheetWriteAuthorize(credentialPrefix='sheetWriteDesktop'){
+    if(!['sheetWriteDesktop','smartSheetDesktop'].includes(credentialPrefix))
+      throw new Error('Invalid Sheet authorization form.');
     if(IN_NATIVE_DESKTOP){
-      const clientId=$('sheetWriteDesktopClient').value.trim();
-      const clientSecret=$('sheetWriteDesktopSecret').value;
-      $('sheetWriteDesktopSecret').value='';
+      const clientId=$(credentialPrefix+'Client').value.trim();
+      const clientSecret=$(credentialPrefix+'Secret').value;
+      $(credentialPrefix+'Secret').value='';
       const start=await desktopAuthPost('write-start',{
         sheetId:state.config.sheetId,clientId,clientSecret
       });
@@ -7885,6 +8611,53 @@
     };
     $('filenameNextImported').onclick=filenameReviewNextImported;
     $('filenameNextSheet').onclick=()=>filenameReviewFocusSheet();
+    $('smartSelect25').onclick=()=>{
+      if(state.smartBusy||state.renameBusy||state.sheetWriteBusy)return;
+      const model=filenameReviewModel();
+      const old=new Set((state.smartJournal?.entries||[]).filter(x=>x.status!=='ready').map(x=>x.fileId));
+      state.smartSelected=new Set(model.rows.filter(row=>row.sheetProposal&&row.status==='ready'&&
+        !old.has(row.fileId)&&['reviewed','source-reviewed'].includes(row.stage))
+        .slice(0,smartRenameQueue.SMART_RENAME_LIMIT).map(row=>row.fileId));
+      state.smartPreview=null;state.smartUndoPreview=null;
+      state.smartMessage=state.smartSelected.size+' reviewed Manifest R files selected. Preview before approval; no changes yet.';
+      renderSmartQueue();
+    };
+    $('smartClearSelected').onclick=()=>{
+      if(state.smartBusy)return;
+      state.smartSelected.clear();state.smartPreview=null;state.smartUndoPreview=null;
+      state.smartMessage='Selection cleared. The private progress and undo journal was retained.';
+      renderSmartQueue();
+    };
+    $('smartQueueList').onchange=event=>{
+      const input=event.target.closest('input[data-smart-select]');
+      if(!input||state.smartBusy)return;
+      const id=input.dataset.smartSelect;
+      if(input.checked){
+        if(state.smartSelected.size>=smartRenameQueue.SMART_RENAME_LIMIT){
+          input.checked=false;
+          state.smartMessage='Select at most 25 reviewed names per approval session.';
+          renderSmartQueue();return;
+        }
+        state.smartSelected.add(id);
+      }else state.smartSelected.delete(id);
+      state.smartPreview=null;state.smartUndoPreview=null;
+      state.smartMessage=state.smartSelected.size+' proposals selected. Preview and approve explicitly.';
+      renderSmartQueue();
+    };
+    $('smartPreviewSelected').onclick=()=>void smartPreviewSelected();
+    $('smartApprove').onclick=()=>void smartApproveSelected();
+    $('smartUndoApply').onclick=()=>void smartUndoApply();
+    $('smartProgressList').onclick=event=>{
+      const resume=event.target.closest('button[data-smart-resume]');
+      if(resume){void smartResumeSheet(resume.dataset.smartResume);return;}
+      const undo=event.target.closest('button[data-smart-undo]');
+      if(undo){void smartUndoPreviewEntry(undo.dataset.smartUndo);return;}
+      const inspect=event.target.closest('button[data-smart-inspect]');
+      if(inspect){
+        state.activityFilter='writes';state.activityQuery=inspect.dataset.smartInspect;state.activityPage=1;
+        displayPage('activity');return;
+      }
+    };
     $('filenameOpenReconcile').onclick=()=>displayPage('sheet-write');
     $('filenameRenamePreview').onclick=()=>void driveRenamePreview();
     $('filenameRenameApply').onclick=()=>void driveRenameApply();

@@ -1,0 +1,30 @@
+# Phase 10H release is gated by approved merge and full release CI.
+name: Publish approved Phase 10H Smart Rename Queue
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Phase 10H Smart Rename Queue v2.1.35 (#75)')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish complete v2.1.35 Windows release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.35 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.35 already exists; no duplicate dispatch."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.35
+          echo "Dispatched full Windows host, server bundle, UI patch and checksums."

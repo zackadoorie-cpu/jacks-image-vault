@@ -1,5 +1,35 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 10H — Smart Rename Queue (planned v2.1.35)
+
+**Filename Review → Smart Rename Queue** now reads reviewed `Manifest!R` proposals
+directly from the read-only Google Sheet snapshot. Select 1–25 names, preview
+the exact live Drive IDs, file versions, rename permissions, complete sibling
+folder names, original Manifest/index IDs, and Search Index formulas.
+Only after explicit batch approval and separate *temporary* Drive metadata
+and Sheets editing consent does the app process selected files sequentially.
+
+Each completed file has a verified **name-only Drive PATCH**, an independent
+read-back, and exactly one **Manifest AD** update whose existing Search
+Index C ARRAYFORMULA is verified. No original Manifest C, descriptions, tags,
+file contents or formulas are modified.
+
+Progress is kept in an account-and-Sheet-bound local write-ahead journal,
+with a status per file. Partial or uncertain updates stop the queue and are
+**never retried automatically**. A verified Drive change awaiting a Sheet
+write can be reconciled individually with a new authorization. Synced
+changes provide an individual **Preview undo** and a separate confirmed
+Drive restoration plus Manifest AD synchronization. The legacy one-file
+rename and Activity & Undo screens remain available.
+
+The batch still has a real non-atomic interval between Google Drive and
+Google Sheets, plus no cross-editor compare-and-swap. Live rechecks limit
+the window but cannot provide transaction isolation. Existing Windows
+read-only saved login is unchanged. **No Google data is changed by
+installing the patch or simply selecting names.**
+
+See [Phase 10H design and recovery limits](docs/phase10h-smart-rename-queue.md).
+
 ## Phase 10G — Filename Plan Import & Guided Queue (v2.1.34)
 
 A saved filename proposal JSON **is not** a ChatGPT visual-review
