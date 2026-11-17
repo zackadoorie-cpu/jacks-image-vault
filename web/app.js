@@ -5964,7 +5964,7 @@
       if(!latest||JSON.stringify(latest)!==JSON.stringify(plan))
         throw new Error('Verified history or index row mapping changed. Start a new preview.');
       state.reconcilePrepared={plan,sheet,version:driveCheck.version};
-      state.reconcileMessage='Read-only verification passed. Only two filename cells would change. Review the exact values before permission.';
+      state.reconcileMessage='Read-only verification passed. Only Manifest AD would change. Search Index C is formula-derived and remains protected. Review the exact values before permission.';
     }catch(error){
       if(epoch===state.authEpoch)state.reconcileMessage='Cannot reconcile: '+(error.message||'Live verification failed.');
     }finally{
@@ -6050,7 +6050,7 @@
     }catch(error){
       if(epoch===state.authEpoch){
         state.reconcileMessage=(submitted?
-          'SHEET UPDATE MAY HAVE HAPPENED. Inspect both filename cells and the Drive file; do not retry blindly: ':
+          'SHEET UPDATE MAY HAVE HAPPENED. Inspect Manifest AD, the formula-derived Search Index C, and Drive; do not retry blindly: ':
           'No Sheet update submitted: ')+(error.message||'Unverified Google Sheet response.');
         if(submitted&&!verified){
           state.reconcilePrepared=null;
