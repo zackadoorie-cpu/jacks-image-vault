@@ -597,37 +597,6 @@ async function main(){
   });
   // A separate synthetic Sheets interceptor supports one-file two-index
   // reconciliation, without ever contacting a real Google account.
-  const names={manifest:fake.name,index:fake.name,indexId:id};
-  const nameWrites=[];
-  await renames.page.route('https://sheets.googleapis.com/**',route=>{
-    const request=route.request(),u=new URL(request.url());
-    const ranges=u.searchParams.getAll('ranges');
-    if(u.pathname.endsWith('/values:batchGet')&&ranges.some(v=>v==="'Manifest'!C2")){
-      return route.fulfill(reply({valueRanges:[
-        {values:[[names.manifest]]},{values:[[id]]},
-        {values:[[names.index]]},{values:[[names.indexId]]}
-      ]}));
-    }
-    if(request.method()==='GET'&&u.searchParams.has('fields')&&
-       u.searchParams.get('fields')==='sheets(properties(sheetId,title))'){
-      return route.fulfill(reply({sheets:[
-        {properties:{sheetId:1888160209,title:'Manifest'}},
-        {properties:{sheetId:1888160210,title:'Search Index'}}
-      ]}));
-    }
-    if(request.method()==='POST'&&u.pathname.endsWith(':batchUpdate')){
-      const body=request.postDataJSON();
-      nameWrites.push(body);
-      for(const req of body.requests||[]){
-        const target=req.updateCells?.start?.sheetId;
-        const value=req.updateCells?.rows?.[0]?.values?.[0]?.userEnteredValue?.stringValue;
-        if(target===1888160209)names.manifest=value;
-        if(target===1888160210)names.index=value;
-      }
-      return route.fulfill(reply({replies:(body.requests||[]).map(()=>({}))}));
-    }
-    return route.fallback();
-  });
   try{
     const p=renames.page;
     await p.locator('#connectButton').click();
@@ -726,9 +695,11 @@ async function main(){
     const request=route.request(),u=new URL(request.url());
     if(u.pathname==='/drive/v3/files/'+id&&request.method()==='GET')
       return route.fulfill(reply(reconLive));
-    if(u.pathname==='/drive/v3/files/'+id&&request.method()==='PATCH')
-      return route.fulfill(reply({...reconLive,name:request.postDataJSON().name,
-        version:String(+reconLive.version+1)}));
+    if(u.pathname==='/drive/v3/files/'+id&&request.method()==='PATCH'){
+      reconLive={...reconLive,name:request.postDataJSON().name,
+        version:String(+reconLive.version+1)};
+      return route.fulfill(reply(reconLive));
+    }
     if(u.pathname==='/drive/v3/files'&&u.searchParams.has('q'))
       return route.fulfill(reply({files:[{id,name:reconLive.name,trashed:false}]}));
     return route.fallback();
