@@ -736,6 +736,129 @@ async function main(){
     assert.match(await p.locator('#activityList').innerText(),/Original Drive filename restored and verified/);
     assert.equal((await p.evaluate(()=>JSON.stringify(localStorage))).includes('fake-e2e-token'),false);
   }finally{await renames.ctx.close();}
+  // Phase 10H: approval uses two temporary grants but executes a separately
+  // verified name-only Drive PATCH and Manifest AD write per file. The test
+  // fixture has no real Google credentials or Drive files.
+  const smart=await fixturePage(browser,url);
+  let smartDrive={...fakeVideo,name:fakeVideo.name,version:'10',
+    trashed:false,capabilities:{canRename:true}};
+  let smartAd='',smartIndex=fakeVideo.name,smartIndexId=vid,smartFormula=true;
+  const smartPatches=[],smartPosts=[],smartReads=[];
+  await smart.page.route('https://www.googleapis.com/**',route=>{
+    const r=route.request(),u=new URL(r.url());
+    if(u.pathname==='/drive/v3/files/'+vid&&r.method()==='GET')
+      return route.fulfill(reply(smartDrive));
+    if(u.pathname==='/drive/v3/files/'+vid&&r.method()==='PATCH'){
+      const body=r.postDataJSON();smartPatches.push(body);
+      smartDrive={...smartDrive,name:body.name,version:String(Number(smartDrive.version)+1)};
+      return route.fulfill(reply(smartDrive));
+    }
+    if(u.pathname==='/drive/v3/files'&&u.searchParams.has('q'))
+      return route.fulfill(reply({files:[
+        {id,name:fake.name,trashed:false},
+        {id:vid,name:smartDrive.name,trashed:false}
+      ]}));
+    return route.fallback();
+  });
+  await smart.page.route('https://sheets.googleapis.com/**',route=>{
+    const r=route.request(),u=new URL(r.url());
+    if(u.pathname.endsWith('/values:batchGet')){
+      const ranges=u.searchParams.getAll('ranges');
+      smartReads.push(ranges);
+      if(ranges.includes("'Manifest'!C3")&&u.searchParams.get('valueRenderOption')==='FORMATTED_VALUE')
+        return route.fulfill(reply({valueRanges:[
+          {values:[[fakeVideo.name]]},{values:[[vid]]},
+          {values:smartAd?[[smartAd]]:[]},
+          {values:[[smartIndex]]},{values:[[smartIndexId]]}
+        ]}));
+      if(ranges.includes("'Search Index'!C2")&&u.searchParams.get('valueRenderOption')==='FORMULA')
+        return route.fulfill(reply({valueRanges:[
+          {values:[[smartFormula?
+            '=ARRAYFORMULA(IF(Manifest!D2:D1817="","",IF(Manifest!AD2:AD1817<>"",Manifest!AD2:AD1817,Manifest!C2:C1817)))':
+            '=BROKEN_FORMULA()']]},
+          {values:[['=ARRAYFORMULA(IF(Manifest!D2:D1817="","",Manifest!D2:D1817))']]},
+          {values:smartAd?[[smartAd]]:[]}
+        ]}));
+    }
+    if(u.searchParams.get('fields')==='sheets(properties(sheetId,title))')
+      return route.fulfill(reply({sheets:[
+        {properties:{title:'Manifest',sheetId:1888160209}},
+        {properties:{title:'Search Index',sheetId:1888160210}}
+      ]}));
+    if(u.pathname.endsWith(':batchUpdate')&&r.method()==='POST'){
+      const body=r.postDataJSON();smartPosts.push(body);
+      for(const update of body.requests||[]){
+        if(update.updateCells?.start.sheetId===1888160209&&
+           update.updateCells?.start.columnIndex===29){
+          smartAd=update.updateCells.rows[0].values[0].userEnteredValue.stringValue;
+          smartIndex=smartAd||fakeVideo.name;
+        }
+      }
+      return route.fulfill(reply({replies:body.requests.map(()=>({}))}));
+    }
+    return route.fallback();
+  });
+  try{
+    const p=smart.page;
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    await p.locator('#homeActionFilenameReview').click();
+    assert.equal(await p.locator('[data-smart-select="'+vid+'"]').count(),1,
+      'Manifest R video proposal appears directly in Smart Rename Queue');
+    await p.locator('[data-smart-select="'+vid+'"]').check();
+    assert.equal(smartPatches.length,0);
+    assert.equal(smartPosts.length,0);
+    await p.locator('#smartPreviewSelected').click();
+    await p.waitForFunction(()=>!document.querySelector('#smartQueuePreview')?.hidden,null,{timeout:18000});
+    assert.match(await p.locator('#smartPreviewSummary').innerText(),/live Drive identity/);
+    assert.equal(smartPatches.length,0,'Read-only preview must never rename Drive files');
+    assert.equal(smartPosts.length,0,'Read-only preview must never edit Sheet cells');
+    p.once('dialog',dialog=>dialog.dismiss());
+    await p.locator('#smartApprove').click();
+    assert.equal(smartPatches.length,0,'Declining batch consent must not PATCH Drive');
+    smart.setAccount('another_permission_123456789');
+    p.on('dialog',dialog=>dialog.accept());
+    await p.locator('#smartApprove').click();
+    await p.waitForFunction(()=>document.querySelector('#smartQueueStatus')?.textContent.includes('No batch writes started'),null,{timeout:18000});
+    assert.equal(smartPatches.length,0,'Wrong Google account must block all writes');
+    smart.setAccount('fixture_permission_123456789');
+    await p.locator('#smartApprove').click();
+    await p.waitForFunction(()=>document.querySelector('#smartQueueStatus')?.textContent.includes('All 1 selected Drive filenames'),null,{timeout:18000})
+      .catch(async error=>{throw new Error('Smart rename failed: '+await p.locator('#smartQueueStatus').innerText()+'; '+error.message);});
+    p.removeAllListeners('dialog');
+    assert.equal(smartPatches.length,1,'Exactly one verified name-only Drive PATCH');
+    assert.deepEqual(smartPatches[0],{name:'Airfield - Vintage Aircraft.mp4'});
+    assert.equal(smartDrive.name,'Airfield - Vintage Aircraft.mp4');
+    assert.equal(smartPosts.length,1,'Exactly one Manifest AD Sheet write');
+    assert.deepEqual(smartPosts[0].requests.map(x=>[
+      x.updateCells.start.sheetId,x.updateCells.start.columnIndex,x.updateCells.start.rowIndex
+    ]),[[1888160209,29,2]]);
+    assert.equal(smartAd,smartDrive.name);
+    assert.equal(smartIndex,smartDrive.name,'Search Index formula drives displayed name');
+    assert.equal(smartFormula,true,'No formula was touched');
+    assert.match(await p.locator('#smartProgressSummary').innerText(),/1 synchronized/);
+    assert.equal(await p.locator('[data-smart-undo="'+vid+'"]').count(),1);
+    // Undo requires a fresh, separately authorized live Drive check and
+    // restores Manifest AD rather than rewriting any Search Index formula.
+    await p.locator('[data-smart-undo="'+vid+'"]').click();
+    await p.waitForFunction(()=>!document.querySelector('#smartUndoPanel')?.hidden,null,{timeout:18000})
+      .catch(async error=>{throw new Error('Undo preview failed: '+await p.locator('#smartQueueStatus').innerText()+'; '+error.message);});
+    p.on('dialog',dialog=>dialog.accept());
+    await p.locator('#smartUndoApply').click();
+    await p.waitForFunction(()=>document.querySelector('#smartQueueStatus')?.textContent.includes('Verified undo:'),null,{timeout:18000})
+      .catch(async error=>{throw new Error('Undo failed: '+await p.locator('#smartQueueStatus').innerText()+'; '+error.message);});
+    p.removeAllListeners('dialog');
+    assert.equal(smartPatches.length,2,'Undo adds only one additional Drive PATCH');
+    assert.deepEqual(smartPatches[1],{name:fakeVideo.name});
+    assert.equal(smartPosts.length,2,'Undo adds only one additional Sheet AD update');
+    assert.equal(smartAd,fakeVideo.name);
+    assert.equal(smartIndex,fakeVideo.name);
+    assert.match(await p.locator('#smartProgressSummary').innerText(),/1 undone/);
+    assert.equal(await p.locator('[data-smart-undo="'+vid+'"]').count(),0,'Verified undo cannot replay');
+    assert.equal((await p.evaluate(()=>JSON.stringify(localStorage))).includes('fake-e2e-token'),false,
+      'Temporary edit tokens must never enter local progress storage');
+    console.log('PASS: Phase 10H live preflight, consent, sequential Drive PATCH, formula-safe Sheet write, progress and verified undo.');
+  }finally{await smart.ctx.close();}
   // Phase 10D synthetic reconciliation: verified renamed Drive file
   // updates both separate Sheet filename indexes only with explicit consent.
   const reconcile=await fixturePage(browser,url);
