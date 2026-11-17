@@ -1,6 +1,6 @@
 'use strict';
 // Phase 10D: pure, fail-closed reconciliation of a verified Drive rename
-// into two exact Google Sheet filename cells. No network or authorization here.
+// into Manifest!AD, preserving formula-driven Search Index!C. No network here.
 /* filename-reconcile:portable:start */
 const RECONCILE_DRIVE_KINDS=['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'];
 function reconcileID(value){return typeof value==='string'&&/^[A-Za-z0-9_-]{10,100}$/.test(value);}
@@ -57,34 +57,37 @@ function reconcileLiveDrive(plan,live,{baselineVersion=null}={}){
 }
 function reconcileSheetCheck(plan,sheet){
  if(!plan||!sheet||sheet.manifestId!==plan.fileId||sheet.indexId!==plan.fileId)
-  return {ok:false,reason:'Manifest or Search Index ID changed. No filename cells can be updated.'};
- if(typeof sheet.manifestName!=='string'||typeof sheet.indexName!=='string'||
-    sheet.manifestName.startsWith('=')||sheet.indexName.startsWith('='))
-  return {ok:false,reason:'Invalid or formula-based filename cells cannot be overwritten.'};
- if(sheet.manifestName===plan.newName&&sheet.indexName===plan.newName)
-  return {ok:false,reason:'Manifest and Search Index already match the verified Drive filename.'};
- if(sheet.manifestName!==plan.oldName||sheet.indexName!==plan.oldName)
-  return {ok:false,reason:'One or both Sheet filenames differ from the recorded previous name. Do not overwrite newer edits.'};
- return {ok:true,reason:'Both exact Sheet row IDs and previous filenames match verified history.'};
+  return {ok:false,reason:'Manifest or Search Index Drive ID changed. No Sheet values will be modified.'};
+ if(sheet.formulaIntact!==true)
+  return {ok:false,reason:'Search Index formula anchors are missing or altered. Manual inspection required.'};
+ if(sheet.currentIsFormula===true||!reconcileName(sheet.manifestOriginal)||
+   typeof sheet.manifestCurrent!=='string'||sheet.manifestCurrent.startsWith('=')||
+   typeof sheet.indexName!=='string'||sheet.indexName.startsWith('='))
+  return {ok:false,reason:'A source name is invalid, or Manifest!AD contains a formula.'};
+ const effective=sheet.manifestCurrent||sheet.manifestOriginal;
+ if(effective===plan.newName&&sheet.indexName===plan.newName)
+  return {ok:false,reason:'Manifest and the formula-derived Search Index already match Drive.'};
+ if(effective!==plan.oldName||sheet.indexName!==plan.oldName)
+  return {ok:false,reason:'The current Manifest and Search Index filenames differ from the verified previous Drive name.'};
+ return {ok:true,reason:'Source filename and formula-derived index match the exact previous Drive name.'};
 }
 function reconcileRequests(plan,{manifestId,indexId}={}){
  if(!plan||!reconcileID(plan.fileId)||!reconcileName(plan.newName)||
-  !Number.isSafeInteger(plan.manifestRow)||plan.manifestRow<2||
-  !Number.isSafeInteger(plan.indexRow)||plan.indexRow<2||
-  !Number.isSafeInteger(manifestId)||manifestId<0||
-  !Number.isSafeInteger(indexId)||indexId<0||manifestId===indexId)
-  throw new Error('Two distinct verified Sheet tabs and one eligible Drive filename are required.');
- const change=(sheetId,row)=>({updateCells:{
-  start:{sheetId,rowIndex:row-1,columnIndex:2},
+    !Number.isSafeInteger(plan.manifestRow)||plan.manifestRow<2||
+    !Number.isSafeInteger(plan.indexRow)||plan.indexRow<2||
+    !Number.isSafeInteger(manifestId)||manifestId<0||
+    !Number.isSafeInteger(indexId)||indexId<0||manifestId===indexId)
+  throw new Error('Verified Manifest and formula-driven Search Index tabs are required.');
+ return {requests:[{updateCells:{
+  start:{sheetId:manifestId,rowIndex:plan.manifestRow-1,columnIndex:29},
   rows:[{values:[{userEnteredValue:{stringValue:plan.newName}}]}],
   fields:'userEnteredValue'
- }});
- return {requests:[change(manifestId,plan.manifestRow),change(indexId,plan.indexRow)],
-  includeSpreadsheetInResponse:false};
+ }}],includeSpreadsheetInResponse:false};
 }
 function reconcileVerified(plan,sheet,drive){
- return !!plan&&!!sheet&&sheet.manifestId===plan.fileId&&sheet.indexId===plan.fileId&&
-  sheet.manifestName===plan.newName&&sheet.indexName===plan.newName&&
+ return !!plan&&!!sheet&&sheet.formulaIntact===true&&sheet.currentIsFormula!==true&&
+  sheet.manifestId===plan.fileId&&sheet.indexId===plan.fileId&&
+  sheet.manifestCurrent===plan.newName&&sheet.indexName===plan.newName&&
   reconcileLiveDrive(plan,drive).ok;
 }
 /* filename-reconcile:portable:end */
