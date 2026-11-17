@@ -266,8 +266,8 @@
                 </select>
               </label>
             </div>
-            <div class="review-toolbar-actions"><button type="button" class="btn primary" id="reviewBatchImport">Import ChatGPT review batch</button><input class="hidden" type="file" accept=".json,application/json" id="reviewBatchImportFile" aria-label="Choose reviewed batch JSON"><button type="button" class="btn outline" id="reviewExport">Export review backup</button><button type="button" class="btn quiet" id="reviewImport">Restore full backup</button><input class="hidden" type="file" accept=".json,application/json" id="reviewImportFile" aria-label="Choose review backup JSON"></div>
-            <p class="review-privacy">ChatGPT review batches merge into your device's existing reviews without replacing them. Existing edits win on conflicts; original Drive and Sheets files never change. Export a backup before clearing browser storage.</p>
+            <div class="review-toolbar-actions"><button type="button" class="btn primary" id="reviewBatchImport">Import visual reviews (JSON)</button><input class="hidden" type="file" accept=".json,application/json" id="reviewBatchImportFile" aria-label="Choose reviewed batch JSON"><button type="button" class="btn outline" id="reviewExport">Export review backup</button><button type="button" class="btn quiet" id="reviewImport">Restore full backup</button><input class="hidden" type="file" accept=".json,application/json" id="reviewImportFile" aria-label="Choose review backup JSON"></div>
+            <p class="review-privacy">Visual review batches contain inspected descriptions and tags, not filename plans. If you choose a saved filename plan here, Image Vault directs it into the separate Filename Review queue. Neither import changes Drive or Sheets.</p>
           </div>
           <div id="galleryNotice" class="gallery-notice hidden"></div>
           <div id="galleryGrid" class="image-grid" aria-live="off" aria-label="Media results"></div>
@@ -404,12 +404,16 @@
             <button class="btn outline" type="button" id="filenameOpenManager">Library Desk</button>
             <button class="btn outline" type="button" id="filenameClear">Clear local staging</button>
             <button class="btn outline" type="button" id="filenameNextSheet" disabled>Prepare next Sheet proposal</button>
-            <button class="btn primary" type="button" id="filenameReviewExport" disabled>Export staged plan (JSON)</button>
+            <button class="btn outline" type="button" id="filenameNextImported" disabled>Prepare next imported filename</button>
+            <button class="btn primary" type="button" id="filenameReviewExport" disabled>Export plan (up to 25)</button>
+            <button class="btn outline" type="button" id="filenamePlanImport">Import filename plan (JSON)</button>
+            <input class="hidden" type="file" accept=".json,application/json" id="filenamePlanImportFile" aria-label="Import exported filename plan">
             <button class="btn outline" type="button" id="filenameRenamePreview" disabled>Verify one staged Drive rename</button>
             <button class="btn outline" type="button" id="filenameOpenReconcile">Reconcile renamed files in Sheet</button>
           </div>
           <p id="filenameReviewStatus" class="activity-status" role="status" aria-live="polite">Connect your Google Drive read-only inventory to prepare filenames.</p>
           <p id="filenameReviewMessage" class="activity-status" role="status" aria-live="polite">No filenames have been modified.</p>
+          <p id="filenameImportStatus" class="activity-status" aria-live="polite">No imported filename plan.</p>
           <section id="filenameRenamePanel" class="activity-boundary sheet-write-panel" aria-label="Live verified Drive filename change" hidden>
             <h2>Authorize one Google Drive rename</h2>
             <p>Live file identity, version, original name, parent folder, rename capability and all folder filenames have been checked. Review the exact old and proposed name. This is a real Drive metadata change, not a Sheet edit or an app update.</p>
@@ -434,7 +438,7 @@
             <span id="filenameReviewPage" aria-live="polite">—</span>
             <button id="filenameReviewNext" class="btn outline" type="button">Next</button>
           </div>
-          <p class="privacy-note">A downloaded plan contains filenames, file IDs, review evidence, and your account/Sheet binding. Keep it private. Phase 10B permits exactly one explicitly chosen, separately authorized Drive rename at a time, after a complete live metadata preflight and a final confirmation. Google Drive has no atomic compare-and-swap for this update, so an outside editor can still race the final write. Google Sheets is not updated by a Drive rename. Use Sheet Approvals to reconcile Manifest AD; Search Index C remains formula-derived. Saved Windows sign-in remains read-only.</p>
+          <p class="privacy-note">The export limit is 25 filename proposals, NOT 25 simultaneous renames. Importing a filename plan restores a local one-by-one queue. Keep the Drive IDs and private filename data safe. Phase 10B permits exactly one explicitly chosen, separately authorized Drive rename at a time, after a complete live metadata preflight and a final confirmation. Google Drive has no atomic compare-and-swap for this update, so an outside editor can still race the final write. Google Sheets is not updated by a Drive rename. Use Sheet Approvals to reconcile Manifest AD; Search Index C remains formula-derived. Saved Windows sign-in remains read-only.</p>
         </section>
         <section id="renameDeskView" class="view hidden" aria-labelledby="renameDeskTitle">
           <div class="gallery-heading"><div>
@@ -630,7 +634,7 @@
           <div class="gallery-heading"><div>
             <p class="eyebrow">PHASE 9B-2 · EXPLICIT APPROVAL ONLY</p>
             <h1 id="sheetWriteTitle">Sheet Review Approvals</h1>
-            <p>Approve local review notes, or separately reconcile verified Drive filenames into both inventory indexes. No automatic editing, media moves or file-content changes.</p>
+            <p>Approve local descriptions/tags, or reconcile ONE verified Drive rename into Manifest AD while Search Index C updates via its formula. Filename proposal JSON belongs in Filename Review. No automatic editing or media changes.</p>
           </div></div>
           <p class="activity-boundary" role="note"><strong>Permission boundary:</strong> Normal browsing uses read-only Google scopes. Applying these reviews requires a separate, temporary Google Sheets edit authorization, an explicit batch confirmation, a fresh Manifest row/Drive ID check, and post-write verification. Google grants a broad Sheets edit scope, but this app restricts writes to the configured inventory Sheet. Concurrent external edits cannot be fully excluded by the Sheets API.</p>
           <div class="activity-quicklinks">
