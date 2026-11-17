@@ -262,11 +262,11 @@
     const SMART_RENAME_TRANSITIONS={
      ready:['drive-submitting','blocked'],
      'drive-submitting':['drive-verified','drive-uncertain'],
-     'drive-verified':['sheet-submitting','blocked'],
+     'drive-verified':['sheet-submitting','synced','blocked'],
      'sheet-submitting':['synced','sheet-uncertain'],
      synced:['undo-drive-submitting'],
      'undo-drive-submitting':['undo-drive-verified','undo-drive-uncertain'],
-     'undo-drive-verified':['undo-sheet-submitting','blocked'],
+     'undo-drive-verified':['undo-sheet-submitting','undone','blocked'],
      'undo-sheet-submitting':['undone','undo-sheet-uncertain'],
      blocked:['drive-submitting','sheet-submitting','undo-sheet-submitting']
     };
@@ -5903,7 +5903,7 @@
     const model=filenameReviewModel();
     const proposals=model.rows.filter(x=>x.sheetProposal&&x.status==='ready'&&
       ['reviewed','source-reviewed'].includes(x.stage));
-    const journalIds=new Set((state.smartJournal?.entries||[]).map(e=>e.fileId));
+    const journalIds=new Set((state.smartJournal?.entries||[]).filter(e=>e.status!=='ready').map(e=>e.fileId));
     const eligible=proposals.filter(x=>!journalIds.has(x.fileId));
     $('smartSelect25').disabled=!connected||state.smartBusy||state.renameBusy||state.sheetWriteBusy||!eligible.length;
     $('smartClearSelected').disabled=state.smartBusy||!state.smartSelected.size;
@@ -5947,7 +5947,7 @@
     renderSmartQueue();
     try{
       const plans=smartQueueCandidatePlans();
-      if(plans.some(p=>smartJournalEntry(p.entry.fileId)))
+      if(plans.some(p=>smartJournalEntry(p.entry.fileId)&&smartJournalEntry(p.entry.fileId).status!=='ready'))
         throw new Error('A selected file already has a progress history; inspect it before reapplying.');
       const items=[];
       for(let i=0;i<plans.length;i++){
