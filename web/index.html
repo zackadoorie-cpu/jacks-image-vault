@@ -627,7 +627,7 @@
           <div class="gallery-heading"><div>
             <p class="eyebrow">PHASE 9B-2 · EXPLICIT APPROVAL ONLY</p>
             <h1 id="sheetWriteTitle">Sheet Review Approvals</h1>
-            <p>Review exact before-and-after description, tags and review status for locally reviewed items. No filename, media, folder or formula changes.</p>
+            <p>Approve local review notes, or separately reconcile verified Drive filenames into both inventory indexes. No automatic editing, media moves or file-content changes.</p>
           </div></div>
           <p class="activity-boundary" role="note"><strong>Permission boundary:</strong> Normal browsing uses read-only Google scopes. Applying these reviews requires a separate, temporary Google Sheets edit authorization, an explicit batch confirmation, a fresh Manifest row/Drive ID check, and post-write verification. Google grants a broad Sheets edit scope, but this app restricts writes to the configured inventory Sheet. Concurrent external edits cannot be fully excluded by the Sheets API.</p>
           <div class="activity-quicklinks">
@@ -668,7 +668,24 @@
             </div>
             <p class="activity-status" id="sheetWriteApplyStatus" role="status" aria-live="polite"></p>
           </div>
-          <p class="privacy-note">Only Manifest columns M (review description), N (tags), and T (review status) are eligible. Every selected row must still match its original Drive ID and staged before-values immediately before submission. No bulk auto-sync, auto-approval, or hidden background writes. Newly verified Sheet approvals get individual, conflict-checked undo previews in Activity &amp; Undo. Each restore needs new temporary authorization and two confirmations, and app-version rollback never reverses Sheet edits. Older approvals without original values cannot be undone.</p>
+          <section class="activity-boundary sheet-write-panel" aria-label="Phase 10D filename reconciliation">
+            <p class="eyebrow">PHASE 10D · VERIFIED FILE-NAME INDEXES</p>
+            <h2>Reconcile renamed Drive files into Sheet indexes</h2>
+            <p>For one verified Drive rename or undo at a time, compare the current real Drive filename with both Manifest and Search Index. Read-only checks are required before previewing any write. An approved reconciliation modifies only the two filename cells (column C), not Drive files.</p>
+            <p id="reconcileCount" class="activity-status">Connect Drive to inspect recent rename history.</p>
+            <div id="reconcileList" class="activity-list" aria-label="Verified Drive names eligible for index reconciliation"></div>
+            <p id="reconcileStatus" class="activity-status" role="status" aria-live="polite">Read-only preview first. No automatic Sheet writes.</p>
+            <div id="reconcilePreview" class="activity-boundary" hidden>
+              <h3>Compare exact existing and proposed filename cells</h3>
+              <div class="sheet-write-diff">
+                <div><strong>Existing Manifest and Search Index names</strong><pre id="reconcileBefore"></pre></div>
+                <div><strong>Verified name from the real Drive file</strong><pre id="reconcileAfter"></pre></div>
+              </div>
+              <p>Temporary Google Sheets authorization covers more than these two cells. Image Vault only submits the approved two-cell update, requires two confirmations, and independently verifies both cells afterward. Your signed-in Windows session remains read-only.</p>
+              <button id="reconcileApply" class="btn primary" type="button">Authorize &amp; reconcile these two filenames</button>
+            </div>
+          </section>
+          <p class="privacy-note">Only Manifest columns M (review description), N (tags), and T (review status) are eligible. Every selected row must still match its original Drive ID and staged before-values immediately before submission. No bulk auto-sync, auto-approval, or hidden background writes. Newly verified Sheet approvals get individual, conflict-checked undo previews in Activity &amp; Undo. Each restore needs new temporary authorization and two confirmations, and app-version rollback never reverses Sheet edits. Older approvals without original values cannot be undone. Phase 10D filename reconciliation is a separate, one-file, two-cell workflow that checks live Drive metadata, exact Manifest D and Search Index K identities, and both old filename cells before writing. No background synchronization is performed.</p>
         </section>
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
           <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original spreadsheet snapshot with current Drive files. New subfolders under the verified Memes and Jacks Photos roots are discovered automatically.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Discover &amp; verify folders</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>

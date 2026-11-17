@@ -67,7 +67,7 @@
     const ACTIVITY_MAX_EVENTS=120;
     const ACTIVITY_MAX_BYTES=480*1024;
     const ACTIVITY_AGE_MS=90*24*60*60*1000;
-    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified']);
+    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified']);
     function activityReview(value){
       if(value==null)return null;
       if(typeof value!=='object'||Array.isArray(value)||
@@ -233,9 +233,9 @@
       const list=(log?.items||[]).filter(e=>{
         if(chosen==='review'&&!['review-save','review-reset','undo-review'].includes(e.kind))return false;
         if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
-        if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind))return false;
+        if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'].includes(e.kind))return false;
         if(chosen==='inventory'&&e.kind!=='inventory')return false;
-        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind))return false;
+        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'].includes(e.kind))return false;
         return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
       });
       const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
@@ -246,6 +246,96 @@
     return {ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone,activityDriveRenameSnapshot,activityCanUndoDrive,activityMarkDriveUndone};
   })();
   /* GENERATED ACTIVITY LEDGER END */
+  /* GENERATED FILENAME RECONCILE START */
+  const filenameReconcile=(()=>{
+    const RECONCILE_DRIVE_KINDS=['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'];
+    function reconcileID(value){return typeof value==='string'&&/^[A-Za-z0-9_-]{10,100}$/.test(value);}
+    function reconcileName(value){
+     return typeof value==='string'&&value.length>0&&value.length<=96&&
+      value.trim()===value&&!/[\\/:*?"<>|\u0000-\u001f\u007f]/.test(value)&&!/[ .]$/.test(value)&&!value.startsWith('=');
+    }
+    function reconcileNewest(history,fileId,{account,sheetId}={}){
+     if(!history||history.account!==account||history.sheetId!==sheetId||
+      !reconcileID(fileId)||!Array.isArray(history.items))return null;
+     const ops=history.items.filter(e=>e.fileId===fileId&&RECONCILE_DRIVE_KINDS.includes(e.kind))
+      .sort((a,b)=>b.at-a.at||history.items.indexOf(a)-history.items.indexOf(b));
+     const head=ops[0];
+     if(!head||head.status!=='complete')return null;
+     let source,oldName,newName;
+     if(head.kind==='drive-rename'){
+      source=head;oldName=head.driveChange?.beforeName;newName=head.driveChange?.afterName;
+     }else if(head.kind==='drive-undo'){
+      const matches=ops.slice(1).filter(e=>e.kind==='drive-rename'&&e.status==='undone'&&
+       e.at<=head.at&&e.driveChange);
+      if(matches.length!==1)return null;
+      source=matches[0];oldName=source.driveChange.afterName;newName=source.driveChange.beforeName;
+     }else return null;
+     const change=source.driveChange;
+     if(!reconcileID(change?.fileId)||!reconcileID(change?.parentId)||
+        change.fileId!==fileId||!reconcileName(oldName)||!reconcileName(newName)||
+        oldName===newName)return null;
+     return {eventId:head.id,fileId,parentId:change.parentId,oldName,newName,
+      originKind:head.kind,account,sheetId};
+    }
+    function reconcileDraft(history,item,{account,sheetId,parentId}={}){
+     if(!item||item.demo||item.newInDrive||!reconcileID(item.id)||
+      !Number.isSafeInteger(item.manifestRow)||item.manifestRow<2||item.manifestRow>100000||
+      !Number.isSafeInteger(item.indexRow)||item.indexRow<2||item.indexRow>100000||
+      !reconcileID(parentId)||typeof item.mime!=='string'||!item.mime)return null;
+     const recent=reconcileNewest(history,item.id,{account,sheetId});
+     if(!recent||recent.parentId!==parentId||
+      (item.name!==recent.oldName&&item.name!==recent.newName)||
+      (item.manifestOriginalName!==recent.oldName&&item.manifestOriginalName!==recent.newName))
+      return null;
+     return {...recent,manifestRow:item.manifestRow,indexRow:item.indexRow,
+      mimeType:item.mime,folder:item.folder};
+    }
+    function reconcileLiveDrive(plan,live,{baselineVersion=null}={}){
+     if(!plan||!live||live.id!==plan.fileId||live.name!==plan.newName||
+        live.mimeType!==plan.mimeType||live.trashed!==false||
+        !Array.isArray(live.parents)||live.parents.length!==1||
+        live.parents[0]!==plan.parentId)
+      return {ok:false,reason:'Real Drive name, ID, MIME, trash state or parent differs from verified rename history.'};
+     if(!/^\d+$/.test(String(live.version||''))||
+        baselineVersion!==null&&String(live.version)!==String(baselineVersion))
+      return {ok:false,reason:'Drive file version is missing or changed since preview.'};
+     return {ok:true,version:String(live.version)};
+    }
+    function reconcileSheetCheck(plan,sheet){
+     if(!plan||!sheet||sheet.manifestId!==plan.fileId||sheet.indexId!==plan.fileId)
+      return {ok:false,reason:'Manifest or Search Index ID changed. No filename cells can be updated.'};
+     if(typeof sheet.manifestName!=='string'||typeof sheet.indexName!=='string'||
+        sheet.manifestName.startsWith('=')||sheet.indexName.startsWith('='))
+      return {ok:false,reason:'Invalid or formula-based filename cells cannot be overwritten.'};
+     if(sheet.manifestName===plan.newName&&sheet.indexName===plan.newName)
+      return {ok:false,reason:'Manifest and Search Index already match the verified Drive filename.'};
+     if(sheet.manifestName!==plan.oldName||sheet.indexName!==plan.oldName)
+      return {ok:false,reason:'One or both Sheet filenames differ from the recorded previous name. Do not overwrite newer edits.'};
+     return {ok:true,reason:'Both exact Sheet row IDs and previous filenames match verified history.'};
+    }
+    function reconcileRequests(plan,{manifestId,indexId}={}){
+     if(!plan||!reconcileID(plan.fileId)||!reconcileName(plan.newName)||
+      !Number.isSafeInteger(plan.manifestRow)||plan.manifestRow<2||
+      !Number.isSafeInteger(plan.indexRow)||plan.indexRow<2||
+      !Number.isSafeInteger(manifestId)||manifestId<0||
+      !Number.isSafeInteger(indexId)||indexId<0||manifestId===indexId)
+      throw new Error('Two distinct verified Sheet tabs and one eligible Drive filename are required.');
+     const change=(sheetId,row)=>({updateCells:{
+      start:{sheetId,rowIndex:row-1,columnIndex:2},
+      rows:[{values:[{userEnteredValue:{stringValue:plan.newName}}]}],
+      fields:'userEnteredValue'
+     }});
+     return {requests:[change(manifestId,plan.manifestRow),change(indexId,plan.indexRow)],
+      includeSpreadsheetInResponse:false};
+    }
+    function reconcileVerified(plan,sheet,drive){
+     return !!plan&&!!sheet&&sheet.manifestId===plan.fileId&&sheet.indexId===plan.fileId&&
+      sheet.manifestName===plan.newName&&sheet.indexName===plan.newName&&
+      reconcileLiveDrive(plan,drive).ok;
+    }
+    return {RECONCILE_DRIVE_KINDS,reconcileID,reconcileName,reconcileNewest,reconcileDraft,reconcileLiveDrive,reconcileSheetCheck,reconcileRequests,reconcileVerified};
+  })();
+  /* GENERATED FILENAME RECONCILE END */
   /* GENERATED SHEET APPROVAL START */
   const sheetApproval=(()=>{
     const SHEET_APPROVAL_LIMIT=10;
@@ -795,6 +885,8 @@
     sheetWritePage: 1,
     sheetWriteMessage: '',
     sheetWriteBusy: false,
+    reconcilePrepared: null,
+    reconcileMessage: '',
     managerFilter: 'all',
     managerQuery: '',
     managerPage: 1,
@@ -3271,13 +3363,14 @@
       }
       const images = [];
       const found = new Set();
-      for (const r of index.slice(1)) {
+      for (let ix=1;ix<index.length;ix++) {
+        const r=index[ix]||[];
         const id = r[10]; const source = byId.get(id);
         if (!safeId(id) || !source || !supportedMedia(source.mime) || found.has(id)) continue;
         found.add(id);
         images.push(mediaContract.normalizeMediaRecord({id,collection:r[0]||'',folder:r[1]||'',name:r[2]||'Untitled image',description:r[4]||'',tags:r[5]||'',captureDate:r[7]||'',filenameDate:source.filenameDate,filenameDateEvidence:source.filenameDateEvidence,
         driveCreatedAt:source.driveCreatedAt,driveModifiedAt:source.driveModifiedAt,review:source.review||r[9]||'',analysisMethod:source.analysisMethod,confidence:r[11]||'',category:r[12]||'',mime:source.mime,size:source.size,url:linkToDrive({id}),demo:false,
-          manifestRow:source.manifestRow,manifestOriginalName:source.manifestOriginalName}));
+          manifestRow:source.manifestRow,indexRow:ix+1,manifestOriginalName:source.manifestOriginalName}));
       }
       if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
       const baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
@@ -3309,6 +3402,7 @@
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       const reviewLoadWarning=loadReviewNotes();
       state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWriteMessage='';
+      state.reconcilePrepared=null;state.reconcileMessage='';
       state.sheetUndoPreview=null;state.sheetUndoMessage='';
       state.driveUndoPreview=null;state.driveUndoMessage='';
       state.managerFilter='all';state.managerQuery='';state.managerPage=1;
@@ -4122,7 +4216,7 @@
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
-    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.managerFilter='all';state.managerQuery='';state.managerPage=1;filenameReviewReset();state.sheetUndoPreview=null;state.sheetUndoMessage='';state.driveUndoPreview=null;state.driveUndoMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.reconcilePrepared=null;state.reconcileMessage='';state.managerFilter='all';state.managerQuery='';state.managerPage=1;filenameReviewReset();state.sheetUndoPreview=null;state.sheetUndoMessage='';state.driveUndoPreview=null;state.driveUndoMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -5172,6 +5266,7 @@
       state.galleryRevision++;
     }
     if(view!=='activity')state.driveUndoPreview=null;
+    if(view!=='sheet-write')state.reconcilePrepared=null;
     state.view=view;
     revealSidebarGroup(view);
     if(view!=='smart-results')state.smartCollectionId='';
@@ -5738,6 +5833,199 @@
     return state.images.filter(item=>
       sheetApproval.sheetApprovalCandidate(item,state.reviewEdits.get(item.id)));
   }
+
+  // Phase 10D: reconcile ONLY a verified Drive-history filename into the
+  // two exact C cells feeding the private Manifest and Search Index.
+  // This is independent from Sheet M/N/T review approvals.
+  function reconcileCandidates(){
+    const ctx=activityContext(),history=state.activityHistory;
+    if(!state.connected||!ctx||!history)return [];
+    return state.images.filter(x=>!x.demo).flatMap(item=>{
+      const parent=state.folderSources.find(x=>x.path===item.folder&&!x.missing);
+      const plan=parent&&filenameReconcile.reconcileDraft(history,item,{...ctx,parentId:parent.id});
+      return plan?[plan]:[];
+    }).slice(0,120);
+  }
+  async function reconcileReadSheet(plan,token){
+    if(!plan||!filenameReconcile.reconcileID(plan.fileId)||
+       !Number.isSafeInteger(plan.manifestRow)||!Number.isSafeInteger(plan.indexRow))
+      throw new Error('Exact Manifest and Search Index rows are required.');
+    const ranges=["'Manifest'!C"+plan.manifestRow,"'Manifest'!D"+plan.manifestRow,
+      "'Search Index'!C"+plan.indexRow,"'Search Index'!K"+plan.indexRow];
+    const params=new URLSearchParams({valueRenderOption:'FORMULA'});
+    ranges.forEach(range=>params.append('ranges',range));
+    const data=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+
+      encodeURIComponent(plan.sheetId)+'/values:batchGet?'+params,token);
+    if(!Array.isArray(data.valueRanges)||data.valueRanges.length!==4)
+      throw new Error('Both Sheet filename cells and Drive ID cells must be readable.');
+    const values=data.valueRanges.map(range=>String(range.values?.[0]?.[0]??''));
+    return {manifestName:values[0],manifestId:values[1],indexName:values[2],indexId:values[3]};
+  }
+  async function reconcileTabIDs(token){
+    const data=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+
+      encodeURIComponent(state.config.sheetId)+'?fields=sheets(properties(sheetId,title))',token);
+    const match=title=>(data.sheets||[]).filter(x=>x.properties?.title===title)
+      .map(x=>x.properties.sheetId);
+    const [manifestId]=match('Manifest'),[indexId]=match('Search Index');
+    if(match('Manifest').length!==1||match('Search Index').length!==1||
+       !Number.isSafeInteger(manifestId)||!Number.isSafeInteger(indexId)||manifestId===indexId)
+      throw new Error('Two distinct verified Manifest and Search Index tabs are required.');
+    return {manifestId,indexId};
+  }
+  function reconcileContextMatches(plan,epoch){
+    return epoch===state.authEpoch&&state.connected&&state.view==='sheet-write'&&
+      state.driveIdentity===plan.account&&state.config.sheetId===plan.sheetId;
+  }
+  function renderReconcile(){
+    const active=state.connected&&!!state.activityHistory&&!!state.driveIdentity;
+    const plans=reconcileCandidates();
+    $('reconcileCount').textContent=active?plans.length+' recent verified Drive filenames':'Connect Drive to inspect recent rename history.';
+    $('reconcileStatus').textContent=state.reconcileMessage||'Read-only preview first. No automatic Sheet writes.';
+    $('reconcileList').innerHTML=!plans.length?
+      '<p class="activity-empty">'+(active?'No eligible verified Drive rename history on this device. Stage/rename a file first.':'Connect a Google Drive account and its Sheet.')+'</p>':
+      plans.map(plan=>'<article class="activity-entry"><div class="activity-entry-main">'+
+        '<span class="activity-entry-type">VERIFIED '+escapeHTML(plan.originKind.toUpperCase())+'</span>'+
+        '<h3>'+escapeHTML(plan.oldName)+' → '+escapeHTML(plan.newName)+'</h3>'+
+        '<p>'+escapeHTML(plan.folder)+' · Manifest row '+escapeHTML(String(plan.manifestRow))+
+        ' · Search Index row '+escapeHTML(String(plan.indexRow))+'</p></div>'+
+        '<button type="button" class="btn outline" data-reconcile-preview="'+escapeHTML(plan.fileId)+'" '+
+        (state.sheetWriteBusy||state.renameBusy?'disabled':'')+'>Check live filename indexes</button></article>').join('');
+    const prepared=state.reconcilePrepared;
+    $('reconcilePreview').hidden=!prepared;
+    $('reconcileApply').disabled=state.sheetWriteBusy||state.renameBusy||!prepared;
+    if(prepared){
+      const plan=prepared.plan;
+      $('reconcileBefore').textContent=JSON.stringify({
+        fileId:plan.fileId,manifestRow:plan.manifestRow,indexRow:plan.indexRow,
+        manifestName:prepared.sheet.manifestName,indexName:prepared.sheet.indexName
+      },null,2);
+      $('reconcileAfter').textContent=JSON.stringify({
+        fileId:plan.fileId,verifiedDriveFilename:plan.newName,
+        manifestName:plan.newName,indexName:plan.newName,
+        driveVersion:prepared.version
+      },null,2);
+    }
+  }
+  async function reconcilePreviewFile(id){
+    if(state.sheetWriteBusy||state.renameBusy||!state.connected||!state.activityHistory)return;
+    state.reconcilePrepared=null;state.sheetWriteBusy=true;
+    state.reconcileMessage='Reading the actual Drive file and both exact Sheet filename rows…';
+    renderSheetWrite();
+    const epoch=state.authEpoch;
+    try{
+      const plan=reconcileCandidates().find(x=>x.fileId===id);
+      if(!plan)throw new Error('No matching verified Drive history and Sheet indexes are loaded.');
+      const [drive,sheet]=await Promise.all([
+        driveRenameLiveFile(plan.fileId,state.accessToken),reconcileReadSheet(plan,state.accessToken)
+      ]);
+      const driveCheck=filenameReconcile.reconcileLiveDrive(plan,drive);
+      const sheetCheck=filenameReconcile.reconcileSheetCheck(plan,sheet);
+      if(!driveCheck.ok)throw new Error(driveCheck.reason);
+      if(!sheetCheck.ok)throw new Error(sheetCheck.reason);
+      if(!reconcileContextMatches(plan,epoch))return;
+      const latest=reconcileCandidates().find(x=>x.fileId===plan.fileId);
+      if(!latest||JSON.stringify(latest)!==JSON.stringify(plan))
+        throw new Error('Verified history or index row mapping changed. Start a new preview.');
+      state.reconcilePrepared={plan,sheet,version:driveCheck.version};
+      state.reconcileMessage='Read-only verification passed. Only two filename cells would change. Review the exact values before permission.';
+    }catch(error){
+      if(epoch===state.authEpoch)state.reconcileMessage='Cannot reconcile: '+(error.message||'Live verification failed.');
+    }finally{
+      state.sheetWriteBusy=false;
+      if(state.view==='sheet-write')renderSheetWrite();
+    }
+  }
+  async function reconcileApply(){
+    const prepared=state.reconcilePrepared;
+    if(!prepared||state.sheetWriteBusy||state.renameBusy||!state.connected)return;
+    const {plan,version}=prepared,epoch=state.authEpoch;
+    if(!reconcileContextMatches(plan,epoch))return;
+    const latest=reconcileCandidates().find(x=>x.fileId===plan.fileId);
+    if(!latest||JSON.stringify(latest)!==JSON.stringify(plan)){
+      state.reconcilePrepared=null;state.reconcileMessage='History or Sheet row mapping changed. Preview again.';
+      renderSheetWrite();return;
+    }
+    if(!confirm('Authorize TEMPORARY Google Sheets edit permission to reconcile ONE previously renamed Drive file? '+
+      'Google permissions are broader than two cells, but Image Vault will write ONLY filename column C in the verified Manifest and Search Index tabs. Continue?'))return;
+    state.sheetWriteBusy=true;
+    state.reconcileMessage='Waiting for temporary Google Sheets edit authorization…';
+    renderSheetWrite();
+    let submitted=false,verified=false,writeToken='';
+    try{
+      writeToken=await sheetWriteAuthorize();
+      if(!reconcileContextMatches(plan,epoch)||state.reconcilePrepared!==prepared)
+        throw new Error('Account or reconciliation workspace changed before permission.');
+      const identity=await fetch('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',{
+        method:'GET',mode:'cors',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',
+        headers:{Authorization:'Bearer '+writeToken}
+      });
+      if(!identity.ok||(await identity.json()).user?.permissionId!==plan.account)
+        throw new Error('Temporary Sheets write token belongs to a different Google account.');
+      const tabIDs=await reconcileTabIDs(writeToken);
+      const validate=async()=>{
+        if(!reconcileContextMatches(plan,epoch)||state.reconcilePrepared!==prepared||
+          JSON.stringify(reconcileCandidates().find(x=>x.fileId===plan.fileId))!==JSON.stringify(plan))
+          throw new Error('Verified Drive history or row mapping changed during approval.');
+        const [drive,sheet]=await Promise.all([
+          driveRenameLiveFile(plan.fileId,writeToken),reconcileReadSheet(plan,writeToken)
+        ]);
+        const dc=filenameReconcile.reconcileLiveDrive(plan,drive,{baselineVersion:version});
+        const sc=filenameReconcile.reconcileSheetCheck(plan,sheet);
+        if(!dc.ok)throw new Error(dc.reason);
+        if(!sc.ok)throw new Error(sc.reason);
+        if(JSON.stringify(sheet)!==JSON.stringify(prepared.sheet))
+          throw new Error('Sheet preview values changed after the live comparison.');
+      };
+      await validate();
+      if(!confirm('FINAL CONFIRMATION: For Drive file '+plan.fileId+
+        ', update ONLY Manifest!C'+plan.manifestRow+' and Search Index!C'+plan.indexRow+
+        ' from "'+plan.oldName+'" to the verified Drive filename "'+plan.newName+'"? No Drive files will be changed.'))
+        throw new Error('Final consent cancelled. Nothing was submitted.');
+      await validate();
+      const payload=filenameReconcile.reconcileRequests(plan,tabIDs);
+      submitted=true;
+      const response=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+
+        encodeURIComponent(plan.sheetId)+':batchUpdate',writeToken,{method:'POST',payload});
+      if(!Array.isArray(response.replies)||response.replies.length!==2)
+        throw new Error('Google did not confirm exactly two Sheet cell updates.');
+      const [sheet,drive]=await Promise.all([
+        reconcileReadSheet(plan,writeToken),driveRenameLiveFile(plan.fileId,writeToken)
+      ]);
+      if(!filenameReconcile.reconcileVerified(plan,sheet,drive)||
+         String(drive.version)!==version)
+        throw new Error('Post-write Sheet or Drive read-back differed. Inspect both tabs manually.');
+      verified=true;
+      if(!reconcileContextMatches(plan,epoch))return;
+      for(const arr of [state.images,state.inventory]){
+        const item=arr.find(x=>x.id===plan.fileId);
+        if(item){
+          item.name=plan.newName;
+          item.manifestOriginalName=plan.newName;
+        }
+      }
+      state.reconcilePrepared=null;
+      const logged=logActivity('sheet-name-sync',{fileId:plan.fileId,count:1});
+      state.reconcileMessage='Verified: Manifest and Search Index filename cells now match the real Drive file. '+
+        'No other Sheet cells or Drive files were changed.'+
+        (logged?'':' WARNING: local history could not be saved.');
+      buildFolderIndex();
+    }catch(error){
+      if(epoch===state.authEpoch){
+        state.reconcileMessage=(submitted?
+          'SHEET UPDATE MAY HAVE HAPPENED. Inspect both filename cells and the Drive file; do not retry blindly: ':
+          'No Sheet update submitted: ')+(error.message||'Unverified Google Sheet response.');
+        if(submitted&&!verified){
+          state.reconcilePrepared=null;
+          logActivity('sheet-name-sync-unverified',{fileId:plan.fileId,count:1});
+        }
+      }
+    }finally{
+      writeToken='';
+      state.sheetWriteBusy=false;
+      if(state.view==='sheet-write')renderSheetWrite();
+    }
+  }
+
   function renderSheetWrite(){
     const connected=state.connected&&!!state.driveIdentity;
     const candidates=sheetWriteCandidates();
@@ -5780,6 +6068,7 @@
       },null,2);
       $('sheetWriteStage').disabled=state.sheetWriteBusy;
     }
+    renderReconcile();
     $('sheetWriteStaged').innerHTML=!state.sheetWriteStaged.size?
       '<p class="activity-empty">No staged changes. Preview a local review to prepare one.</p>':
       [...state.sheetWriteStaged.values()].map(plan=>
@@ -6025,6 +6314,8 @@
       'drive-rename-unverified':'Drive rename outcome requires manual check',
       'drive-undo':'Original Drive filename restored and verified',
       'drive-undo-unverified':'Drive rename undo requires manual inspection',
+      'sheet-name-sync':'Both Sheet filename indexes verified against Drive',
+      'sheet-name-sync-unverified':'Sheet filename reconciliation requires manual inspection',
       'sheet-write-unverified':'Sheet write requires manual verification'
     }[kind]||'Local activity';
   }
@@ -6111,6 +6402,7 @@
         ['review-import','review-backup'].includes(entry.kind)?'REVIEW IMPORT':
         ['rename-plan','rename-clear'].includes(entry.kind)?'FILENAME PLANNING':
         ['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified'].includes(entry.kind)?'SHEET APPROVAL':
+        ['sheet-name-sync','sheet-name-sync-unverified'].includes(entry.kind)?'SHEET FILENAME':
         ['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(entry.kind)?'DRIVE FILENAME':'INVENTORY READ';
       const count=entry.count>1?' · '+entry.count+' records':'';
       const date=new Date(entry.at).toLocaleString();
@@ -7416,6 +7708,11 @@
       }
     });
     $('sheetWriteApply').onclick=()=>void sheetWriteApply();
+    $('reconcileList').onclick=event=>{
+      const button=event.target.closest('button[data-reconcile-preview]');
+      if(button&&$('reconcileList').contains(button))void reconcilePreviewFile(button.dataset.reconcilePreview);
+    };
+    $('reconcileApply').onclick=()=>void reconcileApply();
     $('sheetWriteOpenReview').onclick=()=>displayPage('review');
     $('sheetWriteOpenActivity').onclick=()=>displayPage('activity');
     $('activityFilter').onchange=event=>{

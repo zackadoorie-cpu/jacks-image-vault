@@ -6,7 +6,7 @@ const ACTIVITY_SCHEMA=1;
 const ACTIVITY_MAX_EVENTS=120;
 const ACTIVITY_MAX_BYTES=480*1024;
 const ACTIVITY_AGE_MS=90*24*60*60*1000;
-const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified']);
+const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified']);
 function activityReview(value){
   if(value==null)return null;
   if(typeof value!=='object'||Array.isArray(value)||
@@ -172,9 +172,9 @@ function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
   const list=(log?.items||[]).filter(e=>{
     if(chosen==='review'&&!['review-save','review-reset','undo-review'].includes(e.kind))return false;
     if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
-    if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind))return false;
+    if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'].includes(e.kind))return false;
     if(chosen==='inventory'&&e.kind!=='inventory')return false;
-    if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind))return false;
+    if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'].includes(e.kind))return false;
     return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
   });
   const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
