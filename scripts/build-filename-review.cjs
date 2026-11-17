@@ -10,7 +10,7 @@ const head='  /* GENERATED FILENAME REVIEW START */',tail='  /* GENERATED FILENA
 const x=app.indexOf(head),y=app.indexOf(tail,x+head.length);
 if(x<0||y<0||app.indexOf(head,x+head.length)>=0||app.indexOf(tail,y+tail.length)>=0)
  throw Error('Filename Review embedded markers invalid');
-const symbols='FILENAME_REVIEW_SCHEMA,FILENAME_REVIEW_LIMIT,FILENAME_REVIEW_BATCH_LIMIT,FILENAME_REVIEW_PAGE_SIZE,FILENAME_REVIEW_FILTERS,filenameReviewCapture,filenameReviewOpaque,filenameReviewValidName,filenameReviewBuild,filenameReviewPage,filenameReviewValidate,filenameReviewExport';
+const symbols='FILENAME_REVIEW_SCHEMA,FILENAME_REVIEW_LIMIT,FILENAME_REVIEW_BATCH_LIMIT,FILENAME_REVIEW_PAGE_SIZE,FILENAME_REVIEW_FILTERS,filenameReviewCapture,filenameReviewOpaque,filenameReviewValidName,filenameReviewBuild,filenameReviewPage,filenameReviewValidate,filenameReviewExport,filenameReviewImportPlan';
 const generated=[head,'  const filenameReview=(()=>{',
  ...src.slice(i+a.length,j).trim().split('\n').map(line=>'    '+line),
  '    return {'+symbols+'};','  })();',tail].join('\n');
