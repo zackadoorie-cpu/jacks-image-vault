@@ -11,7 +11,7 @@ function reconcileName(value){
 function reconcileNewest(history,fileId,{account,sheetId}={}){
  if(!history||history.account!==account||history.sheetId!==sheetId||
   !reconcileID(fileId)||!Array.isArray(history.items))return null;
- const ops=history.items.filter(e=>e.fileId===fileId&&RECONCILE_DRIVE_KIN.includes(e.kind))
+ const ops=history.items.filter(e=>e.fileId===fileId&&RECONCILE_DRIVE_KINDS.includes(e.kind))
   .sort((a,b)=>b.at-a.at||history.items.indexOf(a)-history.items.indexOf(b));
  const head=ops[0];
  if(!head||head.status!=='complete')return null;
