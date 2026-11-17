@@ -746,7 +746,13 @@ async function main(){
     // The fabricated PATCH handler must update the real mock state.
     reconLive={...reconLive,name:'orange cat - reaction meme.jpg',version:'19'};
     await p.locator('[data-view="sheet-write"]').click();
-    assert.equal(await p.locator('[data-reconcile-preview]').count(),1);
+    assert.equal(await p.locator('[data-reconcile-preview]').count(),1,
+      'reconciliation candidate missing: '+JSON.stringify(await p.evaluate(()=>({
+        count:document.querySelector('#reconcileCount')?.textContent,
+        activity:Object.keys(localStorage).filter(k=>k.startsWith('jack-vault-private-activity')).map(k=>{
+          const v=JSON.parse(localStorage.getItem(k));return v.items.map(x=>({kind:x.kind,fileId:x.fileId,status:x.status,driveChange:x.driveChange}));
+        })
+      }))));
     reconIndexId='different_media_123456';
     await p.locator('[data-reconcile-preview]').click();
     await p.waitForFunction(()=>document.querySelector('#reconcileStatus')?.textContent.includes('Cannot reconcile'));
