@@ -743,7 +743,56 @@
         evidence:x.source,evidenceDetail:x.reason,reviewStage:x.stage,
         undo:{expectedCurrentName:x.proposed,restoreName:x.oldName}}))};
     }
-    return {FILENAME_REVIEW_SCHEMA,FILENAME_REVIEW_LIMIT,FILENAME_REVIEW_BATCH_LIMIT,FILENAME_REVIEW_PAGE_SIZE,FILENAME_REVIEW_FILTERS,filenameReviewCapture,filenameReviewOpaque,filenameReviewValidName,filenameReviewBuild,filenameReviewPage,filenameReviewValidate,filenameReviewExport};
+    // Phase 10G: import a saved filename proposal plan, NOT visual reviews.
+    // Return a validated local queue; Drive and Sheets writes are never part
+    // of this parser. Both Filename Review and the older Video Rename Desk
+    // exporters are recognized, but account and live index must still match.
+    function filenameReviewImportPlan(data,model,library,{account='',sheetId=''}={}){
+     if(!data||typeof data!=='object'||Array.isArray(data)||
+        !model?.connected||!account||!sheetId||
+        model.account!==account||model.sheetId!==sheetId)
+      throw new Error('Connect the matching Google account and spreadsheet before importing a filename plan.');
+     const filename=data.schema===FILENAME_REVIEW_SCHEMA&&
+       data.kind==='review-only-filename-plan';
+     const video=data.schema==='image-vault-rename-plan-v1'&&
+       data.kind==='approval-review-only';
+     if(!filename&&!video)
+      throw new Error('Choose a Filename Review or Video Rename Desk exported JSON plan, not a visual-review batch.');
+     if(data.status!=='unapplied'||data.sourceAccount!==account||
+        data.sourceSheetId!==sheetId||
+        !Array.isArray(data.entries)||data.entries.length<1||
+        data.entries.length>FILENAME_REVIEW_BATCH_LIMIT||
+        filename&&data.requiresLiveDriveRecheck!==true)
+      throw new Error('Filename plan is invalid, already applied, exceeds 25 entries, or belongs to another Google account/Sheet.');
+     const rows=new Map((model.rows||[]).map(row=>[row.fileId,row]));
+     const originals=new Map((Array.isArray(library)?library:[]).map(item=>[item.id,item]));
+     const checked=[],seen=new Set();
+     for(const entry of data.entries){
+      const id=entry?.driveId;
+      if(!entry||typeof id!=='string'||seen.has(id))
+       throw new Error('Filename plan has duplicate or missing Drive IDs.');
+      seen.add(id);
+      const row=rows.get(id),live=originals.get(id);
+      if(!row||!live||!row.eligible||live.newInDrive||
+         !['reviewed','source-reviewed'].includes(row.stage)||
+         row.row!==entry.manifestRow||live.manifestRow!==row.row||
+         row.oldName!==entry.expectedName||live.name!==row.oldName||
+         row.mime!==entry.mime||live.mime!==row.mime||
+         row.folder!==entry.folder||live.folder!==row.folder||
+         entry.category!==undefined&&entry.category!==row.kind||
+         !entry.undo||entry.undo.expectedCurrentName!==entry.proposedName||
+         entry.undo.restoreName!==entry.expectedName)
+       throw new Error('An exported name, reviewed source, Manifest row or Drive ID is stale. Refresh the library and prepare a new plan.');
+      const safe=filenameReviewValidate(row,entry.proposedName,library,checked.map(item=>({
+        fileId:item.fileId,folder:item.folder,proposed:item.proposed
+      })));
+      if(!safe.ok)throw new Error('Unsafe or conflicting filename for '+row.oldName+': '+safe.reason);
+      checked.push({fileId:id,oldName:row.oldName,proposed:entry.proposedName,
+        folder:row.folder,mime:row.mime,manifestRow:row.row});
+     }
+     return {kind:filename?'filename-review':'video-rename',entries:checked};
+    }
+    return {FILENAME_REVIEW_SCHEMA,FILENAME_REVIEW_LIMIT,FILENAME_REVIEW_BATCH_LIMIT,FILENAME_REVIEW_PAGE_SIZE,FILENAME_REVIEW_FILTERS,filenameReviewCapture,filenameReviewOpaque,filenameReviewValidName,filenameReviewBuild,filenameReviewPage,filenameReviewValidate,filenameReviewExport,filenameReviewImportPlan};
   })();
   /* GENERATED FILENAME REVIEW END */
   /* GENERATED DRIVE RENAME START */
@@ -909,6 +958,7 @@
     filenamePage: 1,
     filenameDrafts: new Map(),
     filenameStaged: new Set(),
+    filenameImportedQueue: [],
     filenameMessage: '',
     renamePrepared: null,
     renameBusy: false,
@@ -5463,7 +5513,8 @@
   }
   function filenameReviewReset(){
     state.filenameFilter='all';state.filenameQuery='';state.filenamePage=1;
-    state.filenameDrafts.clear();state.filenameStaged.clear();state.filenameMessage='';
+    state.filenameDrafts.clear();state.filenameStaged.clear();
+    state.filenameImportedQueue=[];state.filenameMessage='';
     state.renamePrepared=null;
   }
   function filenameReviewCurrent(row){
@@ -5871,9 +5922,11 @@
         }catch{logged=false;}
         state.filenameDrafts.delete(plan.fileId);
         state.filenameStaged.delete(plan.fileId);
+        state.filenameImportedQueue=state.filenameImportedQueue.filter(x=>x.fileId!==plan.fileId);
         state.renamePrepared=null;
         state.filenameMessage='Verified Drive rename: '+plan.oldName+' → '+plan.newName+
-          '. No file contents, parents or Sheet cells changed. Next: Sheet Approvals → Reconcile the verified name in Manifest AD.'+
+          '. No file contents, parents or Sheet cells changed. Next: Sheet Approvals → Reconcile in Manifest AD. '+
+          state.filenameImportedQueue.length+' imported proposals remain.'+
           (logged?'':' WARNING: local audit could not be saved.');
         buildFolderIndex();
       }finally{writeToken='';}
