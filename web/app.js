@@ -553,7 +553,7 @@
     const FILENAME_REVIEW_LIMIT=20000;
     const FILENAME_REVIEW_BATCH_LIMIT=25;
     const FILENAME_REVIEW_PAGE_SIZE=12;
-    const FILENAME_REVIEW_FILTERS=Object.freeze(['all','ready','conflict','blocked','staged','photo','meme','video']);
+    const FILENAME_REVIEW_FILTERS=Object.freeze(['all','ready','conflict','blocked','staged','sheet','photo','meme','video']);
     const FILENAME_REVIEW_EXTS=Object.freeze(['.jpg','.jpeg','.png','.webp','.gif','.heic','.heif','.tif','.tiff','.mp4','.webm','.mov','.m4v']);
     function filenameReviewText(v){return typeof v==='string'?v:'';}
     function filenameReviewExt(name){
@@ -626,8 +626,18 @@
       if(!kind||!FILENAME_REVIEW_EXTS.includes(ext)||!filenameReviewOpaque(oldName))continue;
       const row=Number.isSafeInteger(item.manifestRow)&&item.manifestRow>=2&&item.manifestRow<=100000?item.manifestRow:null;
       const stage=filenameReviewText(item.stage),capture=kind==='photo'?filenameReviewCapture(item.captureDate):null;
+      // Manifest R stores proposed names, never verified current Drive names.
+      // A reviewed Sheet proposal is not evidence of an EXIF capture date.
+      const sheetDraft=filenameReviewText(item.manifestProposedName).trim();
+      const sheetReviewed=['reviewed','source-reviewed'].includes(stage);
       let proposed='',source='',reason='';
-      if(kind==='photo'){
+      if(sheetDraft){
+       proposed=sheetDraft;
+       source=sheetReviewed?'Visually reviewed filename proposal · Manifest!R':'';
+       reason=sheetReviewed?
+         'Proposed in the Sheet from prior review evidence. No Drive rename or EXIF capture date is implied.':
+         'This Sheet proposal needs independent reviewed visual evidence before a rename.';
+      }else if(kind==='photo'){
        if(capture){
         proposed=capture.filename+ext;source=capture.hasTime?'EXIF camera date and time · Manifest!P':'EXIF camera date only · Manifest!P';
         reason=capture.hasTime?'EXIF camera wall-clock time; timezone not shifted.':'Only capture date was available. No time has been invented.';
@@ -651,7 +661,8 @@
       if(proposed&&!format.ok)reason=format.reason;
       const entry={fileId:item.id,row,folder,kind,mime,oldName,proposed,source,
        reason,stage,eligible:eligible&&!!format?.ok,status:'blocked',
-       captureTime:capture?.time||'',newInDrive:item.newInDrive===true};
+       sheetProposal:!!sheetDraft,
+       captureTime:sheetDraft?'':capture?.time||'',newInDrive:item.newInDrive===true};
       if(entry.eligible){
        const nameKey=filenameReviewKey(folder,proposed);
        if(!proposalMap.has(nameKey))proposalMap.set(nameKey,[]);
@@ -680,7 +691,7 @@
      const safe=FILENAME_REVIEW_FILTERS.includes(filter)?filter:'all';
      const text=String(query||'').slice(0,120).trim().toLocaleLowerCase('en-US');
      const items=(model?.rows||[]).filter(row=>
-      (safe==='all'||safe==='staged'&&staged.has(row.fileId)||safe===row.status||safe===row.kind)&&
+      (safe==='all'||safe==='staged'&&staged.has(row.fileId)||safe==='sheet'&&row.sheetProposal||safe===row.status||safe===row.kind)&&
       (!text||[row.oldName,row.proposed,row.folder,row.fileId,String(row.row||'')].some(v=>
         String(v).toLocaleLowerCase('en-US').includes(text))));
      const size=Math.max(1,Math.min(25,Number.isSafeInteger(pageSize)?pageSize:FILENAME_REVIEW_PAGE_SIZE));
@@ -5135,6 +5146,7 @@
           renameDeskEngine.renameDeskSafeName(sheetName,item.name).ok;
         return {...row,proposed:state.renameDrafts.has(item.id)?
           state.renameDrafts.get(item.id):(useSheetName?sheetName:row.proposed),
+          fromSheet:useSheetName&&!state.renameDrafts.has(item.id),
           evidence:row.evidence+(useSheetName?' · Manifest!R proposal (not a Drive filename)':'')};
       }).filter(Boolean);
   }
@@ -5188,7 +5200,9 @@
           (check.ok?'Draft ready':'Needs attention')+'</span><h3>'+escapeHTML(row.oldName)+'</h3>'+
           '<p class="rename-desk-folder">'+escapeHTML(row.folder)+'</p>'+
           '<p class="rename-desk-evidence">Evidence: '+escapeHTML(row.evidence)+'</p>'+
-          '<button class="btn quiet" type="button" data-rename-open="'+escapeHTML(row.id)+'">Inspect video</button></div>'+
+          '<button class="btn quiet" type="button" data-rename-open="'+escapeHTML(row.id)+'">Inspect video</button>'+
+          (row.fromSheet&&check.ok?'<button class="btn outline" type="button" data-rename-review="'+
+            escapeHTML(row.id)+'">Review Sheet proposal</button>':'')+'</div>'+
           '<div class="rename-desk-edit"><label for="rename-draft-'+escapeHTML(row.id)+'">Proposed Drive filename</label>'+
           '<input class="field" id="rename-draft-'+escapeHTML(row.id)+'" type="text" maxlength="95" '+
           'data-rename-draft="'+escapeHTML(row.id)+'" value="'+escapeHTML(row.proposed)+'" '+
@@ -5468,6 +5482,36 @@
       return {ok:false,reason:'This default suggestion conflicts with another proposed name. Edit it before staging.'};
     return safe;
   }
+  // Phase 10F: put one reviewed Manifest R proposal into existing one-file
+  // verification. Only local staging happens here, never Drive or Sheet writes.
+  function filenameReviewFocusSheet(targetId=''){
+    if(!state.connected||state.renameBusy)return false;
+    const model=filenameReviewModel();
+    const ready=model.rows.filter(row=>row.sheetProposal&&row.status==='ready'&&
+      filenameReviewGuard(row,model).ok);
+    const target=targetId?ready.find(row=>row.fileId===targetId):ready[0];
+    if(!target){
+      state.filenameMessage='No verified, conflict-free Sheet proposal is ready in the loaded inventory.';
+      displayPage('filename-review');renderFilenameReview();return false;
+    }
+    if(state.filenameStaged.size&&
+      !(state.filenameStaged.size===1&&state.filenameStaged.has(target.fileId))){
+      state.filenameMessage='Another filename is staged. Finish or clear that local selection first; nothing was replaced.';
+      displayPage('filename-review');renderFilenameReview();return false;
+    }
+    state.filenameFilter='sheet';
+    state.filenameQuery=targetId?target.oldName:'';
+    const candidates=model.rows.filter(row=>row.sheetProposal);
+    const position=candidates.findIndex(row=>row.fileId===target.fileId);
+    state.filenamePage=targetId?1:Math.floor(Math.max(0,position)/filenameReview.FILENAME_REVIEW_PAGE_SIZE)+1;
+    state.filenameStaged.add(target.fileId);
+    state.renamePrepared=null;
+    state.filenameMessage='One reviewed Manifest R name staged locally: '+
+      target.oldName+' → '+filenameReviewCurrent(target)+
+      '. Inspect it and use Verify one staged Drive rename for a live preflight. No file changed.';
+    displayPage('filename-review');renderFilenameReview();
+    return true;
+  }
   function renderFilenameReview(){
     const model=filenameReviewModel();
     const page=filenameReview.filenameReviewPage(model,{
@@ -5480,9 +5524,12 @@
     for(const [element,key] of Object.entries(keys))
       $(element).textContent=model.connected?format(model.counts[key]):'—';
     $('filenameStaged').textContent=model.connected?format(state.filenameStaged.size):'—';
+    $('filenameNextSheet').disabled=state.renameBusy||!model.connected||
+      !model.rows.some(row=>row.sheetProposal&&row.status==='ready');
     $('filenameKinds').textContent=model.connected?
       format(model.counts.meme)+' meme items · '+format(model.counts.photo)+
-      ' photos · '+format(model.counts.video)+' video items. No Drive renames.':
+      ' photos · '+format(model.counts.video)+' video items · '+
+      format(model.rows.filter(row=>row.sheetProposal).length)+' Sheet proposals. No Drive renames.':
       'Connect Drive to prepare a review-only filename plan.';
     $('filenameReviewSearch').value=state.filenameQuery;
     $('filenameReviewSearch').disabled=!model.connected;
@@ -5544,7 +5591,8 @@
         '<div class="filename-card-evidence"><strong>Evidence:</strong> '+
         escape(row.source||'Insufficient reviewed source')+
         (row.captureTime?'<small>Recorded camera time: '+escape(row.captureTime)+'</small>':'')+
-        '<small>'+escape(row.reason)+'</small></div>'+
+        (row.sheetProposal?'<small>From reviewed Manifest R. Actual Drive name unchanged.</small>':'')+
+         '<small>'+escape(row.reason)+'</small></div>'+
         input+'<div class="filename-card-actions">'+
         '<label><input type="checkbox" data-filename-stage="'+escape(row.fileId)+'" '+
         (selected?'checked ':'')+(canStage?'':'disabled ')+' aria-label="Stage proposal for '+escape(row.oldName)+'">Stage for export</label>'+
@@ -5825,7 +5873,7 @@
         state.filenameStaged.delete(plan.fileId);
         state.renamePrepared=null;
         state.filenameMessage='Verified Drive rename: '+plan.oldName+' → '+plan.newName+
-          '. No file contents, parents or Sheet cells changed. Refresh your Sheet index separately.'+
+          '. No file contents, parents or Sheet cells changed. Next: Sheet Approvals → Reconcile the verified name in Manifest AD.'+
           (logged?'':' WARNING: local audit could not be saved.');
         buildFolderIndex();
       }finally{writeToken='';}
@@ -7701,6 +7749,8 @@
       if(b&&$('filenameReviewList').contains(b)&&state.connected)openImage(b.dataset.filenameOpen,b);
     });
     $('filenameReviewExport').onclick=filenameReviewExportSelected;
+    $('filenameNextSheet').onclick=()=>filenameReviewFocusSheet();
+    $('filenameOpenReconcile').onclick=()=>displayPage('sheet-write');
     $('filenameRenamePreview').onclick=()=>void driveRenamePreview();
     $('filenameRenameApply').onclick=()=>void driveRenameApply();
     $('filenameClear').onclick=()=>{
@@ -7797,6 +7847,10 @@
     };
     $('renameDeskList').addEventListener('change',renameDeskEvents);
     $('renameDeskList').addEventListener('click',event=>{
+      const review=event.target.closest('button[data-rename-review]');
+      if(review&&$('renameDeskList').contains(review)&&safeId(review.dataset.renameReview)){
+        filenameReviewFocusSheet(review.dataset.renameReview);return;
+      }
       const button=event.target.closest('button[data-rename-open]');
       if(button&&$('renameDeskList').contains(button)&&safeId(button.dataset.renameOpen))
         openImage(button.dataset.renameOpen,button);

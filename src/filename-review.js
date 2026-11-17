@@ -5,7 +5,7 @@ const FILENAME_REVIEW_SCHEMA='image-vault-filename-review-v1';
 const FILENAME_REVIEW_LIMIT=20000;
 const FILENAME_REVIEW_BATCH_LIMIT=25;
 const FILENAME_REVIEW_PAGE_SIZE=12;
-const FILENAME_REVIEW_FILTERS=Object.freeze(['all','ready','conflict','blocked','staged','photo','meme','video']);
+const FILENAME_REVIEW_FILTERS=Object.freeze(['all','ready','conflict','blocked','staged','sheet','photo','meme','video']);
 const FILENAME_REVIEW_EXTS=Object.freeze(['.jpg','.jpeg','.png','.webp','.gif','.heic','.heif','.tif','.tiff','.mp4','.webm','.mov','.m4v']);
 function filenameReviewText(v){return typeof v==='string'?v:'';}
 function filenameReviewExt(name){
@@ -78,8 +78,18 @@ function filenameReviewBuild(records,{account='',sheetId=''}={}){
   if(!kind||!FILENAME_REVIEW_EXTS.includes(ext)||!filenameReviewOpaque(oldName))continue;
   const row=Number.isSafeInteger(item.manifestRow)&&item.manifestRow>=2&&item.manifestRow<=100000?item.manifestRow:null;
   const stage=filenameReviewText(item.stage),capture=kind==='photo'?filenameReviewCapture(item.captureDate):null;
+  // Manifest R stores proposed names, never verified current Drive names.
+  // A reviewed Sheet proposal is not evidence of an EXIF capture date.
+  const sheetDraft=filenameReviewText(item.manifestProposedName).trim();
+  const sheetReviewed=['reviewed','source-reviewed'].includes(stage);
   let proposed='',source='',reason='';
-  if(kind==='photo'){
+  if(sheetDraft){
+   proposed=sheetDraft;
+   source=sheetReviewed?'Visually reviewed filename proposal · Manifest!R':'';
+   reason=sheetReviewed?
+     'Proposed in the Sheet from prior review evidence. No Drive rename or EXIF capture date is implied.':
+     'This Sheet proposal needs independent reviewed visual evidence before a rename.';
+  }else if(kind==='photo'){
    if(capture){
     proposed=capture.filename+ext;source=capture.hasTime?'EXIF camera date and time · Manifest!P':'EXIF camera date only · Manifest!P';
     reason=capture.hasTime?'EXIF camera wall-clock time; timezone not shifted.':'Only capture date was available. No time has been invented.';
@@ -103,7 +113,8 @@ function filenameReviewBuild(records,{account='',sheetId=''}={}){
   if(proposed&&!format.ok)reason=format.reason;
   const entry={fileId:item.id,row,folder,kind,mime,oldName,proposed,source,
    reason,stage,eligible:eligible&&!!format?.ok,status:'blocked',
-   captureTime:capture?.time||'',newInDrive:item.newInDrive===true};
+   sheetProposal:!!sheetDraft,
+   captureTime:sheetDraft?'':capture?.time||'',newInDrive:item.newInDrive===true};
   if(entry.eligible){
    const nameKey=filenameReviewKey(folder,proposed);
    if(!proposalMap.has(nameKey))proposalMap.set(nameKey,[]);
@@ -132,7 +143,7 @@ function filenameReviewPage(model,{filter='all',query='',page=1,pageSize=FILENAM
  const safe=FILENAME_REVIEW_FILTERS.includes(filter)?filter:'all';
  const text=String(query||'').slice(0,120).trim().toLocaleLowerCase('en-US');
  const items=(model?.rows||[]).filter(row=>
-  (safe==='all'||safe==='staged'&&staged.has(row.fileId)||safe===row.status||safe===row.kind)&&
+  (safe==='all'||safe==='staged'&&staged.has(row.fileId)||safe==='sheet'&&row.sheetProposal||safe===row.status||safe===row.kind)&&
   (!text||[row.oldName,row.proposed,row.folder,row.fileId,String(row.row||'')].some(v=>
     String(v).toLocaleLowerCase('en-US').includes(text))));
  const size=Math.max(1,Math.min(25,Number.isSafeInteger(pageSize)?pageSize:FILENAME_REVIEW_PAGE_SIZE));

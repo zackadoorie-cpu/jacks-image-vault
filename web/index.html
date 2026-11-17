@@ -370,11 +370,11 @@
         </section>
         <section id="filenameReviewView" class="view hidden" aria-labelledby="filenameReviewTitle">
           <div class="gallery-heading"><div>
-            <p class="eyebrow">PHASE 10B · EXPLICIT DRIVE RENAME CONTROL</p>
+            <p class="eyebrow">PHASE 10F · GUIDED SHEET PROPOSALS</p>
             <h1 id="filenameReviewTitle">Intelligent Filename Review</h1>
             <p>One private naming desk for memes, photos and videos. Preview and export plans, or deliberately authorize one verified Google Drive filename change at a time. No background renames or Sheet edits.</p>
           </div></div>
-          <p class="activity-boundary" role="note"><strong>Preview and export only.</strong> Meme suggestions use previously reviewed tags, video names use indexed review titles, and photo names use EXIF capture dates from Manifest P. Filename-derived dates, Drive upload dates, and missing capture times are never presented as camera timestamps. All counts cover your loaded gallery, not a newly verified full Drive scan.</p>
+          <p class="activity-boundary" role="note"><strong>Review before changing Drive.</strong> The app reads proposed filenames from Manifest R. Photo names may use verified EXIF dates from Manifest P, but descriptive Sheet proposals without EXIF never claim a camera date. Prepare one proposal at a time, inspect it, then independently approve its live Drive rename. No automatic renames.</p>
           <div class="filename-metrics">
             <article><span>Ready proposals</span><strong id="filenameReady">—</strong></article>
             <article><span>Name conflicts</span><strong id="filenameConflicts">—</strong></article>
@@ -393,6 +393,7 @@
                 <option value="conflict">Conflicting names</option>
                 <option value="blocked">Missing evidence</option>
                 <option value="staged">Staged locally</option>
+                <option value="sheet">Proposals from Manifest R</option>
                 <option value="meme">Memes</option>
                 <option value="photo">Photos</option>
                 <option value="video">Videos</option>
@@ -402,8 +403,10 @@
           <div class="filename-actions">
             <button class="btn outline" type="button" id="filenameOpenManager">Library Desk</button>
             <button class="btn outline" type="button" id="filenameClear">Clear local staging</button>
+            <button class="btn outline" type="button" id="filenameNextSheet" disabled>Prepare next Sheet proposal</button>
             <button class="btn primary" type="button" id="filenameReviewExport" disabled>Export staged plan (JSON)</button>
             <button class="btn outline" type="button" id="filenameRenamePreview" disabled>Verify one staged Drive rename</button>
+            <button class="btn outline" type="button" id="filenameOpenReconcile">Reconcile renamed files in Sheet</button>
           </div>
           <p id="filenameReviewStatus" class="activity-status" role="status" aria-live="polite">Connect your Google Drive read-only inventory to prepare filenames.</p>
           <p id="filenameReviewMessage" class="activity-status" role="status" aria-live="polite">No filenames have been modified.</p>
@@ -431,7 +434,7 @@
             <span id="filenameReviewPage" aria-live="polite">—</span>
             <button id="filenameReviewNext" class="btn outline" type="button">Next</button>
           </div>
-          <p class="privacy-note">A downloaded plan contains filenames, file IDs, review evidence, and your account/Sheet binding. Keep it private. Phase 10B permits exactly one explicitly chosen, separately authorized Drive rename at a time, after a complete live metadata preflight and a final confirmation. Google Drive has no atomic compare-and-swap for this update, so an outside editor can still race the final write. Google Sheets' Manifest filename is not updated by a Drive rename; reindex separately. Saved Windows sign-in remains read-only.</p>
+          <p class="privacy-note">A downloaded plan contains filenames, file IDs, review evidence, and your account/Sheet binding. Keep it private. Phase 10B permits exactly one explicitly chosen, separately authorized Drive rename at a time, after a complete live metadata preflight and a final confirmation. Google Drive has no atomic compare-and-swap for this update, so an outside editor can still race the final write. Google Sheets is not updated by a Drive rename. Use Sheet Approvals to reconcile Manifest AD; Search Index C remains formula-derived. Saved Windows sign-in remains read-only.</p>
         </section>
         <section id="renameDeskView" class="view hidden" aria-labelledby="renameDeskTitle">
           <div class="gallery-heading"><div>

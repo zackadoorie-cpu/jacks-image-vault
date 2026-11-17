@@ -1,5 +1,28 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 10F — Guided reviewed Sheet filename rollout (v2.1.33)
+
+**Filename Review** now exposes a dedicated **Manifest R** filter plus
+**Prepare next Sheet proposal**. One reviewed, conflict-free suggestion
+is staged locally at a time. A staged selection is never silently
+replaced, and each real Drive rename still uses the separate live
+metadata preflight, temporary Google edit grant, explicit confirmations,
+one-file PATCH and read-back/undo history. There is no bulk rename.
+
+**Video Rename Desk** adds a handoff to the exact reviewed filename,
+without importing another local draft or writing to Drive. The user can
+then visit **Sheet Approvals** to reconcile a *verified* Drive rename into
+the source-only **Manifest AD** cell, leaving the calculated **Search
+Index C** formula intact.
+
+Reviewed **photo** proposals from Manifest R are supported when no
+EXIF camera capture date is available; descriptive names never invent
+timestamps. The live Sheet now contains 30 new proposals (25 videos,
+five photos). These are still proposals, not renamed Drive files.
+Windows saved login and default read-only access remain unchanged.
+
+See [Phase 10F workflow and safeguards](docs/phase10f-guided-sheet-rename.md).
+
 ## Phase 10E — Formula-safe filename reconciliation and Sheet proposals (v2.1.32)
 
 **Corrected an important Phase 10D assumption:** the live inventory's

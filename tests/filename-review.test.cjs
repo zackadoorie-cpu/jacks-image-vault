@@ -44,6 +44,42 @@ test('photo uploads and filename-inferred dates never masquerade as camera captu
  assert.equal(m.rows.find(x=>x.fileId===without.id).proposed,'');
  assert.equal(m.rows.find(x=>x.fileId==='fixture_photo_0000003').proposed,'2026-03-02.jpg');
 });
+test('Phase 10F: reviewed Sheet names are staged with provenance, without inventing EXIF dates',()=>{
+ const noExif=mk('fixture_photo_noexif_10','IMG-20241203-WA0005.jpg',
+  'Jacks Photos/Teaching','image/jpeg',{
+    captureDate:'',filenameDate:'2024-12-03',
+    manifestProposedName:'Group on Sofa - Living Room.jpg'
+  });
+ const sheetVideo={...video,manifestProposedName:
+   'Old Rhinebeck - Vintage Aircraft Display - 20260808_141341.mp4'};
+ const model=E.filenameReviewBuild([noExif,sheetVideo],ctx);
+ assert.equal(E.filenameReviewPage(model,{filter:'sheet'}).total,2);
+ const p=model.rows.find(x=>x.fileId===noExif.id);
+ assert.equal(p.status,'ready');assert.equal(p.sheetProposal,true);
+ assert.equal(p.proposed,'Group on Sofa - Living Room.jpg');
+ assert.match(p.source,/Manifest!R/);
+ assert.doesNotMatch(p.source,/EXIF/);
+ assert.equal(p.captureTime,'','No EXIF timestamp can be inferred from WhatsApp filename');
+ const v=model.rows.find(x=>x.fileId===video.id);
+ assert.match(v.proposed,/Old Rhinebeck - Vintage Aircraft Display/);
+ assert.equal(E.filenameReviewPage(model,{filter:'sheet',query:'Old Rhinebeck'}).total,1);
+ assert.equal(E.filenameReviewValidate(p,p.proposed,[noExif,sheetVideo]).ok,true);
+});
+test('Phase 10F: unreviewed, malformed or already-named Sheet proposals stay blocked',()=>{
+ const file=mk('fixture_photo_noexif_11','IMG-20241203-WA0006.jpg',
+   'Jacks Photos/Teaching','image/jpeg',{
+     manifestProposedName:'Kitchen Island - Prepared Food.jpg',captureDate:''
+   });
+ const model=E.filenameReviewBuild([
+   {...file,stage:'pending'},
+   {...file,id:'fixture_photo_noexif_12',manifestProposedName:'unsafe/path.jpg'},
+   {...file,id:'fixture_photo_noexif_13',manifestProposedName:'Wrong extension.png'}
+ ],ctx);
+ assert.equal(E.filenameReviewPage(model,{filter:'sheet'}).total,3);
+ assert.equal(model.counts.ready,0);
+ assert.equal(model.counts.blocked,3);
+ assert.ok(model.rows.every(x=>!x.eligible));
+});
 test('file identities without Manifest rows and unreviewed media are blocked',()=>{
  const model=E.filenameReviewBuild([
   {...meme,newInDrive:true,manifestRow:null},
