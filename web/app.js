@@ -6218,6 +6218,142 @@
     }
   }
 
+
+  async function smartUndoPreviewEntry(fileId){
+    const ctx=activityContext(),epoch=state.authEpoch;
+    const journal=smartJournalEntry(fileId);
+    if(state.smartBusy||state.renameBusy||state.sheetWriteBusy||!ctx||
+       journal?.status!=='synced'||!state.activityHistory)return;
+    state.smartBusy=true;state.smartUndoPreview=null;
+    state.smartMessage='Read-only undo preview: verifying private history, Drive name and Sheet cells…';
+    renderSmartQueue();
+    try{
+      const history=state.activityHistory;
+      const activity=history.items.find(e=>e.fileId===fileId&&e.kind==='drive-rename'&&
+        e.status==='complete'&&e.driveChange?.beforeName===journal.oldName&&
+        e.driveChange?.afterName===journal.newName);
+      const allowed=activityLedger.activityCanUndoDrive(activity,history,{
+        ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+      });
+      if(!allowed.ok)throw new Error(allowed.reason);
+      const indexed=state.images.find(x=>x.id===fileId&&!x.demo);
+      if(!indexed||indexed.name!==journal.newName)
+        throw new Error('This file has changed since the verified rename. Undo is blocked.');
+      const plan=driveRename.driveRenameUndoPlan(activity,indexed,{
+        ...ctx,folderId:journal.folderId
+      });
+      const reconcilePlan=smartRecoveryPlan(journal,{reverse:true});
+      const [drive,siblings,sheet]=await Promise.all([
+        driveRenameLiveFile(fileId,state.accessToken),
+        driveRenameLiveFolder(journal.folderId,state.accessToken),
+        reconcileReadSheet(reconcilePlan,state.accessToken)
+      ]);
+      const dc=driveRename.driveRenameCheck(plan,drive,siblings);
+      const sc=filenameReconcile.reconcileSheetCheck(reconcilePlan,sheet);
+      if(!dc.ok)throw new Error(dc.reason);
+      if(!sc.ok)throw new Error(sc.reason);
+      if(!smartSession(ctx,epoch))throw new Error('Account changed during undo preview.');
+      state.smartUndoPreview={journal,activity,plan,reconcilePlan,
+        sheet,version:dc.version,ctx,epoch};
+      state.smartMessage='Verified safe undo for ONE file. Original-name collision and formula-backed Sheet checks passed. No write submitted.';
+    }catch(error){state.smartMessage='Undo blocked: '+(error.message||'verification failed.');}
+    finally{
+      state.smartBusy=false;
+      if(state.view==='filename-review')renderSmartQueue();
+    }
+  }
+  async function smartUndoApply(){
+    const preview=state.smartUndoPreview,ctx=activityContext(),epoch=state.authEpoch;
+    if(!preview||state.smartBusy||state.renameBusy||state.sheetWriteBusy||!ctx||
+       !smartSession(ctx,epoch)||preview.journal.status!=='synced')return;
+    if(!confirm('UNDO ONE file? This restores its verified original Drive filename, then updates ONLY Manifest AD. '+
+      'Two temporary, Google-wide metadata/Sheets grants are needed. No token will be saved.'))return;
+    state.smartBusy=true;state.renameBusy=true;state.sheetWriteBusy=true;
+    let driveToken='',sheetToken='',submitted=false,verified=false;
+    const {journal,activity,plan,reconcilePlan,version,sheet}=preview;
+    try{
+      driveToken=await driveRenameAuthorize('smartRenameDesktop');
+      sheetToken=await sheetWriteAuthorize('smartSheetDesktop');
+      if(!smartSession(ctx,epoch)||state.smartUndoPreview!==preview||
+         smartJournalEntry(journal.fileId)?.status!=='synced')
+        throw new Error('Undo preview or account changed during Google authorization.');
+      await Promise.all([
+        smartCheckWriteIdentity(driveToken,ctx.account),
+        smartCheckWriteIdentity(sheetToken,ctx.account)
+      ]);
+      const tabs=await reconcileTabIDs(sheetToken);
+      const history=state.activityHistory,latest=history?.items.find(e=>e.id===activity.id);
+      const allowed=activityLedger.activityCanUndoDrive(latest,history,{
+        ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+      });
+      if(!allowed.ok)throw new Error('Original Activity undo became invalid: '+allowed.reason);
+      const [live,siblings,liveSheet]=await Promise.all([
+        driveRenameLiveFile(plan.fileId,driveToken),
+        driveRenameLiveFolder(plan.folderId,driveToken),
+        reconcileReadSheet(reconcilePlan,sheetToken)
+      ]);
+      const dc=driveRename.driveRenameCheck(plan,live,siblings,{baselineVersion:version});
+      const sc=filenameReconcile.reconcileSheetCheck(reconcilePlan,liveSheet);
+      if(!dc.ok)throw new Error(dc.reason);
+      if(!sc.ok||JSON.stringify(liveSheet)!==JSON.stringify(sheet))
+        throw new Error('Original Sheet snapshot changed; undo is blocked.');
+      if(!confirm('FINAL UNDO CONFIRMATION: restore ONLY file '+plan.fileId+
+        ' from "'+plan.oldName+'" to "'+plan.newName+
+        '", then set Manifest AD'+plan.manifestRow+' to the restored name?'))return;
+      const [fresh,names,afterSheet]=await Promise.all([
+        driveRenameLiveFile(plan.fileId,driveToken),
+        driveRenameLiveFolder(plan.folderId,driveToken),
+        reconcileReadSheet(reconcilePlan,sheetToken)
+      ]);
+      const guard=driveRename.driveRenameCheck(plan,fresh,names,{baselineVersion:version});
+      if(!guard.ok||JSON.stringify(afterSheet)!==JSON.stringify(sheet)||
+         !smartSession(ctx,epoch)||state.smartUndoPreview!==preview)
+        throw new Error('A file, Sheet or account changed during final undo confirmation.');
+      smartMove(journal.fileId,'undo-drive-submitting',
+        'Original-name Drive PATCH may be in flight; do not retry blindly.');
+      const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(plan.fileId)+
+        '?fields=id,name,mimeType,parents,trashed,version&supportsAllDrives=true';
+      submitted=true;
+      const response=await driveRenameFetch(url,driveToken,{
+        method:'PATCH',payload:driveRename.driveRenamePatch(plan)});
+      if(!driveRename.driveRenameVerified(plan,response))
+        throw new Error('Google did not confirm the original restored filename.');
+      const after=await driveRenameLiveFile(plan.fileId,driveToken);
+      if(!driveRename.driveRenameVerified(plan,after))
+        throw new Error('Independent Drive undo read-back failed. Inspect the real file.');
+      verified=true;
+      smartMove(journal.fileId,'undo-drive-verified',
+        'Original Drive name verified; restoring Manifest AD is pending.');
+      // Preserve a verified, one-time Activity undo even if Sheet sync fails.
+      const marked=activityLedger.activityMarkDriveUndone(state.activityHistory,activity.id,ctx);
+      const event={id:crypto.randomUUID(),at:Date.now(),kind:'drive-undo',
+        status:'complete',fileId:plan.fileId,count:1};
+      storeActivityHistory(activityLedger.activityAppend(marked,event,ctx));
+      for(const list of [state.images,state.inventory]){
+        const item=list.find(x=>x.id===plan.fileId);
+        if(item)item.name=plan.newName;
+      }
+      state.smartUndoPreview=null;
+      await smartSyncSheet(journal,reconcilePlan,sheetToken,tabs,after.version,{
+        undo:true,baseline:sheet
+      });
+      state.smartMessage='Verified undo: original Drive filename restored and Manifest AD synchronized. Search Index formulas were preserved.';
+    }catch(error){
+      if(submitted&&!verified){
+        try{smartMove(journal.fileId,'undo-drive-uncertain',
+          'Undo PATCH may have happened; inspect the real file before attempting recovery.');}catch{}
+        logActivity('drive-undo-unverified',{fileId:journal.fileId,count:1});
+      }
+      state.smartMessage=(submitted?
+        'Undo STOPPED. Inspect recorded Drive and Sheet progress before another action: ':
+        'Undo not submitted: ')+(error.message||'verification unavailable.');
+    }finally{
+      driveToken='';sheetToken='';
+      state.smartBusy=false;state.renameBusy=false;state.sheetWriteBusy=false;
+      if(state.view==='filename-review')renderFilenameReview();
+    }
+  }
+
   function renderFilenameReview(){
     const model=filenameReviewModel();
     const page=filenameReview.filenameReviewPage(model,{
