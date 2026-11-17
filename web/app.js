@@ -6009,7 +6009,8 @@
   }
   async function smartSyncSheet(entry,plan,token,tabIds,version,{undo=false,baseline=null}={}){
     const ctx=activityContext(),epoch=state.authEpoch;
-    if(!ctx||!smartSession(ctx,epoch))throw new Error('Google account or screen changed before Sheet sync.');
+    if(!ctx||!smartSession(ctx,epoch)||plan.account!==ctx.account||plan.sheetId!==ctx.sheetId)
+      throw new Error('Google account, Sheet or screen changed before synchronization.');
     const beforeStatus=undo?'undo-drive-verified':'drive-verified';
     const journal=smartJournalEntry(entry.fileId);
     if(journal?.status!==beforeStatus)
@@ -6355,6 +6356,7 @@
   }
 
   function renderFilenameReview(){
+    renderSmartQueue();
     const model=filenameReviewModel();
     const page=filenameReview.filenameReviewPage(model,{
       filter:state.filenameFilter,query:state.filenameQuery,page:state.filenamePage,
@@ -8609,6 +8611,53 @@
     };
     $('filenameNextImported').onclick=filenameReviewNextImported;
     $('filenameNextSheet').onclick=()=>filenameReviewFocusSheet();
+    $('smartSelect25').onclick=()=>{
+      if(state.smartBusy||state.renameBusy||state.sheetWriteBusy)return;
+      const model=filenameReviewModel();
+      const old=new Set((state.smartJournal?.entries||[]).filter(x=>x.status!=='ready').map(x=>x.fileId));
+      state.smartSelected=new Set(model.rows.filter(row=>row.sheetProposal&&row.status==='ready'&&
+        !old.has(row.fileId)&&['reviewed','source-reviewed'].includes(row.stage))
+        .slice(0,smartRenameQueue.SMART_RENAME_LIMIT).map(row=>row.fileId));
+      state.smartPreview=null;state.smartUndoPreview=null;
+      state.smartMessage=state.smartSelected.size+' reviewed Manifest R files selected. Preview before approval; no changes yet.';
+      renderSmartQueue();
+    };
+    $('smartClearSelected').onclick=()=>{
+      if(state.smartBusy)return;
+      state.smartSelected.clear();state.smartPreview=null;state.smartUndoPreview=null;
+      state.smartMessage='Selection cleared. The private progress and undo journal was retained.';
+      renderSmartQueue();
+    };
+    $('smartQueueList').onchange=event=>{
+      const input=event.target.closest('input[data-smart-select]');
+      if(!input||state.smartBusy)return;
+      const id=input.dataset.smartSelect;
+      if(input.checked){
+        if(state.smartSelected.size>=smartRenameQueue.SMART_RENAME_LIMIT){
+          input.checked=false;
+          state.smartMessage='Select at most 25 reviewed names per approval session.';
+          renderSmartQueue();return;
+        }
+        state.smartSelected.add(id);
+      }else state.smartSelected.delete(id);
+      state.smartPreview=null;state.smartUndoPreview=null;
+      state.smartMessage=state.smartSelected.size+' proposals selected. Preview and approve explicitly.';
+      renderSmartQueue();
+    };
+    $('smartPreviewSelected').onclick=()=>void smartPreviewSelected();
+    $('smartApprove').onclick=()=>void smartApproveSelected();
+    $('smartUndoApply').onclick=()=>void smartUndoApply();
+    $('smartProgressList').onclick=event=>{
+      const resume=event.target.closest('button[data-smart-resume]');
+      if(resume){void smartResumeSheet(resume.dataset.smartResume);return;}
+      const undo=event.target.closest('button[data-smart-undo]');
+      if(undo){void smartUndoPreviewEntry(undo.dataset.smartUndo);return;}
+      const inspect=event.target.closest('button[data-smart-inspect]');
+      if(inspect){
+        state.activityFilter='writes';state.activityQuery=inspect.dataset.smartInspect;state.activityPage=1;
+        displayPage('activity');return;
+      }
+    };
     $('filenameOpenReconcile').onclick=()=>displayPage('sheet-write');
     $('filenameRenamePreview').onclick=()=>void driveRenamePreview();
     $('filenameRenameApply').onclick=()=>void driveRenameApply();
