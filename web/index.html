@@ -550,12 +550,12 @@
         <section id="activityView" class="view hidden" aria-labelledby="activityTitle">
           <div class="gallery-heading activity-heading">
             <div>
-              <p class="eyebrow">SMART LIBRARY MANAGER 2.0 · FIRST STEP</p>
+              <p class="eyebrow">SMART LIBRARY MANAGER · PHASE 10C</p>
               <h1 id="activityTitle">Activity &amp; Undo</h1>
-              <p>One private timeline for local review edits, imported review batches, filename plans and inventory refreshes. This history is stored on this device for the connected Google account and Sheet.</p>
+              <p>One private timeline for local review edits, Sheet approvals, verified Drive filename changes and inventory refreshes. This history is stored on this device for the connected Google account and Sheet.</p>
             </div>
           </div>
-          <p class="activity-boundary" role="note"><strong>Three separate histories:</strong> Local review undo restores only unchanged personal notes. Newly verified Sheet approvals can offer a separate <strong>Preview Sheet undo</strong>, followed by temporary Google editing consent, live conflict checks and two confirmations. App-update rollback remains under <strong>Updates → Recovery</strong>. No Drive renames are performed.</p>
+          <p class="activity-boundary" role="note"><strong>Separate undo paths:</strong> Local review undo restores only personal notes. Verified Sheet approvals can restore one Manifest row. Verified Drive renames can restore one original filename after live checks and temporary, restricted Google metadata consent. App-update rollback remains under <strong>Updates → Recovery</strong>. None of these actions runs automatically.</p>
           <div class="activity-quicklinks" aria-label="Related manager tools">
             <button type="button" id="activityOpenInbox" class="btn outline">Review Inbox</button>
             <button type="button" id="activityOpenRenames" class="btn outline">Rename Desk</button>
@@ -564,7 +564,7 @@
           <div class="activity-metrics" aria-label="Private activity counts">
             <div><span>History entries</span><strong id="activityTotal">—</strong><small>At most 120 retained</small></div>
             <div><span>Local edits eligible for undo</span><strong id="activityUndoable">—</strong><small>Local notes only; remote Sheet rows are previewed separately</small></div>
-            <div><span>Drive originals renamed</span><strong>0</strong><small>Sheet reviews require separate authorization</small></div>
+            <div><span>Verified Drive renames eligible to preview</span><strong id="activityDriveUndoable">—</strong><small>One file at a time; live checks still required</small></div>
           </div>
           <div class="activity-toolbar">
             <label for="activityFilter">Activity type
@@ -574,7 +574,7 @@
                 <option value="imports">Review imports &amp; backups</option>
                 <option value="plans">Rename plans</option>
                 <option value="inventory">Inventory refreshes</option>
-                <option value="writes">Approved Sheet changes</option>
+                <option value="writes">Sheet &amp; Drive changes</option>
               </select>
             </label>
             <label for="activityQuery">Search ID or action
@@ -596,13 +596,32 @@
             </div>
             <button type="button" class="btn primary" id="activitySheetUndoApply">Authorize &amp; restore this row</button>
           </section>
+          <p class="activity-status" role="status" aria-live="polite" id="activityDriveUndoStatus"></p>
+          <section id="activityDriveUndoPanel" class="activity-boundary sheet-write-panel" aria-label="Verified Drive rename undo preview" hidden>
+            <h2>Restore one original Drive filename</h2>
+            <p>The read-only live preflight matched the recorded rename and checked the real file, parent folder, version, permissions and all sibling names. Reverting changes only this ONE file's name. Nothing moves or gets deleted. The Sheet is not edited.</p>
+            <p><strong>Google permission notice:</strong> A real undo needs the restricted account-wide <code>drive.metadata</code> permission, broader than one file. Consent is temporary and never saved in your Windows read-only session. Two explicit confirmations are required.</p>
+            <div class="sheet-write-diff">
+              <div><strong>Current Drive filename</strong><pre id="activityDriveUndoApplied"></pre></div>
+              <div><strong>Restore recorded original filename</strong><pre id="activityDriveUndoOriginal"></pre></div>
+            </div>
+            <details class="filename-credentials">
+              <summary>Desktop OAuth credentials (only if Windows has no saved sign-in)</summary>
+              <label for="activityDriveUndoDesktopClient">Matching Desktop OAuth client ID</label>
+              <input id="activityDriveUndoDesktopClient" class="field" autocomplete="off" spellcheck="false" maxlength="180">
+              <label for="activityDriveUndoDesktopSecret">Matching Desktop OAuth client secret</label>
+              <input id="activityDriveUndoDesktopSecret" class="field" type="password" autocomplete="off" maxlength="256">
+              <p>Credentials are passed only to the native localhost authorization broker, never written to the private history.</p>
+            </details>
+            <button type="button" class="btn primary" id="activityDriveUndoApply">Authorize &amp; restore this filename</button>
+          </section>
           <div id="activityList" class="activity-list" aria-label="Private activity history"></div>
           <div class="activity-pages">
             <button id="activityPrev" class="btn outline" type="button">Previous</button>
             <span id="activityPage" aria-live="polite">—</span>
             <button id="activityNext" class="btn outline" type="button">Next</button>
           </div>
-          <p class="privacy-note">New verified Sheet approvals also keep bounded, per-row original and applied M/N/T values for separately authorized conflict-checked undo. Older count-only entries cannot be undone, and there is no atomic compare-and-swap against other Sheet editors. History includes local review-note snapshots and records verified or uncertain Sheet approval outcomes. Exports can contain descriptions, tags and Drive file IDs, so store them securely. No access token, client secret, password or photo bytes are included. Clearing history removes only local undo records, never changes Sheet or Drive data.</p>
+          <p class="privacy-note">Verified Drive renames retain original and applied filenames for one-file undo. Older entries without verified snapshots, newer or uncertain changes, and live name or folder conflicts block undo. Google Drive has no atomic compare-and-swap for a filename update. Manifest filenames may remain stale until reindexed separately. Exports can contain private descriptions, filenames and Drive IDs. No access token, client secret, password or media bytes are included. Clearing history removes only local undo records, never changes Sheet or Drive data.</p>
         </section>
         <section id="sheetWriteView" class="view hidden" aria-labelledby="sheetWriteTitle">
           <div class="gallery-heading"><div>
