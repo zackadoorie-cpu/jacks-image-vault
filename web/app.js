@@ -5663,7 +5663,7 @@
     $('filenameReviewExport').disabled=state.renameBusy||!model.connected||!state.filenameStaged.size;
     $('filenameRenamePreview').disabled=state.renameBusy||!model.connected||state.filenameStaged.size!==1;
     $('filenameRenameApply').disabled=state.renameBusy||!state.renamePrepared;
-    $('filenameClear').disabled=state.renameBusy||(!state.filenameStaged.size&&!state.filenameDrafts.size);
+    $('filenameClear').disabled=state.renameBusy||(!state.filenameStaged.size&&!state.filenameDrafts.size&&!state.filenameImportedQueue.length);
     $('filenameReviewStatus').textContent=!model.connected?
       'Connect a verified Drive account and inventory to review your private filenames.':
       format(page.total)+' matching proposals · '+format(model.rows.length)+
