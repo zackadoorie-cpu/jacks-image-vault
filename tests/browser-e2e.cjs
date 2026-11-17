@@ -16,7 +16,9 @@ const batch={valueRanges:[
 {values:[['Collection','Folder path','Drive folder ID','Folder URL','Total files','Images','Other media'],
   ['Memes','Memes/Cats',folder,'','2','1','1']]},
 {values:[['Review status'],['Original Drive still image visually verified, fixture only'],['Video preview reviewed; sampled frames only']]},
-{values:[['Analysis method'],['Original image pixels inspected, fabricated fixture'],['Original Drive video sampled, fabricated fixture']]}]};
+{values:[['Analysis method'],['Original image pixels inspected, fabricated fixture'],['Original Drive video sampled, fabricated fixture']]},
+{values:[['Proposed filename'],[],['Airfield - Vintage Aircraft.mp4']]},
+{values:[['Current filename'],[],[]]}]};
 const reply=data=>({status:200,contentType:'application/json',body:JSON.stringify(data)});
 const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png'};
 async function server(){
@@ -419,13 +421,17 @@ async function main(){
     assert.equal(await p.locator('#filenameReviewList .filename-card').count(),2);
     await p.locator('#filenameReviewFilter').selectOption('video');
     assert.equal(await p.locator('#filenameReviewList .filename-card').count(),1);
-    assert.match(await p.locator('#filenameReviewList').innerText(),/reviewed video title/);
+    assert.match(await p.locator('#filenameReviewList').innerText(),/Manifest!R/);
     await p.locator('#filenameReviewFilter').selectOption('all');
     await p.locator('#filenameReviewSearch').fill(fake.name);
     assert.equal(await p.locator('#filenameReviewList .filename-card').count(),1);
     assert.match(await p.locator('#filenameReviewList').innerText(),/Existing visually reviewed tags/);
     await p.locator('[data-filename-stage="'+id+'"]').check();
     assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'1');
+    await p.locator('#filenameNextSheet').click();
+    assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'1',
+      'Next proposal must not replace an already staged filename');
+    assert.match(await p.locator('#filenameReviewMessage').innerText(),/Another filename is staged/);
     assert.equal(connected.requests.every(x=>x==='GET'),true,
       'staging a name must be read-only');
     const filenameDownload=p.waitForEvent('download');
@@ -446,6 +452,16 @@ async function main(){
     await p.locator('#filenameClear').click();
     assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'0');
     await p.locator('#filenameReviewSearch').fill('');
+    await p.locator('#filenameReviewFilter').selectOption('sheet');
+    assert.equal(await p.locator('#filenameReviewList .filename-card').count(),1);
+    await p.locator('#filenameNextSheet').click();
+    assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'1');
+    assert.equal(await p.locator('[data-filename-stage="'+vid+'"]').isChecked(),true);
+    assert.equal(connected.requests.every(x=>x==='GET'),true,'Guided Sheet selection is read-only');
+    await p.locator('#filenameOpenReconcile').click();
+    assert.equal(await p.locator('#sheetWriteView').isVisible(),true);
+    await p.locator('[data-view="filename-review"]').click();
+    await p.locator('#filenameClear').click();
     // Alt+1 is intentionally ignored when a text input holds focus.
     await p.locator('#navigation [data-view="home"]').click();
     assert.equal(await p.locator('#homeView').isVisible(),true);
@@ -525,12 +541,12 @@ async function main(){
     assert.match(await p.locator('#videoCatalogSummary').innerText(),/1 with descriptions/);
     assert.match(await p.locator('#videoCatalogList .video-library-description-text').innerText(),/Fabricated two video frames/);
     assert.match(await p.locator('#videoCatalogList .video-library-description-label').innerText(),/Google Sheet/);
-    assert.equal((await p.locator('#videoCatalogList .video-display-title').innerText()).trim(),'Airfield · Vintage Aircraft');
+    assert.equal((await p.locator('#videoCatalogList .video-display-title').innerText()).trim(),'Airfield - Vintage Aircraft');
     assert.match(await p.locator('#videoCatalogList .video-original-name').innerText(),/20260808_141341.mp4/);
     await p.locator('#videoTitleMode').selectOption('filename');
     assert.equal((await p.locator('#videoCatalogList .video-display-title').innerText()).trim(),'20260808_141341.mp4');
     await p.locator('#videoTitleMode').selectOption('title');
-    assert.equal((await p.locator('#videoCatalogList .video-display-title').innerText()).trim(),'Airfield · Vintage Aircraft');
+    assert.equal((await p.locator('#videoCatalogList .video-display-title').innerText()).trim(),'Airfield - Vintage Aircraft');
     await p.locator('#videoSearch').fill('airfield');
     assert.match(await p.locator('#videoCatalogSummary').innerText(),/1 match this filter/);
     await p.locator('#videoSearch').fill('nonexistent video from elsewhere');
@@ -556,6 +572,10 @@ async function main(){
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     await p.locator('#renameDeskClear').click();
     assert.equal((await p.locator('#renameDeskStagedCount').innerText()).trim(),'0');
+    await p.locator('[data-rename-review="'+vid+'"]').click();
+    assert.equal(await p.locator('#filenameReviewView').isVisible(),true);
+    assert.equal(await p.locator('[data-filename-stage="'+vid+'"]').isChecked(),true);
+    await p.locator('#filenameClear').click();
     await p.locator('[data-view="activity"]').click();
     await p.locator('#activityFilter').selectOption('plans');
     assert.equal(await p.locator('#activityList .activity-entry').count(),3,
