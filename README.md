@@ -1,5 +1,32 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 10G — Filename Plan Import & Guided Queue (v2.1.34)
+
+A saved filename proposal JSON **is not** a ChatGPT visual-review
+batch. Previously, selecting a filename export in the visual-review
+importer produced the confusing “Expected a review batch containing
+1–500 visual reviews” error. Phase 10G recognizes the two supported
+export formats (Filename Review and Video Rename Desk) and directs
+valid filename plans to their own **Filename Review → Import filename
+plan (JSON)** queue.
+
+Import checks the connected Google account/Sheet, each exact Drive ID,
+original filename, MIME, Manifest row, folder, previously reviewed
+evidence, Windows-safe extension, and cross-file name collisions.
+Only 1–25 valid proposals are accepted. A plan is held in private
+session memory and presents one item at a time via **Prepare next
+imported filename**. Nothing is automatically renamed or written to
+Sheets. A separate, verified Drive rename/undo and Manifest AD
+reconciliation are still required for every file.
+
+When the user accidentally selects a filename plan through **Import
+visual reviews (JSON)**, the app detects its schema and offers to
+import it into the correct local queue instead of misclassifying it.
+Invalid, stale or wrong-account plans fail closed. Clearing local
+staging also clears the imported queue; export a copy to reload later.
+
+See [Phase 10G safety notes](docs/phase10g-filename-plan-import.md).
+
 ## Phase 10F — Guided reviewed Sheet filename rollout (v2.1.33)
 
 **Filename Review** now exposes a dedicated **Manifest R** filter plus

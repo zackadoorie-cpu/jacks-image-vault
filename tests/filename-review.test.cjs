@@ -145,6 +145,42 @@ test('10k synthetic items are bounded and paginated; duplicate Drive IDs ignored
  assert.equal(E.filenameReviewPage(model,{filter:'conflict',page:10}).items.length,12);
  assert.equal(E.filenameReviewPage(model,{query:'IMG_9999'}).total,1);
 });
+test('Phase 10G imports exactly 1-25 exported filename proposals as a validated local queue',()=>{
+ const rows=Array.from({length:25},(_,i)=>({
+   ...meme,id:'fixture_import_photo_'+String(i).padStart(6,'0'),
+   name:'IMG_'+String(i).padStart(5,'0')+'.jpg',
+   memeSuggestion:'Reviewed cat photo '+String(i).padStart(2,'0')+'.jpg',
+   manifestRow:i+2
+ }));
+ const model=E.filenameReviewBuild(rows,ctx),selected=new Set(rows.map(x=>x.id));
+ const plan=E.filenameReviewExport(model,selected,new Map(),rows,ctx);
+ const result=E.filenameReviewImportPlan(plan,model,rows,ctx);
+ assert.equal(result.entries.length,25);
+ assert.equal(result.entries[0].fileId,rows[0].id);
+ assert.equal(result.entries[0].proposed,plan.entries[0].proposedName);
+ assert.equal(result.kind,'filename-review');
+ assert.throws(()=>E.filenameReviewImportPlan({...plan,sourceAccount:'wrong_account'},model,rows,ctx),/another Google account/);
+ assert.throws(()=>E.filenameReviewImportPlan({...plan,entries:[...plan.entries,plan.entries[0]]},model,rows,ctx),/25 entries/);
+ assert.throws(()=>E.filenameReviewImportPlan({...plan,status:'applied'},model,rows,ctx),/already applied/);
+ assert.throws(()=>E.filenameReviewImportPlan({...plan,entries:[plan.entries[0],plan.entries[0]]},model,rows,ctx),/duplicate/);
+ assert.throws(()=>E.filenameReviewImportPlan(plan,model,rows.map((x,i)=>i===0?{...x,name:'outside edit.jpg'}:x),ctx),/stale/);
+ assert.throws(()=>E.filenameReviewImportPlan(plan,model,rows,{...ctx,sheetId:'wrong_sheet'}),/matching Google/);
+ assert.throws(()=>E.filenameReviewImportPlan({...plan,entries:[{...plan.entries[0],proposedName:'bad/path.jpg'}]},model,rows,ctx),/stale|Unsafe/);
+ assert.throws(()=>E.filenameReviewImportPlan({...plan,schema:'image-vault-review-batch-v1'},model,rows,ctx),/Choose a Filename Review/);
+});
+test('Phase 10G accepts the Video Rename Desk exported schema but refuses unreviewed or conflicting proposals',()=>{
+ const model=E.filenameReviewBuild([video],ctx);
+ const plan={schema:'image-vault-rename-plan-v1',kind:'approval-review-only',
+   status:'unapplied',sourceAccount:account,sourceSheetId:sheetId,
+   entries:[{driveId:video.id,manifestRow:31,folder:video.folder,mime:video.mime,
+     expectedName:video.name,proposedName:video.videoSuggestion,
+     undo:{expectedCurrentName:video.videoSuggestion,restoreName:video.name}}]};
+ assert.equal(E.filenameReviewImportPlan(plan,model,[video],ctx).entries.length,1);
+ const pending={...video,stage:'pending'};
+ assert.throws(()=>E.filenameReviewImportPlan(plan,E.filenameReviewBuild([pending],ctx),[pending],ctx),/stale/);
+ const conflict={id:'another_media_123456',name:video.videoSuggestion,folder:video.folder,mime:video.mime};
+ assert.throws(()=>E.filenameReviewImportPlan(plan,model,[video,conflict],ctx),/Unsafe or conflicting/);
+});
 test('portable source parity and UI boundary remain explicit',()=>{
  const root=path.resolve(__dirname,'..');
  const run=cp.spawnSync(process.execPath,['scripts/build-filename-review.cjs','--check'],{cwd:root,encoding:'utf8'});
