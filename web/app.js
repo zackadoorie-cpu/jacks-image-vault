@@ -5135,6 +5135,7 @@
           renameDeskEngine.renameDeskSafeName(sheetName,item.name).ok;
         return {...row,proposed:state.renameDrafts.has(item.id)?
           state.renameDrafts.get(item.id):(useSheetName?sheetName:row.proposed),
+          fromSheet:useSheetName,
           evidence:row.evidence+(useSheetName?' · Manifest!R proposal (not a Drive filename)':'')};
       }).filter(Boolean);
   }
@@ -5188,7 +5189,9 @@
           (check.ok?'Draft ready':'Needs attention')+'</span><h3>'+escapeHTML(row.oldName)+'</h3>'+
           '<p class="rename-desk-folder">'+escapeHTML(row.folder)+'</p>'+
           '<p class="rename-desk-evidence">Evidence: '+escapeHTML(row.evidence)+'</p>'+
-          '<button class="btn quiet" type="button" data-rename-open="'+escapeHTML(row.id)+'">Inspect video</button></div>'+
+          '<button class="btn quiet" type="button" data-rename-open="'+escapeHTML(row.id)+'">Inspect video</button>'+
+          (row.fromSheet&&check.ok?'<button class="btn outline" type="button" data-rename-review="'+
+            escapeHTML(row.id)+'">Review Sheet proposal</button>':'')+'</div>'+
           '<div class="rename-desk-edit"><label for="rename-draft-'+escapeHTML(row.id)+'">Proposed Drive filename</label>'+
           '<input class="field" id="rename-draft-'+escapeHTML(row.id)+'" type="text" maxlength="95" '+
           'data-rename-draft="'+escapeHTML(row.id)+'" value="'+escapeHTML(row.proposed)+'" '+
