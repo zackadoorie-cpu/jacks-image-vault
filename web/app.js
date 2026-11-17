@@ -5977,6 +5977,247 @@
     }
   }
 
+
+  async function smartCheckWriteIdentity(token,account){
+    const identity=await driveRenameFetch('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',token);
+    if(identity.user?.permissionId!==account)
+      throw new Error('The temporary Google authorization belongs to another Drive account.');
+  }
+  async function smartCheckLiveRename(item,token,{checkVersion=true,sheetToken=null,originalSheet=null}={}){
+    const {entry,drivePlan,reconcilePlan,version}=item;
+    const current=state.images.find(x=>x.id===entry.fileId&&!x.demo);
+    const parent=state.folderSources.find(f=>f.path===entry.folder&&!f.missing);
+    if(!current||current.name!==entry.oldName||
+       current.manifestRow!==entry.manifestRow||
+       current.indexRow!==entry.indexRow||
+       current.mime!==entry.mimeType||current.folder!==entry.folder||
+       parent?.id!==entry.folderId)
+      throw new Error('Loaded Drive ID, original filename or Manifest row changed. Refresh the inventory.');
+    const [drive,siblings,sheet]=await Promise.all([
+      driveRenameLiveFile(entry.fileId,token),
+      driveRenameLiveFolder(entry.folderId,token),
+      reconcileReadSheet(reconcilePlan,sheetToken||token)
+    ]);
+    const dc=driveRename.driveRenameCheck(drivePlan,drive,siblings,
+      checkVersion?{baselineVersion:version}:{});
+    const sc=filenameReconcile.reconcileSheetCheck(reconcilePlan,sheet);
+    if(!dc.ok)throw new Error(dc.reason);
+    if(!sc.ok)throw new Error(sc.reason);
+    if(originalSheet&&JSON.stringify(sheet)!==JSON.stringify(originalSheet))
+      throw new Error('Source Sheet values changed since the reviewed preview.');
+    return {drive,sheet};
+  }
+  async function smartSyncSheet(entry,plan,token,tabIds,version,{undo=false,baseline=null}={}){
+    const ctx=activityContext(),epoch=state.authEpoch;
+    if(!ctx||!smartSession(ctx,epoch))throw new Error('Google account or screen changed before Sheet sync.');
+    const beforeStatus=undo?'undo-drive-verified':'drive-verified';
+    const journal=smartJournalEntry(entry.fileId);
+    if(journal?.status!==beforeStatus)
+      throw new Error('A verified, unsynchronized Drive change is required before Sheet sync.');
+    const [drive,sheet]=await Promise.all([
+      driveRenameLiveFile(entry.fileId,token),
+      reconcileReadSheet(plan,token)
+    ]);
+    const dc=filenameReconcile.reconcileLiveDrive(plan,drive,{baselineVersion:version});
+    if(!dc.ok)throw new Error(dc.reason);
+    if(baseline&&JSON.stringify(baseline)!==JSON.stringify(sheet))
+      throw new Error('Sheet preview values changed while authorizing. No Sheet write was sent.');
+    const currentIsVerified=filenameReconcile.reconcileVerified(plan,sheet,drive);
+    if(currentIsVerified){
+      // A different editor already reconciled the exact value while we were
+      // paused. Independent live proof is sufficient; do NOT submit again.
+      smartMove(entry.fileId,undo?'undone':'synced',
+        'Already matched real Drive and formula-derived Sheet value; no Sheet POST sent.');
+      return;
+    }
+    const sc=filenameReconcile.reconcileSheetCheck(plan,sheet);
+    if(!sc.ok)throw new Error(sc.reason);
+    if(!smartSession(ctx,epoch))throw new Error('Account changed just before Sheet authorization was used.');
+    let submitted=false,verified=false;
+    try{
+      smartMove(entry.fileId,undo?'undo-sheet-submitting':'sheet-submitting',
+        'Sheet AD write may be in flight. Do not retry if interrupted.');
+      const request=filenameReconcile.reconcileRequests(plan,tabIds);
+      submitted=true;
+      const result=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+
+        encodeURIComponent(ctx.sheetId)+':batchUpdate',token,{method:'POST',payload:request});
+      if(!Array.isArray(result.replies)||result.replies.length!==1)
+        throw new Error('Google Sheets did not confirm exactly one Manifest AD cell update.');
+      const [readback,after]=await Promise.all([
+        reconcileReadSheet(plan,token),
+        driveRenameLiveFile(entry.fileId,token)
+      ]);
+      if(!filenameReconcile.reconcileVerified(plan,readback,after)||
+        readback.manifestOriginal!==sheet.manifestOriginal||
+        String(after.version)!==String(version))
+        throw new Error('Manifest AD, Search Index formula or Drive read-back differs.');
+      verified=true;
+      smartMove(entry.fileId,undo?'undone':'synced',
+        'Verified Manifest AD and formula-derived Search Index C against real Drive.');
+      for(const list of [state.images,state.inventory]){
+        const item=list.find(x=>x.id===entry.fileId);
+        if(item){item.name=plan.newName;item.manifestCurrentName=plan.newName;}
+      }
+      if(!logActivity('sheet-name-sync',{fileId:entry.fileId,count:1}))
+        state.smartMessage='Sheet synchronized, but local Activity history could not record the Sheet step.';
+      buildFolderIndex();
+    }catch(error){
+      if(submitted&&!verified){
+        try{smartMove(entry.fileId,undo?'undo-sheet-uncertain':'sheet-uncertain',
+          'Sheet POST may have happened; inspect Manifest AD and Search Index C before any retry.');}catch{}
+        logActivity('sheet-name-sync-unverified',{fileId:entry.fileId,count:1});
+      }
+      throw error;
+    }
+  }
+  async function smartApplyOne(prepared,driveToken,sheetToken,tabIds,ctx,epoch){
+    const {entry,drivePlan,reconcilePlan,version,sheet}=prepared;
+    if(!smartSession(ctx,epoch))throw new Error('Google account or view changed before Drive write.');
+    if(smartJournalEntry(entry.fileId)?.status!=='ready')
+      throw new Error('This file was already submitted or its progress is uncertain.');
+    // Authoritative checks run again immediately before EACH separate PATCH.
+    await smartCheckLiveRename(prepared,driveToken,{sheetToken,originalSheet:sheet});
+    if(!smartSession(ctx,epoch))throw new Error('Account changed after live verification.');
+    let submitted=false,verified=false;
+    try{
+      smartMove(entry.fileId,'drive-submitting',
+        'Drive name-only PATCH may be in flight; never retry without inspecting the real file.');
+      const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(entry.fileId)+
+        '?fields=id,name,mimeType,parents,trashed,version&supportsAllDrives=true';
+      submitted=true;
+      const response=await driveRenameFetch(url,driveToken,{
+        method:'PATCH',payload:driveRename.driveRenamePatch(drivePlan)});
+      if(!driveRename.driveRenameVerified(drivePlan,response))
+        throw new Error('Google Drive did not confirm the exact name-only update.');
+      const readback=await driveRenameLiveFile(entry.fileId,driveToken);
+      if(!driveRename.driveRenameVerified(drivePlan,readback))
+        throw new Error('Drive read-back did not verify new filename and parent folder.');
+      verified=true;
+      smartMove(entry.fileId,'drive-verified','Real Drive name verified; Sheet reconciliation is pending.');
+      if(!logActivity('drive-rename',{fileId:entry.fileId,count:1,
+        driveChange:{fileId:entry.fileId,parentId:entry.folderId,
+          beforeName:entry.oldName,afterName:entry.newName}}))
+        throw new Error('Drive succeeded but private Activity undo history was unavailable. Inspect it before proceeding.');
+      for(const list of [state.images,state.inventory]){
+        const item=list.find(x=>x.id===entry.fileId);
+        if(item)item.name=entry.newName;
+      }
+      state.filenameStaged.delete(entry.fileId);
+      state.smartSelected.delete(entry.fileId);
+      state.filenameImportedQueue=state.filenameImportedQueue.filter(x=>x.fileId!==entry.fileId);
+      buildFolderIndex();
+      await smartSyncSheet(entry,reconcilePlan,sheetToken,tabIds,readback.version,{baseline:sheet});
+    }catch(error){
+      if(submitted&&!verified){
+        try{smartMove(entry.fileId,'drive-uncertain',
+          'Drive PATCH may have happened. Inspect the real file, never retry blindly.');}catch{}
+        logActivity('drive-rename-unverified',{fileId:entry.fileId,count:1});
+      }else if(!submitted&&smartJournalEntry(entry.fileId)?.status==='ready'){
+        try{smartMove(entry.fileId,'blocked','No Drive PATCH submitted: '+String(error.message||'conflict').slice(0,220));}catch{}
+      }
+      throw error;
+    }
+  }
+  async function smartApproveSelected(){
+    const prepared=state.smartPreview,ctx=activityContext(),epoch=state.authEpoch;
+    if(state.smartBusy||state.renameBusy||state.sheetWriteBusy||!prepared||
+       !ctx||!smartSession(ctx,epoch)||!state.smartJournal||state.smartJournalError)return;
+    if(JSON.stringify(prepared.ctx)!==JSON.stringify(ctx)||
+       JSON.stringify(prepared.selection)!==JSON.stringify([...state.smartSelected]))
+      {state.smartPreview=null;state.smartMessage='Selection changed; preview again.';renderSmartQueue();return;}
+    if(!confirm('This is a REAL batch of '+prepared.entries.length+
+      ' separately verified, sequential Drive renames and Manifest AD Sheet reconciliations. '+
+      'Google grants broad temporary metadata and Sheet editing permission, not per-file scopes. '+
+      'No credentials or tokens will be saved. Authorize both Google grants?'))return;
+    state.smartBusy=true;state.renameBusy=true;state.sheetWriteBusy=true;
+    state.smartMessage='Requesting temporary Drive metadata and Sheets edit authorization…';
+    renderSmartQueue();
+    let driveToken='',sheetToken='',approved=false;
+    try{
+      driveToken=await driveRenameAuthorize('smartRenameDesktop');
+      sheetToken=await sheetWriteAuthorize('smartSheetDesktop');
+      if(!smartSession(ctx,epoch)||state.smartPreview!==prepared)
+        throw new Error('Account or preview changed while requesting Google consent.');
+      await Promise.all([
+        smartCheckWriteIdentity(driveToken,ctx.account),
+        smartCheckWriteIdentity(sheetToken,ctx.account)
+      ]);
+      const tabIds=await reconcileTabIDs(sheetToken);
+      if(!confirm('FINAL APPROVAL: Process '+prepared.entries.length+
+        ' reviewed filenames one by one? Each Drive file receives only a name PATCH, '+
+        'then one Manifest AD cell is synchronized. Search Index formulas stay untouched. '+
+        'Stop on a conflict or uncertain Google response.')){
+        state.smartMessage='Final approval cancelled. No Drive or Sheet write submitted.';return;
+      }
+      if(!smartSession(ctx,epoch)||state.smartPreview!==prepared)
+        throw new Error('Account or preview changed at final confirmation.');
+      // Write ahead before the first remote change, preventing silent replay
+      // after browser crash or Windows update.
+      const existing=prepared.entries.filter(x=>!smartJournalEntry(x.entry.fileId));
+      if(existing.length){
+        smartStoreJournal(smartRenameQueue.smartRenameAppend(state.smartJournal,
+          existing.map(x=>x.entry),ctx));
+      }
+      approved=true;
+      for(let i=0;i<prepared.entries.length;i++){
+        const item=prepared.entries[i];
+        if(!smartSession(ctx,epoch))throw new Error('Account or view changed during the queue.');
+        state.smartMessage='Processing '+(i+1)+' of '+prepared.entries.length+': '+
+          item.entry.oldName+' → '+item.entry.newName;
+        renderSmartQueue();
+        await smartApplyOne(item,driveToken,sheetToken,tabIds,ctx,epoch);
+      }
+      state.smartPreview=null;
+      state.smartMessage='All '+prepared.entries.length+
+        ' selected Drive filenames and Manifest AD cells were independently verified. '+
+        'Each file has a private undo record. No other Sheet cells were changed.';
+    }catch(error){
+      state.smartPreview=null;
+      state.smartMessage=(approved?'Queue STOPPED. Inspect recorded progress before retrying: ':
+        'No batch writes started: ')+(error.message||'Google approval or live verification failed.');
+    }finally{
+      driveToken='';sheetToken='';
+      state.smartBusy=false;state.renameBusy=false;state.sheetWriteBusy=false;
+      if(state.view==='filename-review')renderFilenameReview();
+    }
+  }
+  async function smartResumeSheet(fileId){
+    const journal=smartJournalEntry(fileId),ctx=activityContext(),epoch=state.authEpoch;
+    if(state.smartBusy||state.renameBusy||state.sheetWriteBusy||!ctx||
+       !['drive-verified','undo-drive-verified'].includes(journal?.status))return;
+    const undo=journal.status==='undo-drive-verified';
+    let plan;
+    try{plan=smartRecoveryPlan(journal,{reverse:undo});}
+    catch(error){state.smartMessage='Cannot resume: '+error.message;renderSmartQueue();return;}
+    if(!confirm('Verify and finish ONLY Manifest AD for '+plan.fileId+
+      '? The real Drive filename will NOT be renamed again. '+
+      'An uncertain Sheet POST is never retried automatically.'))return;
+    state.smartBusy=true;state.sheetWriteBusy=true;
+    let token='';
+    try{
+      token=await sheetWriteAuthorize('smartSheetDesktop');
+      if(!smartSession(ctx,epoch))throw new Error('Account changed during authorization.');
+      await smartCheckWriteIdentity(token,ctx.account);
+      const tabIds=await reconcileTabIDs(token);
+      const drive=await driveRenameLiveFile(fileId,token);
+      if(!filenameReconcile.reconcileLiveDrive(plan,drive).ok)
+        throw new Error('Real Drive name/version does not match recorded verified rename.');
+      const sheet=await reconcileReadSheet(plan,token);
+      const sc=filenameReconcile.reconcileSheetCheck(plan,sheet);
+      if(!sc.ok&&!filenameReconcile.reconcileVerified(plan,sheet,drive))
+        throw new Error(sc.reason);
+      if(!confirm('FINAL APPROVAL: write ONLY Manifest!AD'+plan.manifestRow+
+        ' to "'+plan.newName+'" after fresh verification?'))return;
+      await smartSyncSheet(journal,plan,token,tabIds,drive.version,{undo});
+      state.smartMessage='Recovered the pending Sheet sync for one verified Drive file. No Drive PATCH was sent.';
+    }catch(error){
+      state.smartMessage='Sheet recovery stopped without a blind retry: '+(error.message||'verification failed.');
+    }finally{
+      token='';state.smartBusy=false;state.sheetWriteBusy=false;
+      if(state.view==='filename-review')renderFilenameReview();
+    }
+  }
+
   function renderFilenameReview(){
     const model=filenameReviewModel();
     const page=filenameReview.filenameReviewPage(model,{
