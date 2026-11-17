@@ -641,6 +641,45 @@ async function main(){
     await p.locator('#navigation [data-view="activity"]').click();
     await p.locator('#activityFilter').selectOption('writes');
     assert.match(await p.locator('#activityList').innerText(),/Drive filename changed and verified/);
+    assert.equal((await p.locator('#activityDriveUndoable').innerText()).trim(),'1');
+    // Phase 10C: the same fabricated Drive rename can be undone exactly once.
+    current.name='EXTERNAL-UPDATE.jpg';
+    await p.locator('[data-drive-undo-preview]').click();
+    await p.waitForFunction(()=>document.querySelector('#activityDriveUndoStatus')?.textContent.includes('Undo blocked'));
+    assert.equal(await p.locator('#activityDriveUndoPanel').isVisible(),false);
+    assert.equal(patchBodies.length,1);
+    current.name='orange cat - reaction meme.jpg';
+    sibling.name=fake.name;
+    await p.locator('[data-drive-undo-preview]').click();
+    await p.waitForFunction(()=>document.querySelector('#activityDriveUndoStatus')?.textContent.includes('conflicts'));
+    assert.equal(patchBodies.length,1,'Collision with original filename blocks undo');
+    sibling.name=fakeVideo.name;
+    await p.locator('[data-drive-undo-preview]').click();
+    await p.waitForFunction(()=>!document.querySelector('#activityDriveUndoPanel')?.hidden);
+    assert.match(await p.locator('#activityDriveUndoApplied').innerText(),/orange cat - reaction meme.jpg/);
+    assert.match(await p.locator('#activityDriveUndoOriginal').innerText(),/IMG_123456789.jpg/);
+    assert.equal(patchBodies.length,1,'Undo preview must be read-only');
+    p.once('dialog',dialog=>dialog.dismiss());
+    await p.locator('#activityDriveUndoApply').click();
+    assert.equal(patchBodies.length,1,'Declined undo consent does not PATCH');
+    renames.setAccount('wrong_permission_123456789');
+    p.on('dialog',accept);
+    await p.locator('#activityDriveUndoApply').click();
+    await p.waitForFunction(()=>document.querySelector('#activityDriveUndoStatus')?.textContent.includes('No undo submitted'));
+    p.off('dialog',accept);
+    assert.equal(patchBodies.length,1,'Wrong write account blocks undo');
+    renames.setAccount('fixture_permission_123456789');
+    p.on('dialog',accept);
+    await p.locator('#activityDriveUndoApply').click();
+    await p.waitForFunction(()=>document.querySelector('#activityDriveUndoStatus')?.textContent.includes('Verified: original filename restored'),null,{timeout:20000});
+    p.off('dialog',accept);
+    assert.equal(patchBodies.length,2,'One approved undo adds just one name-only PATCH');
+    assert.deepEqual(patchBodies[1],{name:fake.name});
+    assert.equal(current.name,fake.name);
+    assert.equal(current.parents[0],folder);
+    assert.equal(await p.locator('[data-drive-undo-preview]').count(),0,'Verified undo cannot be replayed');
+    assert.equal((await p.locator('#activityDriveUndoable').innerText()).trim(),'0');
+    assert.match(await p.locator('#activityList').innerText(),/Original Drive filename restored and verified/);
     assert.equal((await p.evaluate(()=>JSON.stringify(localStorage))).includes('fake-e2e-token'),false);
   }finally{await renames.ctx.close();}
   // Sheets approval smoke: explicit preview and staging never POST.
