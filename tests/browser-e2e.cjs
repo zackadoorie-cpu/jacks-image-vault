@@ -822,6 +822,10 @@ async function main(){
     await p.waitForFunction(()=>document.querySelector('#smartQueueStatus')?.textContent.includes('No batch writes started'),null,{timeout:18000});
     assert.equal(smartPatches.length,0,'Wrong Google account must block all writes');
     smart.setAccount('fixture_permission_123456789');
+    // A rejected authorization invalidates the preview deliberately.
+    // Fresh read-only checks are required before another approval.
+    await p.locator('#smartPreviewSelected').click();
+    await p.waitForFunction(()=>!document.querySelector('#smartQueuePreview')?.hidden,null,{timeout:18000});
     await p.locator('#smartApprove').click();
     await p.waitForFunction(()=>document.querySelector('#smartQueueStatus')?.textContent.includes('All 1 selected Drive filenames'),null,{timeout:18000})
       .catch(async error=>{throw new Error('Smart rename failed: '+await p.locator('#smartQueueStatus').innerText()+'; '+error.message);});
