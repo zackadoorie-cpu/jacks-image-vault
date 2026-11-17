@@ -1,5 +1,11 @@
 # Phase 10D — Verified filename index reconciliation
 
+> **Superseded safety notice (v2.1.32):** This document describes the
+> original Phase 10D design. The actual Search Index column C is backed by
+> an ARRAYFORMULA and must never be directly updated. Phase 10E instead
+> writes only Manifest column AD and verifies the formula-derived result.
+> See [Phase 10E](phase10e-formula-safe-reconciliation.md).
+
 ## Purpose and strict boundaries
 
 The Image Vault inventory has two independent filename cells:

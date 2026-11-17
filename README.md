@@ -1,6 +1,26 @@
 # Jack's Image Vault — Windows image and media library
 
-## Phase 10D — Verified filename index reconciliation (v2.1.31)
+## Phase 10E — Formula-safe filename reconciliation and Sheet proposals (v2.1.32)
+
+**Corrected an important Phase 10D assumption:** the live inventory's
+`Search Index!C2` is an **ARRAYFORMULA**, not a writable filename cell.
+Reconciliation now writes **only `Manifest!AD` (Current filename)** for
+one verified Drive rename or undo. Search Index column C refreshes through
+its original formula. Read-only preview checks live Drive ID, name, MIME,
+parent and version, exact Manifest/Search Index ID and effective filename,
+and the existing formula anchors before and after the one-cell update.
+It stops rather than overwriting any formula or another editor's value.
+
+The app now also **loads `Manifest!R` proposals** when building its Video
+Library, Rename Desk and Filename Review screens. The newly staged video
+titles appear as suggestions while the actual Drive originals remain
+unchanged until an independently approved rename. Reviewed proposals are
+not presented as completed renames. There are no changes to Windows
+Stay Signed In, default read-only scopes or any media contents.
+
+See [Phase 10E safety notes](docs/phase10e-formula-safe-reconciliation.md).
+
+## Phase 10D — Original reconciliation implementation (v2.1.31, superseded by 10E)
 
 A new independent panel in **Sheet Review Approvals** locates recent
 **verified** Drive filename changes in your account-bound private Activity

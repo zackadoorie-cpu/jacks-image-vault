@@ -9,8 +9,12 @@ function renameDeskRows(){
       const row=renameDeskEngine.renameDeskRow(item,info,reviewStage(item),
         evidence.label+' · '+evidence.origin);
       if(!row)return null;
+      const sheetName=String(item.manifestProposedName||'');
+      const useSheetName=row.eligible&&
+        renameDeskEngine.renameDeskSafeName(sheetName,item.name).ok;
       return {...row,proposed:state.renameDrafts.has(item.id)?
-        state.renameDrafts.get(item.id):row.proposed};
+        state.renameDrafts.get(item.id):(useSheetName?sheetName:row.proposed),
+        evidence:row.evidence+(useSheetName?' · Manifest!R proposal (not a Drive filename)':'')};
     }).filter(Boolean);
 }
 function renameDeskVisible(rows){

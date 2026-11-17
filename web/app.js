@@ -303,34 +303,37 @@
     }
     function reconcileSheetCheck(plan,sheet){
      if(!plan||!sheet||sheet.manifestId!==plan.fileId||sheet.indexId!==plan.fileId)
-      return {ok:false,reason:'Manifest or Search Index ID changed. No filename cells can be updated.'};
-     if(typeof sheet.manifestName!=='string'||typeof sheet.indexName!=='string'||
-        sheet.manifestName.startsWith('=')||sheet.indexName.startsWith('='))
-      return {ok:false,reason:'Invalid or formula-based filename cells cannot be overwritten.'};
-     if(sheet.manifestName===plan.newName&&sheet.indexName===plan.newName)
-      return {ok:false,reason:'Manifest and Search Index already match the verified Drive filename.'};
-     if(sheet.manifestName!==plan.oldName||sheet.indexName!==plan.oldName)
-      return {ok:false,reason:'One or both Sheet filenames differ from the recorded previous name. Do not overwrite newer edits.'};
-     return {ok:true,reason:'Both exact Sheet row IDs and previous filenames match verified history.'};
+      return {ok:false,reason:'Manifest or Search Index Drive ID changed. No Sheet values will be modified.'};
+     if(sheet.formulaIntact!==true)
+      return {ok:false,reason:'Search Index formula anchors are missing or altered. Manual inspection required.'};
+     if(sheet.currentIsFormula===true||!reconcileName(sheet.manifestOriginal)||
+       typeof sheet.manifestCurrent!=='string'||sheet.manifestCurrent.startsWith('=')||
+       typeof sheet.indexName!=='string'||sheet.indexName.startsWith('='))
+      return {ok:false,reason:'A source name is invalid, or Manifest!AD contains a formula.'};
+     const effective=sheet.manifestCurrent||sheet.manifestOriginal;
+     if(effective===plan.newName&&sheet.indexName===plan.newName)
+      return {ok:false,reason:'Manifest and the formula-derived Search Index already match Drive.'};
+     if(effective!==plan.oldName||sheet.indexName!==plan.oldName)
+      return {ok:false,reason:'The current Manifest and Search Index filenames differ from the verified previous Drive name.'};
+     return {ok:true,reason:'Source filename and formula-derived index match the exact previous Drive name.'};
     }
     function reconcileRequests(plan,{manifestId,indexId}={}){
      if(!plan||!reconcileID(plan.fileId)||!reconcileName(plan.newName)||
-      !Number.isSafeInteger(plan.manifestRow)||plan.manifestRow<2||
-      !Number.isSafeInteger(plan.indexRow)||plan.indexRow<2||
-      !Number.isSafeInteger(manifestId)||manifestId<0||
-      !Number.isSafeInteger(indexId)||indexId<0||manifestId===indexId)
-      throw new Error('Two distinct verified Sheet tabs and one eligible Drive filename are required.');
-     const change=(sheetId,row)=>({updateCells:{
-      start:{sheetId,rowIndex:row-1,columnIndex:2},
+        !Number.isSafeInteger(plan.manifestRow)||plan.manifestRow<2||
+        !Number.isSafeInteger(plan.indexRow)||plan.indexRow<2||
+        !Number.isSafeInteger(manifestId)||manifestId<0||
+        !Number.isSafeInteger(indexId)||indexId<0||manifestId===indexId)
+      throw new Error('Verified Manifest and formula-driven Search Index tabs are required.');
+     return {requests:[{updateCells:{
+      start:{sheetId:manifestId,rowIndex:plan.manifestRow-1,columnIndex:29},
       rows:[{values:[{userEnteredValue:{stringValue:plan.newName}}]}],
       fields:'userEnteredValue'
-     }});
-     return {requests:[change(manifestId,plan.manifestRow),change(indexId,plan.indexRow)],
-      includeSpreadsheetInResponse:false};
+     }}],includeSpreadsheetInResponse:false};
     }
     function reconcileVerified(plan,sheet,drive){
-     return !!plan&&!!sheet&&sheet.manifestId===plan.fileId&&sheet.indexId===plan.fileId&&
-      sheet.manifestName===plan.newName&&sheet.indexName===plan.newName&&
+     return !!plan&&!!sheet&&sheet.formulaIntact===true&&sheet.currentIsFormula!==true&&
+      sheet.manifestId===plan.fileId&&sheet.indexId===plan.fileId&&
+      sheet.manifestCurrent===plan.newName&&sheet.indexName===plan.newName&&
       reconcileLiveDrive(plan,drive).ok;
     }
     return {RECONCILE_DRIVE_KINDS,reconcileID,reconcileName,reconcileNewest,reconcileDraft,reconcileLiveDrive,reconcileSheetCheck,reconcileRequests,reconcileVerified};
@@ -3339,7 +3342,7 @@
   }
   async function readSpreadsheetSnapshot() {
       const id = encodeURIComponent(state.config.sheetId);
-      const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G", "'Manifest'!T:T", "'Manifest'!AC:AC"];
+      const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G", "'Manifest'!T:T", "'Manifest'!AC:AC", "'Manifest'!R:R", "'Manifest'!AD:AD"];
       const params = ranges.map(x => `ranges=${encodeURIComponent(x)}`).join('&');
       const data = await googleGet(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchGet?${params}&valueRenderOption=FORMATTED_VALUE`);
       const index = data.valueRanges?.[0]?.values || [];
@@ -3347,6 +3350,8 @@
       const folders = data.valueRanges?.[2]?.values || [];
       const reviewStatuses = data.valueRanges?.[3]?.values || [];
       const analysisMethods = data.valueRanges?.[4]?.values || [];
+      const proposedFilenames = data.valueRanges?.[5]?.values || [];
+      const currentFilenames = data.valueRanges?.[6]?.values || [];
       if ((index[0] || [])[0] !== 'Collection' || (manifest[0] || [])[0] !== 'Collection' ||
           reviewStatuses[0]?.[0] !== 'Review status' || analysisMethods[0]?.[0] !== 'Analysis method')
         throw new Error('This inventory needs Search Index and Manifest visual-review columns. No existing data was changed.');
@@ -3357,6 +3362,8 @@
           url:r[4]||'',mime:r[5]||'',size:Number(r[6]||0),
           review:reviewStatuses[row]?.[0]||'',analysisMethod:analysisMethods[row]?.[0]||'',
           manifestRow:row+1,manifestOriginalName:r[2]||'',
+          manifestProposedName:proposedFilenames[row]?.[0]||'',
+          manifestCurrentName:currentFilenames[row]?.[0]||'',
           filenameDate:r[9]||'',filenameDateEvidence:r[10]||'',
           driveCreatedAt:r[7]||'',driveModifiedAt:r[8]||''
         });
@@ -3370,7 +3377,8 @@
         found.add(id);
         images.push(mediaContract.normalizeMediaRecord({id,collection:r[0]||'',folder:r[1]||'',name:r[2]||'Untitled image',description:r[4]||'',tags:r[5]||'',captureDate:r[7]||'',filenameDate:source.filenameDate,filenameDateEvidence:source.filenameDateEvidence,
         driveCreatedAt:source.driveCreatedAt,driveModifiedAt:source.driveModifiedAt,review:source.review||r[9]||'',analysisMethod:source.analysisMethod,confidence:r[11]||'',category:r[12]||'',mime:source.mime,size:source.size,url:linkToDrive({id}),demo:false,
-          manifestRow:source.manifestRow,indexRow:ix+1,manifestOriginalName:source.manifestOriginalName}));
+          manifestRow:source.manifestRow,indexRow:ix+1,manifestOriginalName:source.manifestOriginalName,
+          manifestProposedName:source.manifestProposedName,manifestCurrentName:source.manifestCurrentName}));
       }
       if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
       const baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
@@ -4373,6 +4381,13 @@
         source:'Original filename',suggested:false};
     }
     // This is only an on-screen title. It NEVER changes a Drive filename.
+    // A reviewed, Windows-safe Manifest R proposal can be shown as a title.
+    const sheetName=String(item?.manifestProposedName||'');
+    if(sheetName&&['reviewed','source-reviewed'].includes(reviewStage(item))&&
+       renameDeskEngine.renameDeskSafeName(sheetName,filename).ok){
+      return {title:sheetName.replace(/\.[^.]+$/,''),
+        source:'Proposed filename from Manifest!R · Drive unchanged',suggested:true};
+    }
     // Existing Sheet or user-local visual notes are the sole content source.
     const description=String(effectiveDescription(item)||'').trim();
     if(!description)return {title:filename,source:'Original filename · no visual summary',suggested:false};
@@ -5115,8 +5130,12 @@
         const row=renameDeskEngine.renameDeskRow(item,info,reviewStage(item),
           evidence.label+' · '+evidence.origin);
         if(!row)return null;
+        const sheetName=String(item.manifestProposedName||'');
+        const useSheetName=row.eligible&&
+          renameDeskEngine.renameDeskSafeName(sheetName,item.name).ok;
         return {...row,proposed:state.renameDrafts.has(item.id)?
-          state.renameDrafts.get(item.id):row.proposed};
+          state.renameDrafts.get(item.id):(useSheetName?sheetName:row.proposed),
+          evidence:row.evidence+(useSheetName?' · Manifest!R proposal (not a Drive filename)':'')};
       }).filter(Boolean);
   }
   function renameDeskVisible(rows){
@@ -5850,16 +5869,31 @@
     if(!plan||!filenameReconcile.reconcileID(plan.fileId)||
        !Number.isSafeInteger(plan.manifestRow)||!Number.isSafeInteger(plan.indexRow))
       throw new Error('Exact Manifest and Search Index rows are required.');
-    const ranges=["'Manifest'!C"+plan.manifestRow,"'Manifest'!D"+plan.manifestRow,
-      "'Search Index'!C"+plan.indexRow,"'Search Index'!K"+plan.indexRow];
-    const params=new URLSearchParams({valueRenderOption:'FORMULA'});
-    ranges.forEach(range=>params.append('ranges',range));
-    const data=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+
-      encodeURIComponent(plan.sheetId)+'/values:batchGet?'+params,token);
-    if(!Array.isArray(data.valueRanges)||data.valueRanges.length!==4)
-      throw new Error('Both Sheet filename cells and Drive ID cells must be readable.');
-    const values=data.valueRanges.map(range=>String(range.values?.[0]?.[0]??''));
-    return {manifestName:values[0],manifestId:values[1],indexName:values[2],indexId:values[3]};
+    const endpoint='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(plan.sheetId)+'/values:batchGet?';
+    const displayed=["'Manifest'!C"+plan.manifestRow,"'Manifest'!D"+plan.manifestRow,
+      "'Manifest'!AD"+plan.manifestRow,"'Search Index'!C"+plan.indexRow,
+      "'Search Index'!K"+plan.indexRow];
+    const params=new URLSearchParams({valueRenderOption:'FORMATTED_VALUE'});
+    displayed.forEach(range=>params.append('ranges',range));
+    const formulaParams=new URLSearchParams({valueRenderOption:'FORMULA'});
+    ["'Search Index'!C2","'Search Index'!K2","'Manifest'!AD"+plan.manifestRow]
+      .forEach(range=>formulaParams.append('ranges',range));
+    const [live,anchors]=await Promise.all([
+      sheetWriteFetch(endpoint+params,token),sheetWriteFetch(endpoint+formulaParams,token)
+    ]);
+    if(!Array.isArray(live.valueRanges)||live.valueRanges.length!==5||
+       !Array.isArray(anchors.valueRanges)||anchors.valueRanges.length!==3)
+      throw new Error('The two Sheet identities and formula-derived filename could not be read.');
+    const values=ranges=>ranges.map(range=>String(range.values?.[0]?.[0]??''));
+    const [manifestOriginal,manifestId,manifestCurrent,indexName,indexId]=values(live.valueRanges);
+    const [indexFormula,idFormula,currentEntered]=values(anchors.valueRanges);
+    const formulaIntact=indexFormula.startsWith('=ARRAYFORMULA(')&&
+      indexFormula.includes('Manifest!D2:D')&&
+      indexFormula.includes('Manifest!AD2:AD')&&
+      indexFormula.includes('Manifest!C2:C')&&
+      idFormula.startsWith('=ARRAYFORMULA(')&&idFormula.includes('Manifest!D2:D');
+    return {manifestOriginal,manifestId,manifestCurrent,indexName,indexId,
+      formulaIntact,currentIsFormula:currentEntered.startsWith('=')};
   }
   async function reconcileTabIDs(token){
     const data=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+
@@ -5897,11 +5931,14 @@
       const plan=prepared.plan;
       $('reconcileBefore').textContent=JSON.stringify({
         fileId:plan.fileId,manifestRow:plan.manifestRow,indexRow:plan.indexRow,
-        manifestName:prepared.sheet.manifestName,indexName:prepared.sheet.indexName
+        originalFilename:prepared.sheet.manifestOriginal,
+        currentFilenameOverride:prepared.sheet.manifestCurrent,
+        formulaDerivedIndexName:prepared.sheet.indexName
       },null,2);
       $('reconcileAfter').textContent=JSON.stringify({
         fileId:plan.fileId,verifiedDriveFilename:plan.newName,
-        manifestName:plan.newName,indexName:plan.newName,
+        onlyEditedCell:'Manifest!AD'+plan.manifestRow,
+        formulaDerivedSearchIndex:'Search Index!C'+plan.indexRow,
         driveVersion:prepared.version
       },null,2);
     }
@@ -5927,7 +5964,7 @@
       if(!latest||JSON.stringify(latest)!==JSON.stringify(plan))
         throw new Error('Verified history or index row mapping changed. Start a new preview.');
       state.reconcilePrepared={plan,sheet,version:driveCheck.version};
-      state.reconcileMessage='Read-only verification passed. Only two filename cells would change. Review the exact values before permission.';
+      state.reconcileMessage='Read-only verification passed. Only Manifest AD would change. Search Index C is formula-derived and remains protected. Review the exact values before permission.';
     }catch(error){
       if(epoch===state.authEpoch)state.reconcileMessage='Cannot reconcile: '+(error.message||'Live verification failed.');
     }finally{
@@ -5946,7 +5983,7 @@
       renderSheetWrite();return;
     }
     if(!confirm('Authorize TEMPORARY Google Sheets edit permission to reconcile ONE previously renamed Drive file? '+
-      'Google permissions are broader than two cells, but Image Vault will write ONLY filename column C in the verified Manifest and Search Index tabs. Continue?'))return;
+      'Google permission is broader than this one cell, but Image Vault will write ONLY Manifest column AD. Search Index column C is formula-derived and will NOT be written. Continue?'))return;
     state.sheetWriteBusy=true;
     state.reconcileMessage='Waiting for temporary Google Sheets edit authorization…';
     renderSheetWrite();
@@ -5978,7 +6015,7 @@
       };
       await validate();
       if(!confirm('FINAL CONFIRMATION: For Drive file '+plan.fileId+
-        ', update ONLY Manifest!C'+plan.manifestRow+' and Search Index!C'+plan.indexRow+
+        ', write ONLY Manifest!AD'+plan.manifestRow+' (Search Index!C'+plan.indexRow+' updates via its existing formula)'+
         ' from "'+plan.oldName+'" to the verified Drive filename "'+plan.newName+'"? No Drive files will be changed.'))
         throw new Error('Final consent cancelled. Nothing was submitted.');
       await validate();
@@ -5986,12 +6023,13 @@
       submitted=true;
       const response=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+
         encodeURIComponent(plan.sheetId)+':batchUpdate',writeToken,{method:'POST',payload});
-      if(!Array.isArray(response.replies)||response.replies.length!==2)
-        throw new Error('Google did not confirm exactly two Sheet cell updates.');
+      if(!Array.isArray(response.replies)||response.replies.length!==1)
+        throw new Error('Google did not confirm the one Manifest AD cell update.');
       const [sheet,drive]=await Promise.all([
         reconcileReadSheet(plan,writeToken),driveRenameLiveFile(plan.fileId,writeToken)
       ]);
       if(!filenameReconcile.reconcileVerified(plan,sheet,drive)||
+         sheet.manifestOriginal!==prepared.sheet.manifestOriginal||
          String(drive.version)!==version)
         throw new Error('Post-write Sheet or Drive read-back differed. Inspect both tabs manually.');
       verified=true;
@@ -6000,19 +6038,19 @@
         const item=arr.find(x=>x.id===plan.fileId);
         if(item){
           item.name=plan.newName;
-          item.manifestOriginalName=plan.newName;
+          item.manifestCurrentName=plan.newName;
         }
       }
       state.reconcilePrepared=null;
       const logged=logActivity('sheet-name-sync',{fileId:plan.fileId,count:1});
-      state.reconcileMessage='Verified: Manifest and Search Index filename cells now match the real Drive file. '+
-        'No other Sheet cells or Drive files were changed.'+
+      state.reconcileMessage='Verified: Manifest AD now matches Drive and Search Index C recalculated from its original formula. '+
+        'No formula cells, other Sheet data, or Drive files were changed.'+
         (logged?'':' WARNING: local history could not be saved.');
       buildFolderIndex();
     }catch(error){
       if(epoch===state.authEpoch){
         state.reconcileMessage=(submitted?
-          'SHEET UPDATE MAY HAVE HAPPENED. Inspect both filename cells and the Drive file; do not retry blindly: ':
+          'SHEET UPDATE MAY HAVE HAPPENED. Inspect Manifest AD, the formula-derived Search Index C, and Drive; do not retry blindly: ':
           'No Sheet update submitted: ')+(error.message||'Unverified Google Sheet response.');
         if(submitted&&!verified){
           state.reconcilePrepared=null;

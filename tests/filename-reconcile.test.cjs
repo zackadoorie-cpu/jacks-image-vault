@@ -14,7 +14,7 @@ const item={id:fileId,manifestRow:2,indexRow:2,name:before,manifestOriginalName:
 const ctx={account,sheetId,parentId};
 const plan=R.reconcileDraft(history,item,ctx);
 const drive={id:fileId,name:after,mimeType:'image/jpeg',parents:[parentId],trashed:false,version:'12'};
-const sheet={manifestId:fileId,indexId:fileId,manifestName:before,indexName:before};
+const sheet={manifestId:fileId,indexId:fileId,manifestOriginal:before,manifestCurrent:'',indexName:before,formulaIntact:true,currentIsFormula:false};
 test('only current account, verified Drive rename and exact indexed IDs can create a plan',()=>{
  assert.equal(plan.oldName,before);assert.equal(plan.newName,after);
  assert.equal(plan.manifestRow,2);assert.equal(plan.indexRow,2);
@@ -39,7 +39,7 @@ test('verified rename undo resolves to the recorded original filename only',()=>
  assert.equal(restored.oldName,after);assert.equal(restored.newName,before);
  assert.equal(R.reconcileDraft({...history,items:[undo,marked,{...marked,id:'99999999-aaaa-bbbb-cccc-eeeeeeeeeeee'}]},item,ctx),null);
 });
-test('two-index Sheets verification refuses changed identity, formulas, third names and partial updates',()=>{
+test('formula-driven Sheet verification refuses changed identity, altered formulas, third names and partial updates',()=>{
  assert.equal(R.reconcileLiveDrive(plan,drive,{baselineVersion:'12'}).ok,true);
  for(const change of [{name:'outside edit.jpg'},{parents:['other_folder_123456789']},
   {mimeType:'video/mp4'},{version:'13'},{trashed:true}]){
@@ -48,22 +48,23 @@ test('two-index Sheets verification refuses changed identity, formulas, third na
  assert.equal(R.reconcileSheetCheck(plan,sheet).ok,true);
  for(const changed of [
   {manifestId:'another_media_123456'}, {indexId:'another_media_123456'},
-  {manifestName:'=A1'}, {indexName:'=B1'},
-  {manifestName:'custom.jpg'},{indexName:after},{manifestName:after},
-  {manifestName:after,indexName:after}
+  {manifestOriginal:'=A1'},{manifestCurrent:'=B1'}, {indexName:'=B2'},
+  {formulaIntact:false},{currentIsFormula:true},
+  {manifestOriginal:'custom.jpg'},{manifestCurrent:'custom.jpg'},
+  {indexName:after},{manifestCurrent:after},{manifestCurrent:after,indexName:after}
  ]){
   assert.equal(R.reconcileSheetCheck(plan,{...sheet,...changed}).ok,false,JSON.stringify(changed));
  }
 });
-test('mutation payload contains exactly one plain-text C cell for each verified tab',()=>{
+test('mutation payload writes ONLY Manifest AD; never overwrites Search Index formula cells',()=>{
  const ids={manifestId:100,indexId:200};
  const data=R.reconcileRequests(plan,ids);
- assert.equal(data.requests.length,2);
+ assert.equal(data.requests.length,1);
  assert.deepEqual(data.requests.map(x=>[x.updateCells.start.sheetId,x.updateCells.start.columnIndex]),
-  [[100,2],[200,2]]);
- assert.deepEqual(data.requests.map(x=>x.updateCells.rows[0].values[0].userEnteredValue.stringValue),[after,after]);
+  [[100,29]]);
+ assert.deepEqual(data.requests.map(x=>x.updateCells.rows[0].values[0].userEnteredValue.stringValue),[after]);
  assert.equal(data.requests.every(x=>x.updateCells.fields==='userEnteredValue'),true);
- assert.equal(R.reconcileVerified(plan,{...sheet,manifestName:after,indexName:after},drive),true);
+ assert.equal(R.reconcileVerified(plan,{...sheet,manifestCurrent:after,indexName:after},drive),true);
  assert.equal(R.reconcileVerified(plan,sheet,drive),false);
  assert.throws(()=>R.reconcileRequests(plan,{manifestId:10,indexId:10}));
  assert.throws(()=>R.reconcileRequests({...plan,newName:'=HYPERLINK("danger")'},ids));

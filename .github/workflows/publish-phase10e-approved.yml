@@ -1,0 +1,30 @@
+# Phase 10E fixes Phase 10D formula-backed Search Index cells.
+name: Publish approved Phase 10E Formula-safe Reconciliation
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Phase 10E Formula-safe Reconciliation v2.1.32 (#72)')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish complete v2.1.32 Windows release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.32 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.32 already exists; no duplicate dispatch."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.32
+          echo "Dispatched full native Windows desktop release and checksums."

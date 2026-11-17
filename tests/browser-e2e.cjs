@@ -689,7 +689,7 @@ async function main(){
   const reconcile=await fixturePage(browser,url);
   let reconLive={...fake,name:'Orange cat - reaction.jpg',version:'19',
     trashed:false,capabilities:{canRename:true}};
-  let reconIndexId=id,reconManifest=fake.name,reconIndex=fake.name;
+  let reconIndexId=id,reconManifestOriginal=fake.name,reconManifestCurrent='',reconIndex=fake.name,reconFormulaValid=true;
   const reconPosts=[];
   await reconcile.page.route('https://www.googleapis.com/**',route=>{
     const request=route.request(),u=new URL(request.url());
@@ -706,11 +706,23 @@ async function main(){
   });
   await reconcile.page.route('https://sheets.googleapis.com/**',route=>{
     const request=route.request(),u=new URL(request.url());
-    if(u.pathname.endsWith('/values:batchGet')&&u.searchParams.getAll('ranges').some(x=>x==="'Manifest'!C2"))
-      return route.fulfill(reply({valueRanges:[
-        {values:[[reconManifest]]},{values:[[id]]},
-        {values:[[reconIndex]]},{values:[[reconIndexId]]}
-      ]}));
+    if(u.pathname.endsWith('/values:batchGet')){
+      const ranges=u.searchParams.getAll('ranges'),render=u.searchParams.get('valueRenderOption');
+      if(ranges.includes("'Manifest'!C2")&&render==='FORMATTED_VALUE')
+        return route.fulfill(reply({valueRanges:[
+          {values:[[reconManifestOriginal]]},{values:[[id]]},
+          {values:reconManifestCurrent?[[reconManifestCurrent]]:[]},
+          {values:[[reconIndex]]},{values:[[reconIndexId]]}
+        ]}));
+      if(ranges.includes("'Search Index'!C2")&&render==='FORMULA')
+        return route.fulfill(reply({valueRanges:[
+          {values:[[reconFormulaValid?
+            '=ARRAYFORMULA(IF(Manifest!D2:D1817="","",IF(Manifest!AD2:AD1817<>"",Manifest!AD2:AD1817,Manifest!C2:C1817)))':
+            '=CUSTOM_FORMULA()']]},
+          {values:[['=ARRAYFORMULA(IF(Manifest!D2:D1817="","",Manifest!D2:D1817))']]},
+          {values:reconManifestCurrent?[[reconManifestCurrent]]:[]}
+        ]}));
+    }
     if(request.method()==='GET'&&u.searchParams.get('fields')==='sheets(properties(sheetId,title))')
       return route.fulfill(reply({sheets:[
         {properties:{title:'Manifest',sheetId:1888160209}},
@@ -721,8 +733,10 @@ async function main(){
       for(const change of payload.requests||[]){
         const tab=change.updateCells?.start?.sheetId;
         const value=change.updateCells?.rows?.[0]?.values?.[0]?.userEnteredValue?.stringValue;
-        if(tab===1888160209)reconManifest=value;
-        if(tab===1888160210)reconIndex=value;
+        if(tab===1888160209&&change.updateCells.start.columnIndex===29){
+          reconManifestCurrent=value;
+          reconIndex=value||reconManifestOriginal;
+        }
       }
       return route.fulfill(reply({replies:payload.requests.map(()=>({}))}));
     }
@@ -753,6 +767,11 @@ async function main(){
           const v=JSON.parse(localStorage.getItem(k));return v.items.map(x=>({kind:x.kind,fileId:x.fileId,status:x.status,driveChange:x.driveChange}));
         })
       }))));
+    reconFormulaValid=false;
+    await p.locator('[data-reconcile-preview]').click();
+    await p.waitForFunction(()=>document.querySelector('#reconcileStatus')?.textContent.includes('Cannot reconcile'));
+    assert.equal(reconPosts.length,0,'Altered Search Index formula must block all writes');
+    reconFormulaValid=true;
     reconIndexId='different_media_123456';
     await p.locator('[data-reconcile-preview]').click();
     await p.waitForFunction(()=>document.querySelector('#reconcileStatus')?.textContent.includes('Cannot reconcile'));
@@ -779,15 +798,17 @@ async function main(){
     reconcile.setAccount('fixture_permission_123456789');
     p.on('dialog',accept);
     await p.locator('#reconcileApply').click();
-    await p.waitForFunction(()=>document.querySelector('#reconcileStatus')?.textContent.includes('Verified: Manifest and Search Index'),null,{timeout:18000})
+    await p.waitForFunction(()=>document.querySelector('#reconcileStatus')?.textContent.includes('Verified: Manifest AD'),null,{timeout:18000})
      .catch(async error=>{throw new Error('Reconciliation failed: '+await p.locator('#reconcileStatus').innerText()+'; '+error.message);});
     p.off('dialog',accept);
-    assert.equal(reconPosts.length,1,'Exactly one 2-cell Sheets batch is allowed');
+    assert.equal(reconPosts.length,1,'Exactly one Manifest AD-only Sheets batch is allowed');
     assert.deepEqual(reconPosts[0].requests.map(x=>[
       x.updateCells.start.sheetId,x.updateCells.start.columnIndex
-    ]),[[1888160209,2],[1888160210,2]]);
-    assert.equal(reconManifest,'orange cat - reaction meme.jpg');
-    assert.equal(reconIndex,'orange cat - reaction meme.jpg');
+    ]),[[1888160209,29]]);
+    assert.equal(reconManifestOriginal,fake.name,'Original filename remains unchanged');
+    assert.equal(reconManifestCurrent,'orange cat - reaction meme.jpg');
+    assert.equal(reconIndex,'orange cat - reaction meme.jpg','Existing formula derives visible filename');
+    assert.equal(reconFormulaValid,true,'No formula rewrite was submitted');
     assert.equal(await p.locator('[data-reconcile-preview]').count(),0,
       'A verified Sheet filename sync cannot be replayed from the same history');
     assert.equal(reconPosts.length,1,'A verified sync cannot be replayed');

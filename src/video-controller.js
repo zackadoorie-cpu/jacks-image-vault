@@ -22,6 +22,13 @@ function videoTitleInfo(item){
       source:'Original filename',suggested:false};
   }
   // This is only an on-screen title. It NEVER changes a Drive filename.
+  // A reviewed, Windows-safe Manifest R proposal can be shown as a title.
+  const sheetName=String(item?.manifestProposedName||'');
+  if(sheetName&&['reviewed','source-reviewed'].includes(reviewStage(item))&&
+     renameDeskEngine.renameDeskSafeName(sheetName,filename).ok){
+    return {title:sheetName.replace(/\.[^.]+$/,''),
+      source:'Proposed filename from Manifest!R · Drive unchanged',suggested:true};
+  }
   // Existing Sheet or user-local visual notes are the sole content source.
   const description=String(effectiveDescription(item)||'').trim();
   if(!description)return {title:filename,source:'Original filename · no visual summary',suggested:false};
