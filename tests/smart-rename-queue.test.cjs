@@ -54,8 +54,11 @@ test('Phase 10H fails closed for stale indexes, parent mapping, external changes
   {...f.model.rows[0],sheetProposal:false}
  ])assert.throws(()=>S.smartRenameBuild({...f.model,rows:[row,f.model.rows[1]]},
    f.records,selected,new Map(),f.folderSources,context));
+ // The loaded folder ID must be verified and syntactically valid.
+ // A valid but wrong live Drive parent is rejected by driveRenameCheck,
+ // not guessed from the Sheet's folder display text.
  assert.throws(()=>S.smartRenameBuild(f.model,f.records,selected,new Map(),
-   [{id:'different_parent_1234',path:f.records[0].folder}],context));
+   [{id:'bad',path:f.records[0].folder}],context));
  assert.throws(()=>S.smartRenameBuild(f.model,f.records,selected,
    new Map([[f.records[0].id,'Invalid/path.jpg']]),f.folderSources,context));
  assert.throws(()=>S.smartRenameBuild(f.model,f.records,selected,
