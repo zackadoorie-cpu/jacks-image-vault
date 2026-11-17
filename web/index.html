@@ -414,6 +414,46 @@
           <p id="filenameReviewStatus" class="activity-status" role="status" aria-live="polite">Connect your Google Drive read-only inventory to prepare filenames.</p>
           <p id="filenameReviewMessage" class="activity-status" role="status" aria-live="polite">No filenames have been modified.</p>
           <p id="filenameImportStatus" class="activity-status" aria-live="polite">No imported filename plan.</p>
+          <section id="smartRenameSection" class="activity-boundary sheet-write-panel" aria-label="Smart Rename Queue">
+            <p class="eyebrow">PHASE 10H · SOURCE-VERIFIED FILE NAMES</p>
+            <h2>Smart Rename Queue</h2>
+            <p>Select up to 25 reviewed names already in <strong>Manifest R</strong>. Preview every real Drive file and the exact Sheet source before approval. One temporary Drive metadata grant and one separate Sheets edit grant cover the selected session, but each file is verified and written individually. Neither import nor selection changes Google data.</p>
+            <div class="activity-quicklinks">
+              <button class="btn outline" id="smartSelect25" type="button">Select first 25 ready</button>
+              <button class="btn outline" id="smartClearSelected" type="button">Clear selection</button>
+              <button class="btn outline" id="smartPreviewSelected" type="button">Preview selected (read-only)</button>
+            </div>
+            <p id="smartQueueStatus" class="activity-status" role="status" aria-live="polite">Connect Google Drive to load Manifest R proposals.</p>
+            <div id="smartQueueList" class="activity-list" aria-label="Reviewed Sheet filename proposals"></div>
+            <section id="smartQueuePreview" class="activity-boundary" hidden>
+              <h3>Verified Drive and formula-backed Sheet preview</h3>
+              <p id="smartPreviewSummary">All selected records were checked without modification.</p>
+              <div id="smartPreviewList" class="activity-list"></div>
+              <p>Approval requests temporary Google-wide <code>drive.metadata</code> permission and separate Sheets editing permission. Neither token is saved to the Windows read-only sign-in. Each file is processed sequentially, and the run stops on a conflict or uncertain outcome.</p>
+              <details class="filename-credentials">
+                <summary>Desktop OAuth credentials (only without a saved sign-in)</summary>
+                <label for="smartRenameDesktopClient">Matching Desktop OAuth client ID (Drive rename)</label>
+                <input id="smartRenameDesktopClient" class="field" autocomplete="off" spellcheck="false" maxlength="180">
+                <label for="smartRenameDesktopSecret">Matching Desktop OAuth client secret (Drive rename)</label>
+                <input id="smartRenameDesktopSecret" class="field" type="password" autocomplete="off" maxlength="256">
+                <label for="smartSheetDesktopClient">Matching Desktop OAuth client ID (Sheet update)</label>
+                <input id="smartSheetDesktopClient" class="field" autocomplete="off" spellcheck="false" maxlength="180">
+                <label for="smartSheetDesktopSecret">Matching Desktop OAuth client secret (Sheet update)</label>
+                <input id="smartSheetDesktopSecret" class="field" type="password" autocomplete="off" maxlength="256">
+              </details>
+              <button class="btn primary" id="smartApprove" type="button" disabled>Authorize &amp; process selected files</button>
+            </section>
+            <h3>Progress and recovery</h3>
+            <p id="smartProgressSummary" class="activity-status" aria-live="polite">No rename progress recorded on this device.</p>
+            <div id="smartProgressList" class="activity-list" aria-label="Private rename progress journal"></div>
+            <section id="smartUndoPanel" class="activity-boundary" hidden>
+              <h3>Undo one verified rename</h3>
+              <p>This separately checks the live Drive name, original filename collision, Manifest AD, and Search Index formula. Undo restores only one file with explicit approval, then safely reconciles Manifest AD.</p>
+              <pre id="smartUndoDetails"></pre>
+              <button type="button" class="btn primary" id="smartUndoApply">Authorize &amp; undo this file</button>
+            </section>
+            <p class="privacy-note">Progress is recorded locally per Google account and Sheet before every write. A partial or uncertain Google response is never automatically retried. A verified Drive rename awaiting Sheet reconciliation can be resumed individually after a fresh authorization and live read-only check. No files are moved or deleted, and Search Index formulas remain unchanged.</p>
+          </section>
           <section id="filenameRenamePanel" class="activity-boundary sheet-write-panel" aria-label="Live verified Drive filename change" hidden>
             <h2>Authorize one Google Drive rename</h2>
             <p>Live file identity, version, original name, parent folder, rename capability and all folder filenames have been checked. Review the exact old and proposed name. This is a real Drive metadata change, not a Sheet edit or an app update.</p>
