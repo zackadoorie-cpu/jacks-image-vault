@@ -2,7 +2,7 @@
 // Phase 10D: pure, fail-closed reconciliation of a verified Drive rename
 // into two exact Google Sheet filename cells. No network or authorization here.
 /* filename-reconcile:portable:start */
-const RECONCILE_DRIVE_KINDS=['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'];
+const RECONCILE_DRIVE_KINDS=['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'];
 function reconcileID(value){return typeof value==='string'&&/^[A-Za-z0-9_-]{10,100}$/.test(value);}
 function reconcileName(value){
  return typeof value==='string'&&value.length>0&&value.length<=96&&
