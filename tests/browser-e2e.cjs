@@ -782,8 +782,8 @@ async function main(){
     ]),[[1888160209,2],[1888160210,2]]);
     assert.equal(reconManifest,'orange cat - reaction meme.jpg');
     assert.equal(reconIndex,'orange cat - reaction meme.jpg');
-    await p.locator('[data-reconcile-preview]').click();
-    await p.waitForFunction(()=>document.querySelector('#reconcileStatus')?.textContent.includes('Cannot reconcile'));
+    assert.equal(await p.locator('[data-reconcile-preview]').count(),0,
+      'A verified Sheet filename sync cannot be replayed from the same history');
     assert.equal(reconPosts.length,1,'A verified sync cannot be replayed');
   }finally{await reconcile.ctx.close();}
   // Sheets approval smoke: explicit preview and staging never POST.
