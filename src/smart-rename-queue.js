@@ -16,11 +16,11 @@ const SMART_RENAME_STATES=Object.freeze([
 const SMART_RENAME_TRANSITIONS={
  ready:['drive-submitting','blocked'],
  'drive-submitting':['drive-verified','drive-uncertain'],
- 'drive-verified':['sheet-submitting','blocked'],
+ 'drive-verified':['sheet-submitting','synced','blocked'],
  'sheet-submitting':['synced','sheet-uncertain'],
  synced:['undo-drive-submitting'],
  'undo-drive-submitting':['undo-drive-verified','undo-drive-uncertain'],
- 'undo-drive-verified':['undo-sheet-submitting','blocked'],
+ 'undo-drive-verified':['undo-sheet-submitting','undone','blocked'],
  'undo-sheet-submitting':['undone','undo-sheet-uncertain'],
  blocked:['drive-submitting','sheet-submitting','undo-sheet-submitting']
 };
