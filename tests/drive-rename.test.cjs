@@ -76,8 +76,10 @@ test('Phase 10C inverse plan uses recorded names, stable folder, and name-only p
   'A freshly indexed name also allows a safe undo preview');
  for(const bad of [
   {...item,id:'another_media_123456'}, {...item,name:'third-party-change.jpg'},
-  {...item,mime:'video/mp4'},{...item,manifestRow:null}
+  {...item,manifestRow:null}
  ])assert.throws(()=>E.driveRenameUndoPlan(entry,bad,options));
+ const wrongMime=E.driveRenameUndoPlan(entry,{...item,mime:'video/mp4'},options);
+ assert.equal(E.driveRenameCheck(wrongMime,current,[current]).ok,false,'Live MIME mismatch blocks write');
  assert.throws(()=>E.driveRenameUndoPlan(entry,item,{...options,folderId:'wrong_folder_123456'}));
  assert.throws(()=>E.driveRenameUndoPlan({...entry,status:'undone'},item,options));
 });
