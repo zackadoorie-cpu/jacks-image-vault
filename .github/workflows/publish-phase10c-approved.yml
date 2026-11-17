@@ -1,0 +1,31 @@
+# Phase 10C reuses the protected metadata authorization endpoint provided by the full v2.1.29 desktop bundle.
+# Canonical release.yml builds both native desktop bundle and UI patch.
+name: Publish approved Phase 10C Safe Rename Undo
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Phase 10C Safe Rename Undo v2.1.30 (#70)')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish complete v2.1.30 Windows release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.30 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.30 already exists; no duplicate dispatch."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.30
+          echo "Dispatched full native Windows desktop release and checksums."
