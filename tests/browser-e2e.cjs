@@ -595,6 +595,39 @@ async function main(){
     }
     return route.fallback();
   });
+  // A separate synthetic Sheets interceptor supports one-file two-index
+  // reconciliation, without ever contacting a real Google account.
+  const names={manifest:fake.name,index:fake.name,indexId:id};
+  const nameWrites=[];
+  await renames.page.route('https://sheets.googleapis.com/**',route=>{
+    const request=route.request(),u=new URL(request.url());
+    const ranges=u.searchParams.getAll('ranges');
+    if(u.pathname.endsWith('/values:batchGet')&&ranges.some(v=>v==="'Manifest'!C2")){
+      return route.fulfill(reply({valueRanges:[
+        {values:[[names.manifest]]},{values:[[id]]},
+        {values:[[names.index]]},{values:[[names.indexId]]}
+      ]}));
+    }
+    if(request.method()==='GET'&&u.searchParams.has('fields')&&
+       u.searchParams.get('fields')==='sheets(properties(sheetId,title))'){
+      return route.fulfill(reply({sheets:[
+        {properties:{sheetId:1888160209,title:'Manifest'}},
+        {properties:{sheetId:1888160210,title:'Search Index'}}
+      ]}));
+    }
+    if(request.method()==='POST'&&u.pathname.endsWith(':batchUpdate')){
+      const body=request.postDataJSON();
+      nameWrites.push(body);
+      for(const req of body.requests||[]){
+        const target=req.updateCells?.start?.sheetId;
+        const value=req.updateCells?.rows?.[0]?.values?.[0]?.userEnteredValue?.stringValue;
+        if(target===1888160209)names.manifest=value;
+        if(target===1888160210)names.index=value;
+      }
+      return route.fulfill(reply({replies:(body.requests||[]).map(()=>({}))}));
+    }
+    return route.fallback();
+  });
   try{
     const p=renames.page;
     await p.locator('#connectButton').click();
@@ -682,6 +715,106 @@ async function main(){
     assert.match(await p.locator('#activityList').innerText(),/Original Drive filename restored and verified/);
     assert.equal((await p.evaluate(()=>JSON.stringify(localStorage))).includes('fake-e2e-token'),false);
   }finally{await renames.ctx.close();}
+  // Phase 10D synthetic reconciliation: verified renamed Drive file
+  // updates both separate Sheet filename indexes only with explicit consent.
+  const reconcile=await fixturePage(browser,url);
+  let reconLive={...fake,name:'Orange cat - reaction.jpg',version:'19',
+    trashed:false,capabilities:{canRename:true}};
+  let reconIndexId=id,reconManifest=fake.name,reconIndex=fake.name;
+  const reconPosts=[];
+  await reconcile.page.route('https://www.googleapis.com/**',route=>{
+    const request=route.request(),u=new URL(request.url());
+    if(u.pathname==='/drive/v3/files/'+id&&request.method()==='GET')
+      return route.fulfill(reply(reconLive));
+    if(u.pathname==='/drive/v3/files/'+id&&request.method()==='PATCH')
+      return route.fulfill(reply({...reconLive,name:request.postDataJSON().name,
+        version:String(+reconLive.version+1)}));
+    if(u.pathname==='/drive/v3/files'&&u.searchParams.has('q'))
+      return route.fulfill(reply({files:[{id,name:reconLive.name,trashed:false}]}));
+    return route.fallback();
+  });
+  await reconcile.page.route('https://sheets.googleapis.com/**',route=>{
+    const request=route.request(),u=new URL(request.url());
+    if(u.pathname.endsWith('/values:batchGet')&&u.searchParams.getAll('ranges').some(x=>x==="'Manifest'!C2"))
+      return route.fulfill(reply({valueRanges:[
+        {values:[[reconManifest]]},{values:[[id]]},
+        {values:[[reconIndex]]},{values:[[reconIndexId]]}
+      ]}));
+    if(request.method()==='GET'&&u.searchParams.get('fields')==='sheets(properties(sheetId,title))')
+      return route.fulfill(reply({sheets:[
+        {properties:{title:'Manifest',sheetId:1888160209}},
+        {properties:{title:'Search Index',sheetId:1888160210}}
+      ]}));
+    if(request.method()==='POST'&&u.pathname.endsWith(':batchUpdate')){
+      const payload=request.postDataJSON();reconPosts.push(payload);
+      for(const change of payload.requests||[]){
+        const tab=change.updateCells?.start?.sheetId;
+        const value=change.updateCells?.rows?.[0]?.values?.[0]?.userEnteredValue?.stringValue;
+        if(tab===1888160209)reconManifest=value;
+        if(tab===1888160210)reconIndex=value;
+      }
+      return route.fulfill(reply({replies:payload.requests.map(()=>({}))}));
+    }
+    return route.fallback();
+  });
+  try{
+    const p=reconcile.page,accept=dialog=>dialog.accept();
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    // Create a legitimate Phase 10B journal entry using the app's UI
+    // rather than injecting fake history through localStorage.
+    reconLive.name=fake.name;reconLive.version='18';
+    await p.locator('#homeActionFilenameReview').click();
+    await p.locator('[data-filename-stage="'+id+'"]').check();
+    await p.locator('#filenameRenamePreview').click();
+    await p.waitForFunction(()=>!document.querySelector('#filenameRenamePanel')?.hidden);
+    p.on('dialog',accept);
+    await p.locator('#filenameRenameApply').click();
+    await p.waitForFunction(()=>document.querySelector('#filenameReviewMessage')?.textContent.includes('Verified Drive rename'),null,{timeout:18000});
+    p.off('dialog',accept);
+    // The fabricated PATCH handler must update the real mock state.
+    reconLive={...reconLive,name:'orange cat - reaction meme.jpg',version:'19'};
+    await p.locator('[data-view="sheet-write"]').click();
+    assert.equal(await p.locator('[data-reconcile-preview]').count(),1);
+    reconIndexId='different_media_123456';
+    await p.locator('[data-reconcile-preview]').click();
+    await p.waitForFunction(()=>document.querySelector('#reconcileStatus')?.textContent.includes('Cannot reconcile'));
+    assert.equal(reconPosts.length,0);
+    reconIndexId=id;
+    reconIndex='outside editor.jpg';
+    await p.locator('[data-reconcile-preview]').click();
+    await p.waitForFunction(()=>document.querySelector('#reconcileStatus')?.textContent.includes('Cannot reconcile'));
+    assert.equal(reconPosts.length,0);
+    reconIndex=fake.name;
+    await p.locator('[data-reconcile-preview]').click();
+    await p.waitForFunction(()=>!document.querySelector('#reconcilePreview')?.hidden);
+    assert.match(await p.locator('#reconcileAfter').innerText(),/orange cat - reaction meme.jpg/);
+    assert.equal(reconPosts.length,0);
+    p.once('dialog',dialog=>dialog.dismiss());
+    await p.locator('#reconcileApply').click();
+    assert.equal(reconPosts.length,0,'Declined consent must not write Sheets');
+    reconcile.setAccount('wrong_permission_123456789');
+    p.on('dialog',accept);
+    await p.locator('#reconcileApply').click();
+    await p.waitForFunction(()=>document.querySelector('#reconcileStatus')?.textContent.includes('No Sheet update submitted'));
+    p.off('dialog',accept);
+    assert.equal(reconPosts.length,0,'Wrong Google write account blocks reconciliation');
+    reconcile.setAccount('fixture_permission_123456789');
+    p.on('dialog',accept);
+    await p.locator('#reconcileApply').click();
+    await p.waitForFunction(()=>document.querySelector('#reconcileStatus')?.textContent.includes('Verified: Manifest and Search Index'),null,{timeout:18000})
+     .catch(async error=>{throw new Error('Reconciliation failed: '+await p.locator('#reconcileStatus').innerText()+'; '+error.message);});
+    p.off('dialog',accept);
+    assert.equal(reconPosts.length,1,'Exactly one 2-cell Sheets batch is allowed');
+    assert.deepEqual(reconPosts[0].requests.map(x=>[
+      x.updateCells.start.sheetId,x.updateCells.start.columnIndex
+    ]),[[1888160209,2],[1888160210,2]]);
+    assert.equal(reconManifest,'orange cat - reaction meme.jpg');
+    assert.equal(reconIndex,'orange cat - reaction meme.jpg');
+    await p.locator('[data-reconcile-preview]').click();
+    await p.waitForFunction(()=>document.querySelector('#reconcileStatus')?.textContent.includes('Cannot reconcile'));
+    assert.equal(reconPosts.length,1,'A verified sync cannot be replayed');
+  }finally{await reconcile.ctx.close();}
   // Sheets approval smoke: explicit preview and staging never POST.
   // Separate transient consent, two confirmations and exact M/N/T updates
   // are exercised only against fabricated Google API routes.
