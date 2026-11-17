@@ -5146,7 +5146,7 @@
           renameDeskEngine.renameDeskSafeName(sheetName,item.name).ok;
         return {...row,proposed:state.renameDrafts.has(item.id)?
           state.renameDrafts.get(item.id):(useSheetName?sheetName:row.proposed),
-          fromSheet:useSheetName,
+          fromSheet:useSheetName&&!state.renameDrafts.has(item.id),
           evidence:row.evidence+(useSheetName?' · Manifest!R proposal (not a Drive filename)':'')};
       }).filter(Boolean);
   }
