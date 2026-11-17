@@ -51,3 +51,33 @@ test('parity check ensures browser embed matches portable source',()=>{
  const p=cp.spawnSync(process.execPath,['scripts/build-drive-rename.cjs','--check'],{cwd:dir,encoding:'utf8'});
  assert.equal(p.status,0,p.stdout+p.stderr);
 });
+
+test('Phase 10C inverse plan uses recorded names, stable folder, and name-only payload',()=>{
+ const entry={kind:'drive-rename',status:'complete',
+  driveChange:{fileId:candidate.fileId,parentId:folderId,beforeName:candidate.oldName,afterName:candidate.proposed}};
+ const item={id:candidate.fileId,manifestRow:candidate.row,name:candidate.oldName,
+  folder:candidate.folder,mime:candidate.mime};
+ const options={account,sheetId,folderId};
+ const undo=E.driveRenameUndoPlan(entry,item,options);
+ assert.equal(undo.oldName,candidate.proposed);
+ assert.equal(undo.newName,candidate.oldName);
+ assert.deepEqual(E.driveRenamePatch(undo),{name:candidate.oldName});
+ const current={...live,name:candidate.proposed,version:'19'};
+ assert.equal(E.driveRenameCheck(undo,current,[current],{baselineVersion:'19'}).ok,true);
+ for(const patch of [{name:candidate.oldName},{parents:['changed_folder_123456']},
+  {mimeType:'video/mp4'},{version:'20'},{capabilities:{canRename:false}}]){
+  assert.equal(E.driveRenameCheck(undo,{...current,...patch},[current],{baselineVersion:'19'}).ok,false);
+ }
+ assert.equal(E.driveRenameCheck(undo,current,[current,
+  {id:'another_media_123456',name:'img_129999.JPG',trashed:false}]).ok,false);
+ assert.equal(E.driveRenameVerified(undo,{...current,name:candidate.oldName}),true);
+ assert.equal(E.driveRenameVerified(undo,{...current,name:candidate.proposed}),false);
+ assert.equal(E.driveRenameUndoPlan(entry,{...item,name:candidate.proposed},options).newName,candidate.oldName,
+  'A freshly indexed name also allows a safe undo preview');
+ for(const bad of [
+  {...item,id:'another_media_123456'}, {...item,name:'third-party-change.jpg'},
+  {...item,mime:'video/mp4'},{...item,manifestRow:null}
+ ])assert.throws(()=>E.driveRenameUndoPlan(entry,bad,options));
+ assert.throws(()=>E.driveRenameUndoPlan(entry,item,{...options,folderId:'wrong_folder_123456'}));
+ assert.throws(()=>E.driveRenameUndoPlan({...entry,status:'undone'},item,options));
+});
