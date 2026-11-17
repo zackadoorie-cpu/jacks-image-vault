@@ -142,3 +142,32 @@ test('Drive rename audit is account-bound and retains exact name-only snapshots'
  assert.throws(()=>engine.activityAppend(log,{...entry,fileId:'another_media_123456'}, {...ctx,now:time}),/Invalid/);
  assert.throws(()=>engine.activityAppend(log,{...entry,driveChange:{...change,afterName:'../wrong.jpg'}},{...ctx,now:time}),/Invalid/);
 });
+
+test('Phase 10C Drive undo is scoped, single-use and blocks newer or uncertain changes',()=>{
+ const fileId='fixture_image_123456789';
+ const change={fileId,parentId:'fixture_folder_123456789',
+  beforeName:'IMG_129999.jpg',afterName:'Orange Cat - Reaction.jpg'};
+ const entry={id,at:time,kind:'drive-rename',status:'complete',fileId,count:1,driveChange:change};
+ const valid=engine.activityAppend(engine.activityEmpty(account,sheetId),entry,{...ctx,now:time});
+ const allowed=log=>engine.activityCanUndoDrive(log.items.find(x=>x.id===id),log,{
+  ...ctx,entryAccount:account,entrySheetId:sheetId});
+ assert.equal(allowed(valid).ok,true);
+ assert.equal(engine.activityCanUndoDrive(entry,valid,{...ctx,entryAccount:other,entrySheetId:sheetId}).ok,false);
+ assert.equal(engine.activityCanUndoDrive(entry,valid,{account:other,sheetId,entryAccount:account,entrySheetId:sheetId}).ok,false);
+ const marked=engine.activityMarkDriveUndone(valid,id,ctx);
+ assert.equal(marked.items[0].status,'undone');
+ assert.equal(allowed(marked).ok,false);
+ assert.throws(()=>engine.activityMarkDriveUndone(marked,id,ctx));
+ const later={id:id2,at:time+1,kind:'drive-rename-unverified',status:'complete',fileId,count:1};
+ const uncertain=engine.activityAppend(valid,later,{...ctx,now:time+1});
+ assert.equal(allowed(uncertain).ok,false,'Later uncertainty must block older undo');
+ const newer={...later,kind:'drive-undo-unverified'};
+ assert.equal(allowed(engine.activityAppend(valid,newer,{...ctx,now:time+1})).ok,false);
+ const another={...later,fileId:'another_media_123456'};
+ assert.equal(allowed(engine.activityAppend(valid,another,{...ctx,now:time+1})).ok,true);
+ const restored={...later,kind:'drive-undo'};
+ const closed=engine.activityAppend(marked,restored,{...ctx,now:time+1});
+ assert.equal(engine.activityParse(JSON.stringify(closed),{...ctx,now:time+1}).items[0].kind,'drive-undo');
+ assert.equal(engine.activityPage(closed,{filter:'writes'}).count,2);
+ assert.equal(engine.activityPage(closed,{filter:'plans'}).count,2);
+});

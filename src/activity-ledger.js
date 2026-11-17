@@ -6,7 +6,7 @@ const ACTIVITY_SCHEMA=1;
 const ACTIVITY_MAX_EVENTS=120;
 const ACTIVITY_MAX_BYTES=480*1024;
 const ACTIVITY_AGE_MS=90*24*60*60*1000;
-const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified']);
+const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified']);
 function activityReview(value){
   if(value==null)return null;
   if(typeof value!=='object'||Array.isArray(value)||
@@ -141,6 +141,30 @@ function activityMarkSheetUndone(log,id,{account,sheetId}){
   throw new Error('Only a verified, completed Sheet approval can be marked undone.');
  return {...log,items:log.items.map(e=>e.id===id?{...e,status:'undone'}:e)};
 }
+function activityCanUndoDrive(entry,history,{account,sheetId,entryAccount,entrySheetId}={}){
+ if(!account||!sheetId||account!==entryAccount||sheetId!==entrySheetId||
+    history?.account!==account||history?.sheetId!==sheetId)
+  return {ok:false,reason:'This rename belongs to another Google account or inventory.'};
+ if(!entry||entry.kind!=='drive-rename'||entry.status!=='complete'||
+    !activityDriveRenameSnapshot(entry.driveChange)||entry.fileId!==entry.driveChange.fileId||
+    !Array.isArray(history.items))
+  return {ok:false,reason:'No verified, undoable Drive rename snapshot exists.'};
+ const position=history.items.findIndex(e=>e.id===entry.id);
+ if(position<0)return {ok:false,reason:'The recorded rename is not in current private history.'};
+ const later=history.items.some((e,i)=>e.fileId===entry.fileId&&e.id!==entry.id&&
+   ['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind)&&
+   (e.at>entry.at||(e.at===entry.at&&i<position)));
+ if(later)return {ok:false,reason:'A newer Drive rename or uncertain change exists. Inspect the real file; older undo is blocked.'};
+ return {ok:true,reason:'Read-only Drive preflight is required before this one-file restoration.'};
+}
+function activityMarkDriveUndone(log,id,{account,sheetId}){
+ if(!log||log.account!==account||log.sheetId!==sheetId)
+  throw new Error('Drive rename activity belongs to another Google account or inventory.');
+ const entry=log.items.find(e=>e.id===id);
+ const guard=activityCanUndoDrive(entry,log,{account,sheetId,entryAccount:log.account,entrySheetId:log.sheetId});
+ if(!guard.ok)throw new Error(guard.reason);
+ return {...log,items:log.items.map(e=>e.id===id?{...e,status:'undone'}:e)};
+}
 function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
   const categories=['all','review','imports','plans','inventory','writes'];
   const chosen=categories.includes(filter)?filter:'all';
@@ -148,9 +172,9 @@ function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
   const list=(log?.items||[]).filter(e=>{
     if(chosen==='review'&&!['review-save','review-reset','undo-review'].includes(e.kind))return false;
     if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
-    if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified'].includes(e.kind))return false;
+    if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind))return false;
     if(chosen==='inventory'&&e.kind!=='inventory')return false;
-    if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified'].includes(e.kind))return false;
+    if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind))return false;
     return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
   });
   const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
@@ -161,4 +185,4 @@ function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
 /* activity-ledger:portable:end */
 module.exports={ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,
  ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,
- activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone,activityDriveRenameSnapshot};
+ activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone,activityDriveRenameSnapshot,activityCanUndoDrive,activityMarkDriveUndone};

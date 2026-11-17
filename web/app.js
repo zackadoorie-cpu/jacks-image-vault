@@ -67,7 +67,7 @@
     const ACTIVITY_MAX_EVENTS=120;
     const ACTIVITY_MAX_BYTES=480*1024;
     const ACTIVITY_AGE_MS=90*24*60*60*1000;
-    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified']);
+    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified']);
     function activityReview(value){
       if(value==null)return null;
       if(typeof value!=='object'||Array.isArray(value)||
@@ -202,6 +202,30 @@
       throw new Error('Only a verified, completed Sheet approval can be marked undone.');
      return {...log,items:log.items.map(e=>e.id===id?{...e,status:'undone'}:e)};
     }
+    function activityCanUndoDrive(entry,history,{account,sheetId,entryAccount,entrySheetId}={}){
+     if(!account||!sheetId||account!==entryAccount||sheetId!==entrySheetId||
+        history?.account!==account||history?.sheetId!==sheetId)
+      return {ok:false,reason:'This rename belongs to another Google account or inventory.'};
+     if(!entry||entry.kind!=='drive-rename'||entry.status!=='complete'||
+        !activityDriveRenameSnapshot(entry.driveChange)||entry.fileId!==entry.driveChange.fileId||
+        !Array.isArray(history.items))
+      return {ok:false,reason:'No verified, undoable Drive rename snapshot exists.'};
+     const position=history.items.findIndex(e=>e.id===entry.id);
+     if(position<0)return {ok:false,reason:'The recorded rename is not in current private history.'};
+     const later=history.items.some((e,i)=>e.fileId===entry.fileId&&e.id!==entry.id&&
+       ['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind)&&
+       (e.at>entry.at||(e.at===entry.at&&i<position)));
+     if(later)return {ok:false,reason:'A newer Drive rename or uncertain change exists. Inspect the real file; older undo is blocked.'};
+     return {ok:true,reason:'Read-only Drive preflight is required before this one-file restoration.'};
+    }
+    function activityMarkDriveUndone(log,id,{account,sheetId}){
+     if(!log||log.account!==account||log.sheetId!==sheetId)
+      throw new Error('Drive rename activity belongs to another Google account or inventory.');
+     const entry=log.items.find(e=>e.id===id);
+     const guard=activityCanUndoDrive(entry,log,{account,sheetId,entryAccount:log.account,entrySheetId:log.sheetId});
+     if(!guard.ok)throw new Error(guard.reason);
+     return {...log,items:log.items.map(e=>e.id===id?{...e,status:'undone'}:e)};
+    }
     function activityPage(log,{filter='all',query='',page=1,pageSize=12}={}){
       const categories=['all','review','imports','plans','inventory','writes'];
       const chosen=categories.includes(filter)?filter:'all';
@@ -209,9 +233,9 @@
       const list=(log?.items||[]).filter(e=>{
         if(chosen==='review'&&!['review-save','review-reset','undo-review'].includes(e.kind))return false;
         if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
-        if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified'].includes(e.kind))return false;
+        if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind))return false;
         if(chosen==='inventory'&&e.kind!=='inventory')return false;
-        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified'].includes(e.kind))return false;
+        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind))return false;
         return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
       });
       const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
@@ -219,7 +243,7 @@
       const at=Math.max(1,Math.min(pages,Math.floor(page)||1));
       return {filter:chosen,page:at,pages,count:list.length,items:list.slice((at-1)*size,at*size)};
     }
-    return {ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone,activityDriveRenameSnapshot};
+    return {ACTIVITY_SCHEMA,ACTIVITY_MAX_EVENTS,ACTIVITY_MAX_BYTES,ACTIVITY_AGE_MS,ACTIVITY_KINDS,activityReview,activityReviewEquals,activityValidEntry,activityEmpty,activityParse,activityAppend,activityMarkUndone,activityCanUndo,activityPage,activitySheetUndoSnapshot,activityCanUndoSheet,activityMarkSheetUndone,activityDriveRenameSnapshot,activityCanUndoDrive,activityMarkDriveUndone};
   })();
   /* GENERATED ACTIVITY LEDGER END */
   /* GENERATED SHEET APPROVAL START */
@@ -674,12 +698,28 @@
       throw new Error('Invalid name-only rename request.');
      return {name:plan.newName};
     }
+    // Reverse a verified history record without trusting stale Sheet filenames.
+    // The live Drive identity, version, parent and collision checks still apply.
+    function driveRenameUndoPlan(entry,item,{account='',sheetId='',folderId=''}={}){
+     const change=entry?.driveChange;
+     if(!change||entry.kind!=='drive-rename'||entry.status!=='complete'||
+       !driveRenameID(change.fileId)||!driveRenameID(change.parentId)||
+       !item||item.demo||item.id!==change.fileId||
+       folderId!==change.parentId||
+       typeof change.beforeName!=='string'||typeof change.afterName!=='string'||
+       (item.name!==change.beforeName&&item.name!==change.afterName))
+      throw new Error('Private rename history no longer matches the indexed Drive file or parent.');
+     return driveRenamePlan({fileId:change.fileId,row:item.manifestRow,
+       oldName:change.afterName,folder:item.folder,mime:item.mime,
+       source:'Verified private rename history',eligible:true,newInDrive:false},
+       change.beforeName,{account,sheetId,folderId});
+    }
     function driveRenameVerified(plan,after){
      return !!plan&&!!after&&after.id===plan.fileId&&after.name===plan.newName&&
       after.mimeType===plan.mimeType&&after.trashed===false&&
       Array.isArray(after.parents)&&after.parents.length===1&&after.parents[0]===plan.folderId;
     }
-    return {DRIVE_RENAME_SCHEMA,DRIVE_RENAME_SCOPE,DRIVE_RENAME_MAX_FOLDER,DRIVE_RENAME_MAX_NAME,driveRenameID,driveRenamePlan,driveRenameCheck,driveRenamePatch,driveRenameVerified};
+    return {DRIVE_RENAME_SCHEMA,DRIVE_RENAME_SCOPE,DRIVE_RENAME_MAX_FOLDER,DRIVE_RENAME_MAX_NAME,driveRenameID,driveRenamePlan,driveRenameCheck,driveRenamePatch,driveRenameUndoPlan,driveRenameVerified};
   })();
   /* GENERATED DRIVE RENAME END */
   const startingPrefs = readPreferences();
@@ -768,6 +808,8 @@
     renameBusy: false,
     sheetUndoPreview: null,
     sheetUndoMessage: '',
+    driveUndoPreview: null,
+    driveUndoMessage: '',
     activityHistory: null,
     activityError: '',
     activityFilter: 'all',
@@ -3268,6 +3310,7 @@
       const reviewLoadWarning=loadReviewNotes();
       state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWriteMessage='';
       state.sheetUndoPreview=null;state.sheetUndoMessage='';
+      state.driveUndoPreview=null;state.driveUndoMessage='';
       state.managerFilter='all';state.managerQuery='';state.managerPage=1;
       filenameReviewReset();
       loadActivityHistory();
@@ -4079,7 +4122,7 @@
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
-    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.managerFilter='all';state.managerQuery='';state.managerPage=1;filenameReviewReset();state.sheetUndoPreview=null;state.sheetUndoMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.managerFilter='all';state.managerQuery='';state.managerPage=1;filenameReviewReset();state.sheetUndoPreview=null;state.sheetUndoMessage='';state.driveUndoPreview=null;state.driveUndoMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -5128,6 +5171,7 @@
       state.autoLoadObserver=null;
       state.galleryRevision++;
     }
+    if(view!=='activity')state.driveUndoPreview=null;
     state.view=view;
     revealSidebarGroup(view);
     if(view!=='smart-results')state.smartCollectionId='';
@@ -5446,13 +5490,15 @@
 
   // Drive metadata grants are requested on-demand, never stored in the
   // encrypted Windows READ-ONLY sign-in or browser persistent storage.
-  async function driveRenameAuthorize(){
+  async function driveRenameAuthorize(credentialPrefix='filenameRenameDesktop'){
+    if(!['filenameRenameDesktop','activityDriveUndoDesktop'].includes(credentialPrefix))
+      throw new Error('Unsupported metadata authorization form.');
     // Both the WebView2 host and the Windows browser launcher can rely on
     // the native saved desktop session, never the embedded Google OAuth UI.
     if(IN_NATIVE_DESKTOP||state.authProvider==='desktop'){
-      const clientId=$('filenameRenameDesktopClient').value.trim();
-      const clientSecret=$('filenameRenameDesktopSecret').value;
-      $('filenameRenameDesktopSecret').value='';
+      const clientId=$(credentialPrefix+'Client').value.trim();
+      const clientSecret=$(credentialPrefix+'Secret').value;
+      $(credentialPrefix+'Secret').value='';
       let start;
       try{
         start=await desktopAuthPost('rename-start',{
@@ -5977,6 +6023,8 @@
       'sheet-undo-unverified':'Sheet undo outcome requires manual check',
       'drive-rename':'Drive filename changed and verified',
       'drive-rename-unverified':'Drive rename outcome requires manual check',
+      'drive-undo':'Original Drive filename restored and verified',
+      'drive-undo-unverified':'Drive rename undo requires manual inspection',
       'sheet-write-unverified':'Sheet write requires manual verification'
     }[kind]||'Local activity';
   }
@@ -5989,6 +6037,15 @@
     state.activityPage=page.page;
     const ctx=activityContext();
     const currentUndo=state.sheetUndoPreview;
+    const driveUndo=state.driveUndoPreview;
+    $('activityDriveUndoPanel').hidden=!driveUndo;
+    $('activityDriveUndoStatus').textContent=state.driveUndoMessage;
+    $('activityDriveUndoApply').disabled=state.renameBusy||state.sheetWriteBusy||!active||!driveUndo;
+    if(driveUndo){
+      const plan=driveUndo.plan;
+      $('activityDriveUndoApplied').textContent=JSON.stringify({fileId:plan.fileId,name:plan.oldName,folder:plan.folder,version:driveUndo.version},null,2);
+      $('activityDriveUndoOriginal').textContent=JSON.stringify({fileId:plan.fileId,name:plan.newName,folder:plan.folder},null,2);
+    }
     $('activitySheetUndoPanel').hidden=!currentUndo;
     $('activitySheetUndoStatus').textContent=state.sheetUndoMessage;
     $('activitySheetUndoApply').disabled=state.sheetWriteBusy||!active||!currentUndo;
@@ -6007,10 +6064,14 @@
       }).ok).length:0;
     $('activityTotal').textContent=active?format(history.items.length):'—';
     $('activityUndoable').textContent=active?format(undoable):'—';
+    const driveUndoable=active?history.items.filter(entry=>activityLedger.activityCanUndoDrive(
+      entry,history,{...ctx,entryAccount:history.account,entrySheetId:history.sheetId}
+    ).ok).length:0;
+    $('activityDriveUndoable').textContent=active?format(driveUndoable):'—';
     $('activityFilter').value=state.activityFilter;
     $('activityQuery').value=state.activityQuery;
     $('activityExport').disabled=!active||!history.items.length;
-    $('activityClear').disabled=state.sheetWriteBusy||!state.connected||!activityStorageKey();
+    $('activityClear').disabled=state.sheetWriteBusy||state.renameBusy||!state.connected||!activityStorageKey();
     $('activityPrev').disabled=!active||page.page<=1;
     $('activityNext').disabled=!active||page.page>=page.pages;
     $('activityPage').textContent=active?page.page+' / '+page.pages:'—';
@@ -6019,8 +6080,10 @@
       state.activityError?state.activityError:
       !active?'History is not available for this account.':
       page.count+' matching activities · '+history.items.length+' recorded locally. '+
-        (history.items.some(e=>['sheet-write','sheet-write-unverified'].includes(e.kind))?
-          'Approved Sheets edits are recorded here. Drive originals remain unchanged.':
+        (history.items.some(e=>['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind))?
+          'Drive filename operations are recorded in this private history.':
+          history.items.some(e=>['sheet-write','sheet-write-unverified'].includes(e.kind))?
+          'Approved Sheet edits are recorded here. Drive originals remain unchanged.':
           'Nothing has been written to Google Drive or Sheets.');
     if(!active){
       $('activityList').innerHTML='<p class="activity-empty">No account-specific activity available. Your local review notes remain untouched.</p>';
@@ -6039,12 +6102,16 @@
       const remoteGuard=activityLedger.activityCanUndoSheet(entry,{
         ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
       });
+      const driveGuard=activityLedger.activityCanUndoDrive(entry,history,{
+        ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+      });
       const media=byId.get(entry.fileId);
       const label=media?media.name:(entry.fileId?'Media not in current inventory':'');
       const type=['review-save','review-reset','undo-review'].includes(entry.kind)?'LOCAL REVIEW':
         ['review-import','review-backup'].includes(entry.kind)?'REVIEW IMPORT':
         ['rename-plan','rename-clear'].includes(entry.kind)?'FILENAME PLANNING':
-        ['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified'].includes(entry.kind)?'SHEET APPROVAL':'INVENTORY READ';
+        ['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified'].includes(entry.kind)?'SHEET APPROVAL':
+        ['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(entry.kind)?'DRIVE FILENAME':'INVENTORY READ';
       const count=entry.count>1?' · '+entry.count+' records':'';
       const date=new Date(entry.at).toLocaleString();
       const status=entry.status==='undone'?' · already undone':
@@ -6058,8 +6125,149 @@
         '</div>'+
         (guard.ok?'<button class="btn outline" type="button" data-activity-undo="'+escapeHTML(entry.id)+'">Undo local review</button>':'')+
         (remoteGuard.ok?'<button class="btn outline" type="button" data-sheet-undo-preview="'+escapeHTML(entry.id)+'">Preview Sheet undo</button>':'')+
+        (driveGuard.ok?'<button class="btn outline" type="button" data-drive-undo-preview="'+escapeHTML(entry.id)+'">Preview Drive rename undo</button>':'')+
         '</article>';
     }).join('');
+  }
+
+  function driveUndoSessionMatches(plan,epoch){
+    return epoch===state.authEpoch&&state.connected&&state.driveIdentity===plan.account&&
+      state.config.sheetId===plan.sheetId&&state.view==='activity';
+  }
+  function driveUndoHistoryPlan(entry,ctx){
+    const item=state.images.find(x=>!x.demo&&x.id===entry?.fileId);
+    const parent=state.folderSources.find(f=>f.path===item?.folder&&!f.missing);
+    if(!item||!parent||!driveRename.driveRenameID(parent.id))
+      throw new Error('Indexed media or its verified parent folder is missing. Run Verify Drive folders.');
+    return driveRename.driveRenameUndoPlan(entry,item,{...ctx,folderId:parent.id});
+  }
+  async function driveUndoPreviewEntry(id){
+    if(state.renameBusy||state.sheetWriteBusy||!state.connected||!state.activityHistory)return;
+    const ctx=activityContext(),history=state.activityHistory,epoch=state.authEpoch;
+    const entry=history.items.find(e=>e.id===id);
+    const allowed=activityLedger.activityCanUndoDrive(entry,history,{
+      ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+    });
+    state.driveUndoPreview=null;
+    if(!allowed.ok){state.driveUndoMessage='Undo blocked: '+allowed.reason;renderActivity();return;}
+    state.renameBusy=true;
+    state.driveUndoMessage='Read-only preflight: checking this exact Drive file, version and every sibling filename…';
+    renderActivity();
+    try{
+      const plan=driveUndoHistoryPlan(entry,ctx);
+      const live=await driveRenameLiveFile(plan.fileId,state.accessToken);
+      const siblings=await driveRenameLiveFolder(plan.folderId,state.accessToken);
+      const check=driveRename.driveRenameCheck(plan,live,siblings);
+      if(!check.ok)throw new Error(check.reason);
+      if(!driveUndoSessionMatches(plan,epoch))return;
+      const current=state.activityHistory?.items.find(e=>e.id===id);
+      if(current!==entry||!activityLedger.activityCanUndoDrive(current,state.activityHistory,{
+        ...ctx,entryAccount:state.activityHistory.account,entrySheetId:state.activityHistory.sheetId
+      }).ok)throw new Error('The verified rename history changed. Preview again.');
+      state.driveUndoPreview={activityId:id,entry,plan,version:check.version};
+      state.driveUndoMessage='Live Drive check passed. Only this one original filename can be restored, with separate permission and two confirmations. Nothing has been submitted.';
+    }catch(error){
+      if(epoch===state.authEpoch)state.driveUndoMessage='Undo blocked: '+(error.message||'Cannot verify current Drive metadata.');
+    }finally{
+      state.renameBusy=false;
+      if(state.view==='activity')renderActivity();
+    }
+  }
+  async function driveUndoApply(){
+    const preview=state.driveUndoPreview;
+    if(!preview||state.renameBusy||state.sheetWriteBusy||!state.connected)return;
+    const {entry,plan,version}=preview,ctx=activityContext(),epoch=state.authEpoch;
+    if(!ctx||!driveUndoSessionMatches(plan,epoch))return;
+    const history=state.activityHistory;
+    if(history?.items.find(e=>e.id===preview.activityId)!==entry||
+       !activityLedger.activityCanUndoDrive(entry,history,{
+         ...ctx,entryAccount:history.account,entrySheetId:history.sheetId
+       }).ok){
+      state.driveUndoPreview=null;state.driveUndoMessage='Rename history changed. Start a new read-only preview.';
+      renderActivity();return;
+    }
+    if(!confirm('Restoring ONE Drive filename requests a TEMPORARY, restricted account-wide Drive METADATA permission. '+
+      'The edit token is never saved. Continue to Google consent?'))return;
+    state.renameBusy=true;
+    state.driveUndoMessage='Waiting for independent, temporary Drive metadata authorization…';
+    renderActivity();
+    let submitted=false,verified=false,writeToken='';
+    try{
+      writeToken=await driveRenameAuthorize('activityDriveUndoDesktop');
+      if(!driveUndoSessionMatches(plan,epoch)||state.driveUndoPreview!==preview)
+        throw new Error('Account or undo preview changed before authorization.');
+      const identity=await driveRenameFetch('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',writeToken);
+      if(identity.user?.permissionId!==ctx.account)
+        throw new Error('The temporary write grant belongs to another Drive account.');
+      const latest=state.activityHistory?.items.find(e=>e.id===preview.activityId);
+      const latestHistory=state.activityHistory;
+      if(latest!==entry||!activityLedger.activityCanUndoDrive(latest,latestHistory,{
+        ...ctx,entryAccount:latestHistory.account,entrySheetId:latestHistory.sheetId
+      }).ok||JSON.stringify(driveUndoHistoryPlan(entry,ctx))!==JSON.stringify(plan))
+        throw new Error('History, indexed media or folder changed before undo.');
+      const live=await driveRenameLiveFile(plan.fileId,writeToken);
+      const siblings=await driveRenameLiveFolder(plan.folderId,writeToken);
+      const check=driveRename.driveRenameCheck(plan,live,siblings,{baselineVersion:version});
+      if(!check.ok)throw new Error(check.reason);
+      if(!confirm('FINAL CONFIRMATION: Restore ONLY Drive file '+plan.fileId+
+        ' from "'+plan.oldName+'" to its recorded original "'+plan.newName+
+        '"? The Sheet and file contents will NOT be changed.')) {
+        state.driveUndoMessage='Final confirmation cancelled. No undo was submitted.';
+        return;
+      }
+      const fresh=await driveRenameLiveFile(plan.fileId,writeToken);
+      const names=await driveRenameLiveFolder(plan.folderId,writeToken);
+      const guard=driveRename.driveRenameCheck(plan,fresh,names,{baselineVersion:version});
+      if(!guard.ok)throw new Error('Drive changed during confirmation: '+guard.reason);
+      if(!driveUndoSessionMatches(plan,epoch)||state.driveUndoPreview!==preview||
+         state.activityHistory?.items.find(e=>e.id===preview.activityId)!==entry||
+         !activityLedger.activityCanUndoDrive(entry,state.activityHistory,{
+           ...ctx,entryAccount:state.activityHistory.account,entrySheetId:state.activityHistory.sheetId
+         }).ok||JSON.stringify(driveUndoHistoryPlan(entry,ctx))!==JSON.stringify(plan))
+        throw new Error('Account, history or folder changed before submission.');
+      const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(plan.fileId)+
+        '?fields=id,name,mimeType,parents,trashed,version&supportsAllDrives=true';
+      submitted=true;
+      const response=await driveRenameFetch(url,writeToken,{
+        method:'PATCH',payload:driveRename.driveRenamePatch(plan)});
+      if(!driveRename.driveRenameVerified(plan,response))
+        throw new Error('Google did not confirm the exact restored filename.');
+      const after=await driveRenameLiveFile(plan.fileId,writeToken);
+      if(!driveRename.driveRenameVerified(plan,after))
+        throw new Error('Drive read-back does not match the original filename. Inspect the actual file.');
+      verified=true;
+      if(!driveUndoSessionMatches(plan,epoch))return;
+      for(const list of [state.images,state.inventory]){
+        const item=list.find(x=>x.id===plan.fileId);
+        if(item)item.name=plan.newName;
+      }
+      let journalSaved=true;
+      try{
+        const marked=activityLedger.activityMarkDriveUndone(state.activityHistory,preview.activityId,ctx);
+        const event={id:crypto.randomUUID(),at:Date.now(),kind:'drive-undo',
+          status:'complete',fileId:plan.fileId,count:1};
+        storeActivityHistory(activityLedger.activityAppend(marked,event,ctx));
+      }catch{journalSaved=false;}
+      state.driveUndoPreview=null;
+      state.driveUndoMessage='Verified: original filename restored for ONE Drive file. No folder, contents or Sheet cells changed. '+
+        'Reindex your Sheet separately if its filename is stale.'+
+        (journalSaved?'':' WARNING: this device could not save the undo history; inspect and export it.');
+      buildFolderIndex();
+    }catch(error){
+      if(epoch===state.authEpoch){
+        state.driveUndoMessage=(submitted?
+          'UNDO MAY HAVE HAPPENED. Inspect the real Drive file; do not retry blindly: ':
+          'No undo submitted: ')+(error.message||'Google Drive metadata could not be verified.');
+        if(submitted&&!verified){
+          state.driveUndoPreview=null;
+          logActivity('drive-undo-unverified',{fileId:plan.fileId,count:1});
+        }
+      }
+    }finally{
+      writeToken='';
+      state.renameBusy=false;
+      if(state.view==='activity')renderActivity();
+    }
   }
 
   // Remote Manifest undo is a separate, explicit, row-at-a-time operation.
@@ -6244,12 +6452,13 @@
   }
   function clearActivityHistory(){
     const ctx=activityContext(),key=activityStorageKey();
-    if(state.sheetWriteBusy||!ctx||!key||!state.connected)return;
+    if(state.sheetWriteBusy||state.renameBusy||!ctx||!key||!state.connected)return;
     if(!confirm('Permanently clear activity history on THIS device for the connected account and Sheet? This removes local undo records, but NOT your saved review notes, Drive files, spreadsheet, or app-update rollback.'))return;
     try{
       localStorage.removeItem(key);
       state.activityHistory=activityLedger.activityEmpty(ctx.account,ctx.sheetId);
       state.sheetUndoPreview=null;state.sheetUndoMessage='';
+      state.driveUndoPreview=null;state.driveUndoMessage='';
       state.activityError='';state.activityPage=1;renderActivity();
     }catch(err){$('activityStatus').textContent='Could not clear local activity: '+err.message;}
   }
@@ -7218,6 +7427,10 @@
     $('activityPrev').onclick=()=>{state.activityPage=Math.max(1,state.activityPage-1);renderActivity();};
     $('activityNext').onclick=()=>{state.activityPage++;renderActivity();};
     $('activityList').onclick=event=>{
+      const drive=event.target.closest('button[data-drive-undo-preview]');
+      if(drive&&$('activityList').contains(drive)){
+        void driveUndoPreviewEntry(drive.dataset.driveUndoPreview);return;
+      }
       const remote=event.target.closest('button[data-sheet-undo-preview]');
       if(remote&&$('activityList').contains(remote)){
         void sheetUndoPreviewEntry(remote.dataset.sheetUndoPreview);return;
@@ -7226,6 +7439,7 @@
       if(button&&$('activityList').contains(button))undoActivityReview(button.dataset.activityUndo);
     };
     $('activitySheetUndoApply').onclick=()=>void sheetUndoApply();
+    $('activityDriveUndoApply').onclick=()=>void driveUndoApply();
     $('activityExport').onclick=exportActivityHistory;
     $('activityClear').onclick=clearActivityHistory;
     $('activityOpenInbox').onclick=()=>displayPage('review-inbox');

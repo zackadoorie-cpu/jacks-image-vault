@@ -56,6 +56,22 @@ function driveRenamePatch(plan){
   throw new Error('Invalid name-only rename request.');
  return {name:plan.newName};
 }
+// Reverse a verified history record without trusting stale Sheet filenames.
+// The live Drive identity, version, parent and collision checks still apply.
+function driveRenameUndoPlan(entry,item,{account='',sheetId='',folderId=''}={}){
+ const change=entry?.driveChange;
+ if(!change||entry.kind!=='drive-rename'||entry.status!=='complete'||
+   !driveRenameID(change.fileId)||!driveRenameID(change.parentId)||
+   !item||item.demo||item.id!==change.fileId||
+   folderId!==change.parentId||
+   typeof change.beforeName!=='string'||typeof change.afterName!=='string'||
+   (item.name!==change.beforeName&&item.name!==change.afterName))
+  throw new Error('Private rename history no longer matches the indexed Drive file or parent.');
+ return driveRenamePlan({fileId:change.fileId,row:item.manifestRow,
+   oldName:change.afterName,folder:item.folder,mime:item.mime,
+   source:'Verified private rename history',eligible:true,newInDrive:false},
+   change.beforeName,{account,sheetId,folderId});
+}
 function driveRenameVerified(plan,after){
  return !!plan&&!!after&&after.id===plan.fileId&&after.name===plan.newName&&
   after.mimeType===plan.mimeType&&after.trashed===false&&
@@ -64,4 +80,4 @@ function driveRenameVerified(plan,after){
 /* drive-rename:portable:end */
 if(typeof module!=='undefined')module.exports={DRIVE_RENAME_SCHEMA,DRIVE_RENAME_SCOPE,
  DRIVE_RENAME_MAX_FOLDER,DRIVE_RENAME_MAX_NAME,driveRenameID,driveRenamePlan,
- driveRenameCheck,driveRenamePatch,driveRenameVerified};
+ driveRenameCheck,driveRenamePatch,driveRenameUndoPlan,driveRenameVerified};

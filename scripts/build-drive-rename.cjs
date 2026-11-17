@@ -10,7 +10,7 @@ const head='  /* GENERATED DRIVE RENAME START */',tail='  /* GENERATED DRIVE REN
 const x=app.indexOf(head),y=app.indexOf(tail,x+head.length);
 if(x<0||y<0||app.indexOf(head,x+head.length)>=0||app.indexOf(tail,y+tail.length)>=0)
  throw Error('Drive Rename embedded markers invalid');
-const symbols='DRIVE_RENAME_SCHEMA,DRIVE_RENAME_SCOPE,DRIVE_RENAME_MAX_FOLDER,DRIVE_RENAME_MAX_NAME,driveRenameID,driveRenamePlan,driveRenameCheck,driveRenamePatch,driveRenameVerified';
+const symbols='DRIVE_RENAME_SCHEMA,DRIVE_RENAME_SCOPE,DRIVE_RENAME_MAX_FOLDER,DRIVE_RENAME_MAX_NAME,driveRenameID,driveRenamePlan,driveRenameCheck,driveRenamePatch,driveRenameUndoPlan,driveRenameVerified';
 const compiled=[head,'  const driveRename=(()=>{',
  ...src.slice(i+a.length,j).trim().split('\n').map(line=>'    '+line),
  '    return {'+symbols+'};','  })();',tail].join('\n');
