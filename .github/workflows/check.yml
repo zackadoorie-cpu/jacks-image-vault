@@ -38,6 +38,7 @@ jobs:
           node scripts/build-manager-desk.cjs --check
           node scripts/build-filename-review.cjs --check
           node scripts/build-drive-rename.cjs --check
+          node scripts/build-filename-reconcile.cjs --check
           node scripts/build-review-inbox.cjs --check
           node scripts/build-review-inbox-controller.cjs --check
           node scripts/build-rename-desk.cjs --check
