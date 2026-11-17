@@ -67,7 +67,7 @@
     const ACTIVITY_MAX_EVENTS=120;
     const ACTIVITY_MAX_BYTES=480*1024;
     const ACTIVITY_AGE_MS=90*24*60*60*1000;
-    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified']);
+    const ACTIVITY_KINDS=Object.freeze(['review-save','review-reset','review-import','review-backup','rename-plan','rename-clear','inventory','undo-review','sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified']);
     function activityReview(value){
       if(value==null)return null;
       if(typeof value!=='object'||Array.isArray(value)||
@@ -233,9 +233,9 @@
       const list=(log?.items||[]).filter(e=>{
         if(chosen==='review'&&!['review-save','review-reset','undo-review'].includes(e.kind))return false;
         if(chosen==='imports'&&!['review-import','review-backup'].includes(e.kind))return false;
-        if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind))return false;
+        if(chosen==='plans'&&!['rename-plan','rename-clear','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'].includes(e.kind))return false;
         if(chosen==='inventory'&&e.kind!=='inventory')return false;
-        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(e.kind))return false;
+        if(chosen==='writes'&&!['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified','drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'].includes(e.kind))return false;
         return !q||e.kind.includes(q)||e.fileId.toLocaleLowerCase('en-US').includes(q);
       });
       const size=Math.max(1,Math.min(30,Math.floor(pageSize)||12));
@@ -248,7 +248,7 @@
   /* GENERATED ACTIVITY LEDGER END */
   /* GENERATED FILENAME RECONCILE START */
   const filenameReconcile=(()=>{
-    const RECONCILE_DRIVE_KINDS=['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'];
+    const RECONCILE_DRIVE_KINDS=['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'];
     function reconcileID(value){return typeof value==='string'&&/^[A-Za-z0-9_-]{10,100}$/.test(value);}
     function reconcileName(value){
      return typeof value==='string'&&value.length>0&&value.length<=96&&
@@ -6314,6 +6314,8 @@
       'drive-rename-unverified':'Drive rename outcome requires manual check',
       'drive-undo':'Original Drive filename restored and verified',
       'drive-undo-unverified':'Drive rename undo requires manual inspection',
+      'sheet-name-sync':'Both Sheet filename indexes verified against Drive',
+      'sheet-name-sync-unverified':'Sheet filename reconciliation requires manual inspection',
       'sheet-write-unverified':'Sheet write requires manual verification'
     }[kind]||'Local activity';
   }
@@ -6400,6 +6402,7 @@
         ['review-import','review-backup'].includes(entry.kind)?'REVIEW IMPORT':
         ['rename-plan','rename-clear'].includes(entry.kind)?'FILENAME PLANNING':
         ['sheet-write','sheet-write-unverified','sheet-undo','sheet-undo-unverified'].includes(entry.kind)?'SHEET APPROVAL':
+        ['sheet-name-sync','sheet-name-sync-unverified'].includes(entry.kind)?'SHEET FILENAME':
         ['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified'].includes(entry.kind)?'DRIVE FILENAME':'INVENTORY READ';
       const count=entry.count>1?' · '+entry.count+' records':'';
       const date=new Date(entry.at).toLocaleString();
