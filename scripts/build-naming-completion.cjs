@@ -8,7 +8,7 @@ const start='  /* GENERATED NAMING COMPLETION START */',end='  /* GENERATED NAMI
 const i=src.indexOf(a),j=src.indexOf(b,i+a.length),x=app.indexOf(start),y=app.indexOf(end,x+start.length);
 if([i,j,x,y].some(k=>k<0)||src.indexOf(a,i+a.length)>=0||app.indexOf(start,x+start.length)>=0)
  throw Error('Naming Completion source or browser markers missing/duplicated');
-const names='NAMING_COMPLETION_PAGE_SIZE,NAMING_COMPLETION_BATCH_LIMIT,NAMING_COMPLETION_FILTERS,namingCompletionKind,namingCompletionStatus,namingCompletionBuild,namingCompletionSelect';
+const names='NAMING_COMPLETION_PAGE_SIZE,NAMING_COMPLETION_BATCH_LIMIT,NAMING_COMPLETION_FILTERS,namingCompletionKind,namingCompletionValidProposal,namingCompletionStatus,namingCompletionBuild,namingCompletionSelect';
 const compiled=[start,'  const namingCompletion=(()=>{',
  ...src.slice(i+a.length,j).trim().split('\n').map(s=>'    '+s),
  '    return {'+names+'};','  })();',end].join('\n');
