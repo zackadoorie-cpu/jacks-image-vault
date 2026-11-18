@@ -11,7 +11,8 @@ function catalogContext(){return state.connected&&catalogReconcile.catalogId(sta
 function catalogLiveModel(){
  const verified=!!state.lastFullScanAt&&!state.lastFallbackScanAt&&!state.discoveryError&&
   !state.scanning&&!state.scanFailures.size&&state.syncedFolders.size===state.folderSources.length;
- return catalogReconcile.catalogCandidates(state.inventory,state.folderSources,state.syncedFolders,{verified});
+ const ids=state.catalogManifestIDs?.size?state.catalogManifestIDs:new Set(state.inventory.map(x=>x.id));
+ return catalogReconcile.catalogCandidates(ids,state.folderSources,state.syncedFolders,{verified});
 }
 function catalogJournalSave(journal){
  if(!journal){try{localStorage.removeItem(catalogJournalKey(catalogContext()));}catch{}return;}
