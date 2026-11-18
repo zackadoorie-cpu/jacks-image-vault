@@ -1031,6 +1031,7 @@
     tokenClient: null,
     authProvider: 'browser',
     images: DEMO,
+    catalogManifestIDs: new Set(),
     folders: [],
     connected: false,
     view: 'home',
@@ -3586,9 +3587,9 @@
      folder.startsWith('Jacks Photos/')?'Jacks Photos':'';}
     function catalogCandidates(inventory,folders,scanned,{verified=false}={}){
      const empty={ready:[],blocked:[],complete:false,reason:'A complete, error-free Drive discovery is required.'};
-     if(!verified||!Array.isArray(inventory)||!Array.isArray(folders)||!(scanned instanceof Map)||
+     if(!verified||!(Array.isArray(inventory)||inventory instanceof Set)||!Array.isArray(folders)||!(scanned instanceof Map)||
        scanned.size!==folders.length||!folders.length)return empty;
-     const indexed=new Set(inventory.map(x=>x.id)),all=new Set(),ready=[],blocked=[];
+     const indexed=inventory instanceof Set?inventory:new Set(inventory.map(x=>x.id)),all=new Set(),ready=[],blocked=[];
      const paths=new Set(),folderIDs=new Set();
      for(const folder of folders){
       if(!catalogId(folder?.id)||typeof folder.path!=='string'||
@@ -3786,7 +3787,8 @@
   function catalogLiveModel(){
    const verified=!!state.lastFullScanAt&&!state.lastFallbackScanAt&&!state.discoveryError&&
     !state.scanning&&!state.scanFailures.size&&state.syncedFolders.size===state.folderSources.length;
-   return catalogReconcile.catalogCandidates(state.inventory,state.folderSources,state.syncedFolders,{verified});
+   const ids=state.catalogManifestIDs?.size?state.catalogManifestIDs:new Set(state.inventory.map(x=>x.id));
+   return catalogReconcile.catalogCandidates(ids,state.folderSources,state.syncedFolders,{verified});
   }
   function catalogJournalSave(journal){
    if(!journal){try{localStorage.removeItem(catalogJournalKey(catalogContext()));}catch{}return;}
@@ -4146,7 +4148,7 @@
       if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
       const baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
         .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0),inventoryPath:r[1],discovered:false}));
-    return {images,baseFolderSources};
+    return {images,baseFolderSources,manifestIDs:new Set(byId.keys())};
   }
   async function loadLiveIndex() {
     const authorizationEpoch=state.authEpoch;
@@ -4161,11 +4163,12 @@
         const about=await googleGet('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)');
         if(safeId(about?.user?.permissionId))state.driveIdentity=about.user.permissionId;
       }catch{}
-      const {images,baseFolderSources}=await readSpreadsheetSnapshot();
+      const {images,baseFolderSources,manifestIDs}=await readSpreadsheetSnapshot();
       if(authorizationEpoch!==state.authEpoch||!state.accessToken)return;
       state.snapshotLoadedAt=new Date().toISOString();
       state.lastSyncError='';
       state.inventory=images;
+      state.catalogManifestIDs=manifestIDs;
       state.baseFolderSources=baseFolderSources;
       state.folderSources=baseFolderSources.slice();
       state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;
@@ -4200,7 +4203,7 @@
       if(authorizationEpoch!==state.authEpoch)return;
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
-      state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+      state.inventory=[];state.catalogManifestIDs.clear();state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
       state.images=DEMO;state.connected=false;state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.reviewFilter='pending';state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
@@ -4243,6 +4246,7 @@
     const signature=folders=>folders.map(f=>f.path+':'+f.id).sort().join('|');
     const changedFolders=signature(snapshot.baseFolderSources)!==signature(state.baseFolderSources);
     state.inventory=snapshot.images;
+    state.catalogManifestIDs=snapshot.manifestIDs||new Set(snapshot.images.map(x=>x.id));
     state.catalogPreview=null;
     state.snapshotLoadedAt=new Date().toISOString();
     state.lastSyncError='';
@@ -4996,7 +5000,7 @@
     saveBrowsingPosition();
     stopScans();stopVideo();similarityClearLocal();state.videoSessionEvidence.clear();renameDeskClear();
     state.snapshotLoadedAt=null;state.lastSyncAttemptAt=null;state.lastSyncSuccessAt=null;state.lastSyncError='';
-    clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+    clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.catalogManifestIDs.clear();state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
     catalogClearWorkspace();
