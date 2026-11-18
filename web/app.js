@@ -711,6 +711,7 @@
      const stem=filenameReviewText(name).replace(/\.[^.]*$/,'').trim();
      return /^(?:img|image|photo|pic|picture|pxl|dsc|dscn|screenshot|download|untitled|file|scan|dji|mov|vid|mvi|gemini_generated_image)(?:[\s_.-]|\d|$)/i.test(stem)||
       /^\d{7,}(?:[_-]\d+)*$/.test(stem)||
+      /^20\d{2}(?:[_-]\d{1,3})?$/.test(stem)||
       /^[a-z0-9_-]{7,11}$/i.test(stem)&&/\d/.test(stem)&&/[a-z]/i.test(stem);
     }
     function filenameReviewCapture(value){
@@ -766,12 +767,16 @@
       const ext=filenameReviewExt(oldName);
       const kind=mime.startsWith('video/')?'video':folder.startsWith('Memes/')&&mime.startsWith('image/')?'meme':
         folder.startsWith('Jacks Photos/')&&mime.startsWith('image/')?'photo':'';
-      if(!kind||!FILENAME_REVIEW_EXTS.includes(ext)||!filenameReviewOpaque(oldName))continue;
+      // A review-backed Sheet proposal is an explicit naming candidate even when
+      // the original filename falls outside our heuristic opaque-name patterns.
+      // It is NOT a verified Drive name and still requires all approval checks.
+      const sheetDraft=filenameReviewText(item.manifestProposedName).trim();
+      if(!kind||!FILENAME_REVIEW_EXTS.includes(ext)||
+         (!filenameReviewOpaque(oldName)&&!sheetDraft))continue;
       const row=Number.isSafeInteger(item.manifestRow)&&item.manifestRow>=2&&item.manifestRow<=100000?item.manifestRow:null;
       const stage=filenameReviewText(item.stage),capture=kind==='photo'?filenameReviewCapture(item.captureDate):null;
       // Manifest R stores proposed names, never verified current Drive names.
       // A reviewed Sheet proposal is not evidence of an EXIF capture date.
-      const sheetDraft=filenameReviewText(item.manifestProposedName).trim();
       const sheetReviewed=['reviewed','source-reviewed'].includes(stage);
       let proposed='',source='',reason='';
       if(sheetDraft){
@@ -1336,6 +1341,9 @@
       if(query.errors.length)return null;
       const fields={
         name:searchNormalize(item.name),
+        // Only a caller-validated suggestion may be searched. Never mistake it
+        // for the current Google Drive filename or apply it automatically.
+        suggestion:searchNormalize(context.suggestedName??''),
         tags:searchNormalize(context.tags??item.tags),
         description:searchNormalize(context.description??item.description),
         folder:searchNormalize(item.folder),
@@ -1354,7 +1362,7 @@
       let score=0;
       for(const word of query.terms){
         let best=0;
-        for(const [field,weight] of [['name',110],['tags',80],['description',55],['category',35],['folder',22],['date',12]]){
+        for(const [field,weight] of [['name',110],['suggestion',100],['tags',80],['description',55],['category',35],['folder',22],['date',12]]){
           const value=fields[field];
           if(!value)continue;
           if(value===word)best=Math.max(best,weight+40);
@@ -1368,6 +1376,8 @@
         const phrase=query.terms.join(' ');
         if(fields.name===phrase)score+=100;
         else if(fields.name.includes(phrase))score+=35;
+        else if(fields.suggestion===phrase)score+=80;
+        else if(fields.suggestion.includes(phrase))score+=30;
         else if(fields.tags.includes(phrase))score+=20;
       }
       return score;
@@ -3665,6 +3675,7 @@
       return false;
     }
     const button=$('syncButton');
+    const authEpoch=state.authEpoch,sourceSheet=state.config.sheetId,sourceAccount=state.driveIdentity;
     button.disabled=true;
     state.lastSyncAttemptAt=new Date().toISOString();
     updateScanSummary('Reloading visual review statuses from the Google Sheet…');
@@ -3673,12 +3684,18 @@
       // Fetch first, commit second: a Sheets error never discards a verified gallery.
       snapshot=await readSpreadsheetSnapshot();
     }catch(error){
+      if(!state.connected||authEpoch!==state.authEpoch||sourceSheet!==state.config.sheetId||
+         sourceAccount!==state.driveIdentity){button.disabled=false;return false;}
       state.lastSyncError='Spreadsheet refresh failed. Previous gallery and reviews retained.';
       updateScanSummary('Spreadsheet refresh failed: '+(error?.message||error)+'. Previous gallery retained.',true);
       alertUser('Could not refresh the spreadsheet: '+(error?.message||error)+'. Previous reviews were kept.','error');
       button.disabled=false;
       return false;
     }
+    // A delayed Sheet request must not restore gallery data after logout or
+    // overwrite a different account or spreadsheet's newer session.
+    if(!state.connected||authEpoch!==state.authEpoch||sourceSheet!==state.config.sheetId||
+       sourceAccount!==state.driveIdentity){button.disabled=false;return false;}
     const signature=folders=>folders.map(f=>f.path+':'+f.id).sort().join('|');
     const changedFolders=signature(snapshot.baseFolderSources)!==signature(state.baseFolderSources);
     state.inventory=snapshot.images;
@@ -7757,8 +7774,10 @@
       if(state.view==='memory-results'&&!memoryEngine.memoryMatches(image,state.memorySelection,new Date()))continue;
       if(state.folder!=='all'&&image.folder!==state.folder)continue;
       if(state.mediaType!=='all'&&mediaKind(image)!==state.mediaType)continue;
+      const displayName=galleryFilenameInfo(image);
       const rank=searchEngine.searchRank(image,parsed,{
         description:effectiveDescription(image),tags:effectiveTags(image),
+        suggestedName:displayName.suggested?displayName.name:'',
         favorite:state.favorites.has(image.id),review:reviewStage(image)
       });
       if(rank!==null)scored.push({image,rank});
@@ -7979,11 +7998,23 @@
     $('previewStatus').textContent=state.connected ? `${cached} of ${visible.length} previews ready${failed?` · ${failed} unavailable`:''}` : '';
     $('retryFailedButton').classList.toggle('hidden',!state.connected||!failed);
   }
+  // Sheet proposals are visible immediately after a read-only Sync, but
+  // NEVER replace the real Drive name without a verified rename operation.
+  function galleryFilenameInfo(item) {
+    const original=String(item?.name||'Untitled media');
+    const proposed=String(item?.manifestProposedName||'').trim();
+    if(!state.connected||item?.demo||item?.newInDrive||!proposed||
+       !filenameReview.filenameReviewValidName(proposed,original).ok)
+      return {name:original,original,suggested:false,reviewed:false};
+    const reviewed=['reviewed','source-reviewed'].includes(reviewStage(item));
+    return {name:proposed,original,suggested:true,reviewed};
+  }
   function tileHTML(item) {
     const style=folderStyle(item.folder),favorite=state.favorites.has(item.id),kind=mediaKind(item);
     const date=item.captureDate?item.captureDate.slice(0,10):folderName(item.folder);
     const error=state.thumbErrors.get(item.id),description=effectiveDescription(item);
     const status=reviewStage(item),note=state.reviewEdits.get(item.id);
+    const display=galleryFilenameInfo(item);
     const badge=item.demo?'SAMPLE':status==='reviewed'?'REVIEWED':status==='deferred'?'LATER':
       status==='pending'?'NEEDS REVIEW':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):
       kind==='pdf'?'PDF':isGIF(item)?'GIF':'DESCRIBED';
@@ -7991,7 +8022,7 @@
       status==='deferred'?'deferred':'';
     const why=state.view==='smart-results'?smartFor(item).reasons.join(' · '):'';
     const when=state.view==='memory-results'?memorySourceLabel(item):'';
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(item.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</div><p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tile-more" data-tile-actions="${escapeHTML(item.id)}" aria-label="More actions for ${escapeHTML(item.name)}" title="Read-only file actions">⋯</button><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(display.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(display.name)}">${escapeHTML(display.name)}</div>${display.suggested?`<p class="tile-proposal-note">${display.reviewed?"Suggested name":"Suggestion awaiting review"} · Drive: ${escapeHTML(display.original)}</p>`:""}<p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tile-more" data-tile-actions="${escapeHTML(item.id)}" aria-label="More actions for ${escapeHTML(item.name)}" title="Read-only file actions">⋯</button><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   function observeThumbs() {
     state.observer?.disconnect();
