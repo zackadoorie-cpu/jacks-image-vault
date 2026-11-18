@@ -6667,7 +6667,7 @@
     $('smartQueuePreview').hidden=!state.smartPreview;
     if(state.smartPreview){
       $('smartPreviewSummary').textContent=state.smartPreview.entries.length+
-        ' files passed live Drive ID, current name, parent, canRename, version, complete folder collision checks, '+
+        ' files passed live Drive identity: ID, current name, parent, canRename, version, complete folder collision checks, '+
         'Manifest/index identities and formula anchors. No remote write has been requested.';
       $('smartPreviewList').innerHTML=state.smartPreview.entries.map(x=>
         '<article class="activity-entry"><div class="activity-entry-main"><strong>'+
