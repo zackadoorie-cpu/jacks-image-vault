@@ -58,7 +58,7 @@ function catalogRender(){
  $('catalogPreviewButton').disabled=!usable||!selected.length;
  $('catalogApplyButton').disabled=!usable||!state.catalogPreview;
  $('catalogRecoverButton').hidden=!recover;
- $('catalogRecoverButton').disabled=!ctx||state.catalogBusy||!journal.items?.length;
+ $('catalogRecoverButton').disabled=!ctx||state.catalogBusy||!journal?.items?.length;
  $('catalogJournalStatus').textContent=journal?
    'Recovery: '+journal.status+' · '+(journal.items?.length||0)+
    ' file(s). '+(recover?'Inspect Sheet read-only before trying another import.':
