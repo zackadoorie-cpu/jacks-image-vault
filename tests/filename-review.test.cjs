@@ -192,3 +192,67 @@ test('portable source parity and UI boundary remain explicit',()=>{
  assert.ok(app.includes('filenameReview.filenameReviewBuild'));
  assert.ok(app.includes('filenameReview.filenameReviewExport'));
 });
+
+
+test('year-only camera exports and existing Sheet proposals become queue candidates',()=>{
+ const records=[
+   mk('fixture_year_photo_00001','2025_02.jpg','Jacks Photos/Israel 2025','image/jpeg',{
+     manifestRow:1502,manifestProposedName:'Israel 2025 - Sunset and Skyline - 2025_02.jpg'
+   }),
+   mk('fixture_named_photo_0001','family gathering.jpg','Jacks Photos/Israel 2025','image/jpeg',{
+     manifestRow:1503,manifestProposedName:'Israel 2025 - Family at Dinner.jpg'
+   }),
+   mk('fixture_year_video_00001','2026.webm','Jacks Photos/Trip','video/webm',{
+     manifestRow:1504,manifestProposedName:'Trip - Forest Walk - 2026.webm'
+   })
+ ];
+ const model=E.filenameReviewBuild(records,ctx);
+ assert.equal(model.counts.ready,3);
+ assert.equal(E.filenameReviewPage(model,{filter:'sheet'}).total,3);
+ for(const x of model.rows){
+   assert.equal(x.sheetProposal,true);
+   assert.equal(x.eligible,true);
+   assert.match(x.source,/Manifest!R/);
+ }
+ assert.equal(E.filenameReviewOpaque('2025_02.jpg'),true);
+ assert.equal(E.filenameReviewOpaque('2026.jpg'),true);
+ assert.equal(E.filenameReviewOpaque('2026-08-08_14-53-18.jpg'),false);
+});
+
+test('Sheet proposal bypass does not weaken verification, extension or collision checks',()=>{
+ const file=mk('fixture_year_photo_00002','2025_10.jpg','Jacks Photos/Trip','image/jpeg',{
+   manifestProposedName:'Trip - Large Spider - 2025_10.jpg'
+ });
+ const unreviewed={...file,stage:'pending'};
+ const extMismatch={...file,id:'fixture_year_photo_00003',manifestProposedName:'Trip - Spider.png'};
+ const long={...file,id:'fixture_year_photo_00004',manifestProposedName:'A'.repeat(100)+'.jpg'};
+ const model=E.filenameReviewBuild([unreviewed,extMismatch,long],ctx);
+ assert.equal(model.counts.ready,0);
+ assert.equal(model.counts.blocked,3);
+ const collisions=E.filenameReviewBuild([
+   file,{...file,id:'fixture_year_photo_00005',name:'2025_11.jpg',
+     manifestProposedName:file.manifestProposedName}
+ ],ctx);
+ assert.equal(collisions.counts.conflict,2);
+});
+
+test('stress: 12000 year-indexed proposals remain bounded, distinct and approval-only',()=>{
+ const list=Array.from({length:12000},(_,i)=>mk(
+  'fixture_stress_'+String(i).padStart(12,'0'),
+  '2025_'+String(i).padStart(5,'0')+'.jpg',
+  'Jacks Photos/Trip','image/jpeg',{
+   manifestRow:i+2,
+   manifestProposedName:'Trip - Scenic View '+String(i).padStart(5,'0')+'.jpg'
+  }
+ ));
+ const model=E.filenameReviewBuild(list,ctx);
+ assert.equal(model.rows.length,12000);
+ assert.equal(model.counts.ready,12000);
+ assert.equal(E.filenameReviewPage(model,{filter:'sheet',page:500}).items.length,12);
+ assert.equal(E.filenameReviewPage(model,{query:'Scenic View 11999'}).total,1);
+ const chosen=new Set(list.slice(0,25).map(x=>x.id));
+ const plan=E.filenameReviewExport(model,chosen,new Map(),list,ctx);
+ assert.equal(plan.entries.length,25);
+ assert.equal(plan.status,'unapplied');
+ assert.equal(plan.requiresLiveDriveRecheck,true);
+});
