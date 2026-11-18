@@ -20,9 +20,9 @@ function catalogCollection(folder){return folder.startsWith('Memes/')?'Memes':
  folder.startsWith('Jacks Photos/')?'Jacks Photos':'';}
 function catalogCandidates(inventory,folders,scanned,{verified=false}={}){
  const empty={ready:[],blocked:[],complete:false,reason:'A complete, error-free Drive discovery is required.'};
- if(!verified||!Array.isArray(inventory)||!Array.isArray(folders)||!(scanned instanceof Map)||
+ if(!verified||!(Array.isArray(inventory)||inventory instanceof Set)||!Array.isArray(folders)||!(scanned instanceof Map)||
    scanned.size!==folders.length||!folders.length)return empty;
- const indexed=new Set(inventory.map(x=>x.id)),all=new Set(),ready=[],blocked=[];
+ const indexed=inventory instanceof Set?inventory:new Set(inventory.map(x=>x.id)),all=new Set(),ready=[],blocked=[];
  const paths=new Set(),folderIDs=new Set();
  for(const folder of folders){
   if(!catalogId(folder?.id)||typeof folder.path!=='string'||
