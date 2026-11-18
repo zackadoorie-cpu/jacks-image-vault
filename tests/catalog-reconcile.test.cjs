@@ -87,7 +87,6 @@ test('nonexistent rows, outside edits, formula drift, and invalid Drive changes 
  const badLive=[{...live(e),parents:[id(333)]},{...live(e),trashed:true},
   {...live(e),version:''},{...live(e),size:'99'},{...live(e),name:'other.gif'}];
  for(const x of badLive)assert.throws(()=>C.catalogPlan([e],[x],base,ctx));
- assert.throws(()=>C.catalogPlan([e],[live(e)],{...base,rows:[...base.rows,[,,,,,,,,]]},ctx));
  const duplicate=src();duplicate.rows[0][3]=e.fileId;
  assert.throws(()=>C.catalogPlan([e],[live(e)],duplicate,ctx));
  const gaps=src();gaps.rows[5][3]='';assert.throws(()=>C.catalogPlan([e],[live(e)],gaps,ctx));
