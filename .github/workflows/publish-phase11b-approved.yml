@@ -1,0 +1,33 @@
+# One-shot authorized Phase 11B release dispatcher.
+# The existing full release.yml remains the only publisher and artifact verifier.
+name: Publish approved Phase 11B Naming Completion
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-phase11b-approved.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Phase 11B Naming Completion v2.1.38')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch verified v2.1.38 release exactly once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.38 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.38 already exists. No duplicate dispatch."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.38
+          echo "Dispatched existing browser, Windows, security, patch and checksum release pipeline."
