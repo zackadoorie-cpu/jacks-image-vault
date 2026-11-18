@@ -250,10 +250,15 @@ async function catalogApply(){
   const check=await catalogVerifyRows(last.items,token);
   if(!check.ok)throw new Error(check.reason);
   catalogJournalSave({...journal,status:'synced'});
+  submitted=false; // Never downgrade a confirmed Sheet commit due to a UI/log refresh error.
   state.catalogPreview=null;state.catalogSelected.clear();
   state.catalogMessage='Verified '+last.items.length+' new Manifest record(s) and Search Index identities. Original Drive files unchanged.';
-  logActivity('sheet-write',{count:last.items.length});
-  await refreshSheetAndDrive();
+  try{
+   logActivity('sheet-write',{count:last.items.length});
+   await refreshSheetAndDrive();
+  }catch(refreshError){
+   state.catalogMessage+=' Gallery refresh could not complete; press Sync Sheet + Drive.';
+  }
  }catch(error){
   if(submitted){
    const j=state.catalogJournal;
