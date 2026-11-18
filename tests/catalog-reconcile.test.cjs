@@ -137,3 +137,12 @@ test('stale historic Search Index endpoint is safely extended instead of losing 
  assert.equal(plan.formula.changedSearch,true);
  assert.ok(plan.formula.search.every(x=>x.includes('2500')));
 });
+
+test('an existing Manifest Drive ID never becomes a missing-file candidate when Search Index is stale',()=>{
+ const e=entry(375),f={path:e.folder,id:e.folderId,discovered:false};
+ const scan=new Map([[e.folder,[{id:e.fileId,name:e.name,mimeType:e.mime,size:String(e.size)}]]]);
+ const sourceIDs=new Set([e.fileId]);
+ assert.equal(C.catalogCandidates(sourceIDs,[f],scan,{verified:true}).ready.length,0);
+ assert.equal(C.catalogCandidates([], [f],scan,{verified:true}).ready.length,1,
+  'A derived gallery index alone would have produced a false positive');
+});
