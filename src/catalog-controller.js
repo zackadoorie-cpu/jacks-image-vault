@@ -1,7 +1,7 @@
 /* Phase 11A browser controller: approval-only Manifest catalog additions. */
 /* catalog-controller:portable:start */
 const CATALOG_JOURNAL_KEY='jack-vault-catalog-journal-v1';
-function catalogContext(){return state.connected&&catalogId(state.driveIdentity)&&catalogId(state.config.sheetId)?
+function catalogContext(){return state.connected&&catalogReconcile.catalogId(state.driveIdentity)&&catalogReconcile.catalogId(state.config.sheetId)?
  {account:state.driveIdentity,sheetId:state.config.sheetId,epoch:state.authEpoch}:null;}
 function catalogLiveModel(){
  const verified=!!state.lastFullScanAt&&!state.lastFallbackScanAt&&!state.discoveryError&&
