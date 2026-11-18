@@ -8,7 +8,7 @@ const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'..','web','app.js'),'utf8');
 const suffix='  init();\n})();';
 assert.ok(source.includes(suffix),'app bootstrap changed');
-const code=source.replace(suffix,'  globalThis.__galleryTests={state,renderGallery,appendGalleryBatch,savePreferences,displayPage,saveBrowsingPosition,restoreBrowsingPosition,clearBrowsingPosition,updateScrollControls,turboGallery,putThumb,evictThumb};\n})();');
+const code=source.replace(suffix,'  globalThis.__galleryTests={state,renderGallery,appendGalleryBatch,savePreferences,displayPage,saveBrowsingPosition,restoreBrowsingPosition,clearBrowsingPosition,updateScrollControls,turboGallery,putThumb,evictThumb,galleryFilenameInfo,tileHTML};\n})();');
 
 function harness({withObserver=true}={}){
   const elements=new Map(),storage=new Map(),observers=[];
@@ -281,4 +281,38 @@ test('thumbnail LRU caps both entries and in-memory blob byte budget',()=>{
   h.evictThumb('blob-7');
   assert.equal(h.state.thumbCacheBytes,30*1024*1024);
   assert.equal(storage.size,0,'never persist signed URLs, image bytes or tokens');
+});
+
+test('Sheet-suggested titles appear after a gallery refresh without falsifying the Drive name',()=>{
+ const {h,grid}=harness();
+ const photo=h.state.images[0];
+ photo.name='2025_02.jpg';photo.mime='image/jpeg';
+ photo.description='Evening light above buildings';
+ photo.review='Visually verified against original Drive image';
+ photo.manifestProposedName='Israel 2025 - Coastal Sunset - 2025_02.jpg';
+ h.state.connected=true;
+ h.renderGallery();
+ assert.match(grid.innerHTML,/Israel 2025 - Coastal Sunset - 2025_02\.jpg/);
+ assert.match(grid.innerHTML,/Suggested name · Drive: 2025_02\.jpg/);
+ assert.equal(photo.name,'2025_02.jpg','the underlying Drive filename must remain intact');
+ assert.equal(h.galleryFilenameInfo(photo).suggested,true);
+ h.state.search='Coastal Sunset';
+ h.renderGallery();
+ assert.equal(h.state.filtered.length,1,'search must include the validated proposal');
+});
+
+test('unreviewed and unsafe Sheet titles are labeled or ignored; no markup injection',()=>{
+ const {h,grid}=harness();
+ const photo=h.state.images[0];
+ photo.name='2025_02.jpg';photo.mime='image/jpeg';
+ photo.manifestProposedName='Landscape - Clear Sky - 2025_02.jpg';
+ h.state.connected=true;h.renderGallery();
+ assert.match(grid.innerHTML,/Suggestion awaiting review · Drive: 2025_02\.jpg/);
+ photo.manifestProposedName='<img src=x onerror=alert(1)>.jpg';
+ h.renderGallery();
+ assert.doesNotMatch(grid.innerHTML,/onerror=/);
+ assert.equal(h.galleryFilenameInfo(photo).suggested,false);
+ photo.manifestProposedName='Landscape - Clear Sky - 2025_02.png';
+ h.renderGallery();
+ assert.equal(h.galleryFilenameInfo(photo).suggested,false,'extension mismatch cannot be displayed as a valid proposal');
 });

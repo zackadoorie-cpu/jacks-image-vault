@@ -195,3 +195,14 @@ test('saved searches never overwrite previously stored data on failed writes',()
   assert.throws(()=>h.storeSavedSearches(saved),/limit/);
   assert.equal(storage.get(key),'not-json');
 });
+
+
+test('reviewed Sheet suggestions are searchable while original names remain intact',()=>{
+ const item=record(13,{name:'2025_02.jpg',description:'',tags:''});
+ const q=parseSearchQuery('coastal lighthouse');
+ assert.equal(searchRank(item,q),null);
+ assert.notEqual(searchRank(item,q,{suggestedName:'Cyprus - Coastal Lighthouse - 2025_02.jpg'}),null);
+ assert.equal(item.name,'2025_02.jpg');
+ assert.equal(searchRank(item,q,{suggestedName:''}),null);
+ assert.notEqual(searchRank(item,parseSearchQuery('2025_02')),null);
+});

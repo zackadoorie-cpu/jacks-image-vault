@@ -64,6 +64,9 @@ function searchRank(item,query,context={}){
   if(query.errors.length)return null;
   const fields={
     name:searchNormalize(item.name),
+    // Only a caller-validated suggestion may be searched. Never mistake it
+    // for the current Google Drive filename or apply it automatically.
+    suggestion:searchNormalize(context.suggestedName??''),
     tags:searchNormalize(context.tags??item.tags),
     description:searchNormalize(context.description??item.description),
     folder:searchNormalize(item.folder),
@@ -82,7 +85,7 @@ function searchRank(item,query,context={}){
   let score=0;
   for(const word of query.terms){
     let best=0;
-    for(const [field,weight] of [['name',110],['tags',80],['description',55],['category',35],['folder',22],['date',12]]){
+    for(const [field,weight] of [['name',110],['suggestion',100],['tags',80],['description',55],['category',35],['folder',22],['date',12]]){
       const value=fields[field];
       if(!value)continue;
       if(value===word)best=Math.max(best,weight+40);
@@ -96,6 +99,8 @@ function searchRank(item,query,context={}){
     const phrase=query.terms.join(' ');
     if(fields.name===phrase)score+=100;
     else if(fields.name.includes(phrase))score+=35;
+    else if(fields.suggestion===phrase)score+=80;
+    else if(fields.suggestion.includes(phrase))score+=30;
     else if(fields.tags.includes(phrase))score+=20;
   }
   return score;

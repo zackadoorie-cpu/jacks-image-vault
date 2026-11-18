@@ -20,6 +20,7 @@ function filenameReviewOpaque(name){
  const stem=filenameReviewText(name).replace(/\.[^.]*$/,'').trim();
  return /^(?:img|image|photo|pic|picture|pxl|dsc|dscn|screenshot|download|untitled|file|scan|dji|mov|vid|mvi|gemini_generated_image)(?:[\s_.-]|\d|$)/i.test(stem)||
   /^\d{7,}(?:[_-]\d+)*$/.test(stem)||
+  /^20\d{2}(?:[_-]\d{1,3})?$/.test(stem)||
   /^[a-z0-9_-]{7,11}$/i.test(stem)&&/\d/.test(stem)&&/[a-z]/i.test(stem);
 }
 function filenameReviewCapture(value){
@@ -75,12 +76,16 @@ function filenameReviewBuild(records,{account='',sheetId=''}={}){
   const ext=filenameReviewExt(oldName);
   const kind=mime.startsWith('video/')?'video':folder.startsWith('Memes/')&&mime.startsWith('image/')?'meme':
     folder.startsWith('Jacks Photos/')&&mime.startsWith('image/')?'photo':'';
-  if(!kind||!FILENAME_REVIEW_EXTS.includes(ext)||!filenameReviewOpaque(oldName))continue;
+  // A review-backed Sheet proposal is an explicit naming candidate even when
+  // the original filename falls outside our heuristic opaque-name patterns.
+  // It is NOT a verified Drive name and still requires all approval checks.
+  const sheetDraft=filenameReviewText(item.manifestProposedName).trim();
+  if(!kind||!FILENAME_REVIEW_EXTS.includes(ext)||
+     (!filenameReviewOpaque(oldName)&&!sheetDraft))continue;
   const row=Number.isSafeInteger(item.manifestRow)&&item.manifestRow>=2&&item.manifestRow<=100000?item.manifestRow:null;
   const stage=filenameReviewText(item.stage),capture=kind==='photo'?filenameReviewCapture(item.captureDate):null;
   // Manifest R stores proposed names, never verified current Drive names.
   // A reviewed Sheet proposal is not evidence of an EXIF capture date.
-  const sheetDraft=filenameReviewText(item.manifestProposedName).trim();
   const sheetReviewed=['reviewed','source-reviewed'].includes(stage);
   let proposed='',source='',reason='';
   if(sheetDraft){

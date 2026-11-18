@@ -1007,3 +1007,7 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .filename-credentials label{display:block;font-size:12px;margin:9px 0 5px}
 .filename-credentials input{max-width:650px}
 #filenameRenameApply{margin-top:13px;white-space:normal}
+
+/* Sheet naming proposals are previews, never verified Drive filenames. */
+.tile-proposal-note{font-size:10px;line-height:1.4;color:var(--muted,#aeb0c2);margin:4px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.image-grid.list .tile-proposal-note{white-space:normal;overflow-wrap:anywhere}
