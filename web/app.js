@@ -405,6 +405,18 @@
      return String(item?.mime||'').startsWith('video/')?'video':
        String(item?.folder||'').startsWith('Memes/')?'meme':'photo';
     }
+    function namingCompletionValidProposal(proposal,original){
+     if(typeof proposal!=='string'||!proposal||proposal.length>96||proposal.trim()!==proposal||
+        /[\\/:*?"<>|\u0000-\u001f\u007f]/.test(proposal)||/[ .]$/.test(proposal)||
+        proposal.startsWith('='))return false;
+     const a=/(\.[A-Za-z0-9]{2,6})$/.exec(String(original||''))?.[0].toLowerCase();
+     const b=/(\.[A-Za-z0-9]{2,6})$/.exec(proposal)?.[0].toLowerCase();
+     if(!a||!b||a!==b)return false;
+     const stem=proposal.slice(0,-b.length);
+     if(/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem))return false;
+     return proposal.normalize('NFKC').toLocaleLowerCase('en-US')!==
+       String(original||'').normalize('NFKC').toLocaleLowerCase('en-US');
+    }
     function namingCompletionStatus(item,source,journal,{duplicate=false}={}){
      const suggested=String(item.manifestProposedName||'').trim();
      const original=String(item.manifestOriginalName||'');
@@ -431,6 +443,8 @@
        return {status:'needs-review',reason:'Visual source evidence is not yet sufficient for a Drive rename.'};
      if(source.status!=='ready'||!source.eligible||!source.sheetProposal)
        return {status:'blocked',reason:source.reason||'The source review is not eligible for an automatic filename approval.'};
+     if(!namingCompletionValidProposal(suggested,original))
+      return {status:'blocked',reason:'Invalid, reserved or changed-extension filename proposal. No Drive update can be approved.'};
      if(!original||source.oldName!==original||indexed!==original||
         source.proposed!==suggested||source.row!==item.manifestRow||
         !Number.isSafeInteger(item.indexRow)||item.indexRow<2||
@@ -497,7 +511,7 @@
       Math.max(1,Math.min(NAMING_COMPLETION_BATCH_LIMIT,Number(limit)||NAMING_COMPLETION_BATCH_LIMIT)))
       .map(x=>x.fileId);
     }
-    return {NAMING_COMPLETION_PAGE_SIZE,NAMING_COMPLETION_BATCH_LIMIT,NAMING_COMPLETION_FILTERS,namingCompletionKind,namingCompletionStatus,namingCompletionBuild,namingCompletionSelect};
+    return {NAMING_COMPLETION_PAGE_SIZE,NAMING_COMPLETION_BATCH_LIMIT,NAMING_COMPLETION_FILTERS,namingCompletionKind,namingCompletionValidProposal,namingCompletionStatus,namingCompletionBuild,namingCompletionSelect};
   })();
   /* GENERATED NAMING COMPLETION END */
   /* GENERATED FILENAME RECONCILE START */
