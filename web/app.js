@@ -1031,6 +1031,7 @@
     tokenClient: null,
     authProvider: 'browser',
     images: DEMO,
+    catalogManifestIDs: new Set(),
     folders: [],
     connected: false,
     view: 'home',
@@ -1096,6 +1097,11 @@
     sheetWritePage: 1,
     sheetWriteMessage: '',
     sheetWriteBusy: false,
+    catalogSelected: new Set(),
+    catalogPreview: null,
+    catalogBusy: false,
+    catalogMessage: '',
+    catalogJournal: null,
     reconcilePrepared: null,
     reconcileMessage: '',
     managerFilter: 'all',
@@ -3561,6 +3567,544 @@
     } catch (error) {await reader.cancel().catch(()=>{});throw error;}
     return new Blob(chunks, {type:response.headers.get('content-type') || 'application/octet-stream'});
   }
+  /* GENERATED CATALOG 11A START */
+  const catalogReconcile=(()=>{
+    const CATALOG_LIMIT=10;
+    const CATALOG_MAX_ROWS=50000;
+    const CATALOG_FORMULAS=13;
+    const CATALOG_OVERVIEW_LABELS=[
+     'Files indexed','Images indexed','Other media / files',
+     'Memes total files','Memes images','Jacks Photos total files','Jacks Photos images'
+    ];
+    function catalogId(value){return typeof value==='string'&&/^[A-Za-z0-9_-]{10,100}$/.test(value);}
+    function catalogName(value){return typeof value==='string'&&value.length>0&&value.length<=255&&
+     value.trim()===value&&!/[\u0000-\u001f\u007f]/.test(value)&&!value.startsWith('=');}
+    function catalogMime(value){return typeof value==='string'&&(
+     /^image\/(?:jpeg|png|gif|webp|heic|heif|tiff|bmp)$/i.test(value)||
+     /^video\/(?:mp4|webm|quicktime|x-m4v)$/i.test(value)||
+     value==='application/pdf');}
+    function catalogCollection(folder){return folder.startsWith('Memes/')?'Memes':
+     folder.startsWith('Jacks Photos/')?'Jacks Photos':'';}
+    function catalogCandidates(inventory,folders,scanned,{verified=false}={}){
+     const empty={ready:[],blocked:[],complete:false,reason:'A complete, error-free Drive discovery is required.'};
+     if(!verified||!(Array.isArray(inventory)||inventory instanceof Set)||!Array.isArray(folders)||!(scanned instanceof Map)||
+       scanned.size!==folders.length||!folders.length)return empty;
+     const indexed=inventory instanceof Set?inventory:new Set(inventory.map(x=>x.id)),all=new Set(),ready=[],blocked=[];
+     const paths=new Set(),folderIDs=new Set();
+     for(const folder of folders){
+      if(!catalogId(folder?.id)||typeof folder.path!=='string'||
+         (!catalogCollection(folder.path)&&!['Memes','Jacks Photos'].includes(folder.path))||
+         paths.has(folder.path)||folderIDs.has(folder.id)||!scanned.has(folder.path))
+       return {...empty,reason:'The verified folder tree is inconsistent. Run Full rescan.'};
+      paths.add(folder.path);folderIDs.add(folder.id);
+      const files=scanned.get(folder.path);
+      if(!Array.isArray(files))return {...empty,reason:'A folder has an incomplete Drive file listing.'};
+      for(const file of files){
+       if(!catalogId(file?.id)||!catalogMime(file?.mimeType))continue;
+       if(all.has(file.id))return {...empty,reason:'The Drive scan lists the same file ID in multiple locations.'};
+       all.add(file.id);
+       if(indexed.has(file.id))continue;
+       const entry={fileId:file.id,name:file.name,folder:folder.path,folderId:folder.id,
+         collection:catalogCollection(folder.path),mime:file.mimeType,
+         size:Number(file.size||0),modifiedTime:String(file.modifiedTime||'')};
+       const reason=!entry.collection?'Media in a collection root requires an indexed folder.':
+         folder.missing?'Folder is missing from the verified collection roots.':
+         folder.discovered?'A new folder needs its own indexed Folders row before catalog import.':
+         !catalogName(file.name)?'The Drive filename is not a safe Sheet literal.':
+         !Number.isSafeInteger(entry.size)||entry.size<0?'The Drive size is invalid.':'';
+       if(reason)blocked.push({...entry,reason});else ready.push(entry);
+      }
+     }
+     ready.sort((a,b)=>a.folder.localeCompare(b.folder)||a.name.localeCompare(b.name)||a.fileId.localeCompare(b.fileId));
+     blocked.sort((a,b)=>a.folder.localeCompare(b.folder)||a.name.localeCompare(b.name));
+     return {ready,blocked,complete:true,reason:'Complete Drive verification; additions are proposals only.'};
+    }
+    function catalogDriveCheck(entry,live){
+     if(!entry||!catalogId(entry.fileId)||!catalogName(entry.name)||!catalogId(entry.folderId)||
+        !live||live.id!==entry.fileId||live.name!==entry.name||live.mimeType!==entry.mime||
+        live.trashed!==false||!Array.isArray(live.parents)||live.parents.length!==1||
+        live.parents[0]!==entry.folderId||!/^\d+$/.test(String(live.version||''))||
+        !Number.isSafeInteger(Number(live.size||0))||Number(live.size||0)!==entry.size)
+       return {ok:false,reason:'Drive ID, name, MIME, version, parent, size or trash status differs.'};
+     return {ok:true,version:String(live.version),createdTime:String(live.createdTime||''),
+       modifiedTime:String(live.modifiedTime||'')};
+    }
+    function catalogFormulaPlan(anchors,dashboard,required,indexRows,manifestRows,existingLast=required){
+     if(!Array.isArray(anchors)||anchors.length!==CATALOG_FORMULAS||
+        !Array.isArray(dashboard)||dashboard.length!==5||!Number.isSafeInteger(required)||
+        required<2||required>CATALOG_MAX_ROWS)return {ok:false,reason:'Unexpected formula schema or row capacity.'};
+     const ends=new Set();
+     for(const [i,f] of anchors.entries()){
+      if(typeof f!=='string'||!f.startsWith('=ARRAYFORMULA(IF(Manifest!D2:D')||
+         i===2&&(!f.includes('Manifest!AD2:AD')||!f.includes('Manifest!C2:C'))||
+         i===10&&!f.includes('Manifest!D2:D'))return {ok:false,reason:'Search Index formula anchor is missing or different.'};
+      const matches=[...f.matchAll(/Manifest!([A-Z]{1,2})2:([A-Z]{1,2})(\d+)/g)];
+      if(!matches.length||matches.some(m=>m[1]!==m[2]))return {ok:false,reason:'Invalid Search Index source range.'};
+      for(const m of matches)ends.add(Number(m[3]));
+     }
+     if(ends.size!==1)return {ok:false,reason:'The Search Index has inconsistent source boundaries.'};
+     const current=[...ends][0];
+     if(!Number.isSafeInteger(current)||current<2||current>CATALOG_MAX_ROWS)
+       return {ok:false,reason:'The Search Index boundary is invalid or too short for the existing inventory.'};
+     for(const f of dashboard){
+      if(typeof f!=='string'||!/^=COUNT(?:A|IF|IFS)\(/.test(f))return {ok:false,reason:'Library Dashboard formulas have changed.'};
+      const hits=[...f.matchAll(/Manifest!([A-Z]{1,2})2:([A-Z]{1,2})(\d+)/g)];
+      if(!hits.length||hits.some(m=>m[1]!==m[2]))return {ok:false,reason:'Dashboard formula source range is invalid.'};
+     }
+     const target=Math.min(CATALOG_MAX_ROWS,Math.max(required+250,Number(manifestRows)||0,
+         Number(indexRows)||0,current));
+     const covers=target>=required&&target<=CATALOG_MAX_ROWS;
+     if(!covers)return {ok:false,reason:'The approved append exceeds the bounded Sheet capacity.'};
+     const rewrite=(str)=>str.replace(/(Manifest![A-Z]{1,2}2:[A-Z]{1,2})\d+/g,'$1'+target);
+     return {ok:true,target,search:anchors.map(rewrite),dashboard:dashboard.map(rewrite),
+       expandManifest:target>manifestRows,expandIndex:target>indexRows,
+       changedSearch:anchors.some((f,i)=>f!==rewrite(f)),
+       changedDashboard:dashboard.some((f,i)=>f!==rewrite(f)),
+       reason:'Existing source formulas retained; only their range endpoints may grow.'};
+    }
+    function catalogPlan(entries,liveFiles,source,{account,sheetId}={}){
+     if(!account||!sheetId||!source||!Array.isArray(entries)||entries.length<1||
+        entries.length>CATALOG_LIMIT||!Array.isArray(liveFiles)||liveFiles.length!==entries.length)
+       throw new Error('Choose 1–10 missing Drive files in one verified account.');
+     const seen=new Set(),rows=source.rows;
+     if(!Array.isArray(rows)||!Array.isArray(source.folders)||!Array.isArray(source.anchors)||
+        !Array.isArray(source.dashboard)||!Array.isArray(source.overview)||
+        source.overview.length!==7||source.overview.some((x,i)=>x[0]!==CATALOG_OVERVIEW_LABELS[i]))
+       throw new Error('Live Manifest, folders, formulas or Overview labels are not authoritative.');
+     if(rows.length>CATALOG_MAX_ROWS||source.manifestRows>CATALOG_MAX_ROWS)throw new Error('Manifest exceeds the safe catalog size limit.');
+     let last=0,blank=false;
+     for(let i=0;i<rows.length;i++){
+      const id=String(rows[i]?.[3]||'');
+      if(id){if(!catalogId(id)||blank||seen.has(id))throw new Error('Manifest IDs contain gaps or duplicates. Manual repair required.');seen.add(id);last=i+2;}
+      else blank=true;
+     }
+     if(last<2)throw new Error('The Manifest has no indexed file baseline.');
+     const start=last+1,finish=start+entries.length-1;
+     if(finish>CATALOG_MAX_ROWS)throw new Error('Manifest maximum safe row count reached.');
+     if(!Array.isArray(source.destination)||source.destination.length<entries.length||
+        source.destination.some(row=>Array.isArray(row)&&row.some(cell=>cell!==''&&cell!==null&&cell!==undefined)))
+       throw new Error('A destination Manifest cell is occupied. Re-preview and resolve the row.');
+     const formula=catalogFormulaPlan(source.anchors,source.dashboard,finish,
+       source.indexRows,source.manifestRows,last);
+     if(!formula.ok)throw new Error(formula.reason);
+     const byFolder=new Map();
+     for(const [i,row] of source.folders.entries()){
+      const key=String(row?.[1]||'');
+      if(key&&byFolder.has(key))throw new Error('Folders contains duplicate paths.');
+      if(key)byFolder.set(key,{row:i+1,id:String(row?.[2]||'')});
+     }
+     const planned=[],ids=new Set();
+     for(let i=0;i<entries.length;i++){
+      const e=entries[i],folder=byFolder.get(e.folder);
+      if(!folder||folder.id!==e.folderId||!catalogCollection(e.folder)||
+         seen.has(e.fileId)||ids.has(e.fileId)||!catalogMime(e.mime))
+         throw new Error('File is indexed, repeated, outside the folder catalog or has unsupported media.');
+      const check=catalogDriveCheck(e,liveFiles[i]);
+      if(!check.ok)throw new Error(e.name+': '+check.reason);
+      ids.add(e.fileId);
+      planned.push({...e,row:start+i,version:check.version,
+        createdTime:check.createdTime,modifiedTime:check.modifiedTime,
+        folderRow:folder.row});
+     }
+     return {account,sheetId,start,finish,items:planned,formula,
+        overview:source.overview,baselineIDs:rows.map(r=>String(r?.[3]||'')),
+        folderSnapshot:source.folders,sourceRows:source.rows,sourceFinger:JSON.stringify({
+          rows:source.rows,folders:source.folders,destination:source.destination,anchors:source.anchors,
+          dashboard:source.dashboard,overview:source.overview,
+          indexRows:source.indexRows,manifestRows:source.manifestRows})};
+    }
+    function catalogEntryRow(entry){
+     if(!entry||!catalogId(entry.fileId)||!catalogName(entry.name)||
+        !catalogCollection(entry.folder)||!catalogMime(entry.mime))throw new Error('Invalid catalog entry.');
+     const cells=Array(32).fill('');
+     const write=(col,v)=>{cells[col]=v;};
+     write(0,entry.collection);write(1,entry.folder);write(2,entry.name);write(3,entry.fileId);
+     write(4,'https://drive.google.com/file/d/'+entry.fileId+'/view');
+     write(5,entry.mime);write(6,entry.size);
+     write(7,entry.createdTime);write(8,entry.modifiedTime);
+     write(10,'None');write(11,'Folder name only');
+     write(19,'Needs review — new Drive file indexed with owner approval; pixels not inspected');
+     write(20,'Approved catalog addition only. No original media, rename, EXIF, OCR or visual review performed.');
+     write(28,'Metadata from verified live Drive file; no visual inspection');
+     return cells;
+    }
+    function catalogRequests(plan,{manifestId,indexId,dashboardId,overviewId,foldersId}={}){
+     if(!plan||!Array.isArray(plan.items)||!plan.items.length||plan.items.length>CATALOG_LIMIT||
+        ![manifestId,indexId,dashboardId,overviewId,foldersId].every(x=>Number.isSafeInteger(x)&&x>=0)||
+        new Set([manifestId,indexId,dashboardId,overviewId,foldersId]).size!==5)
+       throw new Error('Catalog update needs verified, distinct native Sheet tab IDs.');
+     const cell=v=>v===''?{}:{userEnteredValue:typeof v==='number'?{numberValue:v}:{stringValue:v}};
+     const requests=[];
+     if(plan.formula.expandManifest)requests.push({updateSheetProperties:{properties:{sheetId:manifestId,gridProperties:{rowCount:plan.formula.target}},fields:'gridProperties.rowCount'}});
+     if(plan.formula.expandIndex)requests.push({updateSheetProperties:{properties:{sheetId:indexId,gridProperties:{rowCount:plan.formula.target}},fields:'gridProperties.rowCount'}});
+     requests.push({updateCells:{range:{sheetId:manifestId,startRowIndex:plan.start-1,endRowIndex:plan.finish,
+       startColumnIndex:0,endColumnIndex:32},rows:plan.items.map(e=>({values:catalogEntryRow(e).map(cell)})),fields:'userEnteredValue'}});
+     if(plan.formula.changedSearch)requests.push({updateCells:{range:{sheetId:indexId,startRowIndex:1,endRowIndex:2,startColumnIndex:0,endColumnIndex:13},
+       rows:[{values:plan.formula.search.map(f=>({userEnteredValue:{formulaValue:f}}))}],fields:'userEnteredValue'}});
+     if(plan.formula.changedDashboard)requests.push({updateCells:{range:{sheetId:dashboardId,startRowIndex:2,endRowIndex:7,startColumnIndex:1,endColumnIndex:2},
+       rows:plan.formula.dashboard.map(f=>({values:[{userEnteredValue:{formulaValue:f}}]})),fields:'userEnteredValue'}});
+     // Restore the previously static overview counters as durable, formula-driven totals.
+     const oformulas=[
+      '=COUNTA(Manifest!D2:D)', '=COUNTIF(Manifest!F2:F,"image/*")',
+      '=COUNTA(Manifest!D2:D)-COUNTIF(Manifest!F2:F,"image/*")',
+      '=COUNTIF(Manifest!A2:A,"Memes")','=COUNTIFS(Manifest!A2:A,"Memes",Manifest!F2:F,"image/*")',
+      '=COUNTIF(Manifest!A2:A,"Jacks Photos")','=COUNTIFS(Manifest!A2:A,"Jacks Photos",Manifest!F2:F,"image/*")'
+     ];
+     requests.push({updateCells:{range:{sheetId:overviewId,startRowIndex:9,endRowIndex:16,startColumnIndex:1,endColumnIndex:2},
+       rows:oformulas.map(f=>({values:[{userEnteredValue:{formulaValue:f}}]})),fields:'userEnteredValue'}});
+     const countByFolder=new Map();
+     for(const row of plan.sourceRows||[]){ // supplied from fresh Manifest metadata in the guarded browser.
+      const folder=String(row?.[1]||''),mime=String(row?.[5]||'');
+      if(!folder||!mime)continue;
+      if(!countByFolder.has(folder))countByFolder.set(folder,{total:0,images:0});
+      const x=countByFolder.get(folder);x.total++;if(mime.startsWith('image/'))x.images++;
+     }
+     for(const item of plan.items){
+      if(!countByFolder.has(item.folder))countByFolder.set(item.folder,{total:0,images:0});
+      const x=countByFolder.get(item.folder);x.total++;if(item.mime.startsWith('image/'))x.images++;
+     }
+     const folderRows=new Map();
+     for(const item of plan.items){
+      const counts=countByFolder.get(item.folder);
+      folderRows.set(item.folderRow,[counts.total,counts.images,counts.total-counts.images]);
+     }
+     for(const [row,values] of [...folderRows].sort((a,b)=>a[0]-b[0])){
+      requests.push({updateCells:{range:{sheetId:foldersId,startRowIndex:row-1,endRowIndex:row,startColumnIndex:4,endColumnIndex:7},
+        rows:[{values:values.map(cell)}],fields:'userEnteredValue'}});
+     }
+     return {requests,includeSpreadsheetInResponse:false};
+    }
+    return {CATALOG_LIMIT,CATALOG_MAX_ROWS,CATALOG_FORMULAS,catalogId,catalogName,catalogMime,catalogCollection,catalogCandidates,catalogDriveCheck,catalogFormulaPlan,catalogPlan,catalogEntryRow,catalogRequests};
+  })();
+  const CATALOG_JOURNAL_KEY='jack-vault-catalog-journal-v1';
+  function catalogJournalKey(ctx){
+   if(!ctx||!catalogReconcile.catalogId(ctx.account)||!catalogReconcile.catalogId(ctx.sheetId))
+    throw new Error('A connected account and Sheet are required for journal storage.');
+   return CATALOG_JOURNAL_KEY+'|'+ctx.account+'|'+ctx.sheetId;
+  }
+  function catalogContext(){return state.connected&&catalogReconcile.catalogId(state.driveIdentity)&&catalogReconcile.catalogId(state.config.sheetId)?
+   {account:state.driveIdentity,sheetId:state.config.sheetId,epoch:state.authEpoch}:null;}
+  function catalogLiveModel(){
+   const verified=!!state.lastFullScanAt&&!state.lastFallbackScanAt&&!state.discoveryError&&
+    !state.scanning&&!state.scanFailures.size&&state.syncedFolders.size===state.folderSources.length;
+   const ids=state.catalogManifestIDs?.size?state.catalogManifestIDs:new Set(state.inventory.map(x=>x.id));
+   return catalogReconcile.catalogCandidates(ids,state.folderSources,state.syncedFolders,{verified});
+  }
+  function catalogJournalSave(journal){
+   if(!journal){try{localStorage.removeItem(catalogJournalKey(catalogContext()));}catch{}return;}
+   // Only bounded metadata and status; no photo bytes, OAuth tokens or description text.
+   const safe={version:1,account:journal.account,sheetId:journal.sheetId,status:journal.status,
+    startedAt:journal.startedAt,items:journal.items.slice(0,10).map(x=>({
+     fileId:x.fileId,name:x.name,row:x.row,mime:x.mime,folder:x.folder,folderId:x.folderId}))};
+   const encoded=JSON.stringify(safe);
+   if(encoded.length>5500)throw new Error('Catalog recovery journal exceeded its size limit.');
+   localStorage.setItem(catalogJournalKey(journal),encoded);
+   state.catalogJournal=safe;
+  }
+  function catalogJournalLoad(){
+   state.catalogJournal=null;
+   try{
+    const ctx=catalogContext();
+    if(!ctx)return;
+    const raw=localStorage.getItem(catalogJournalKey(ctx));
+    if(!raw)return;
+    if(raw.length>5500)throw new Error('Catalog journal exceeds safe size.');
+    const j=JSON.parse(raw);
+    if(j.version!==1||!ctx||j.account!==ctx.account||j.sheetId!==ctx.sheetId||
+       !['submitting','uncertain','synced','not-applied'].includes(j.status)||
+       !Array.isArray(j.items)||!j.items.length||j.items.length>10||
+       j.items.some(x=>!catalogReconcile.catalogId(x.fileId)||!Number.isSafeInteger(x.row)||
+         x.row<2||!catalogReconcile.catalogName(x.name)))
+      throw new Error('Journal belongs to a different account or contains invalid metadata.');
+    state.catalogJournal=j;
+   }catch(error){
+    state.catalogMessage='Recovery journal unavailable: '+(error.message||error)+
+     '. Do not repeat an uncertain import; inspect the exact Drive IDs and Sheet first.';
+    state.catalogJournal={status:'uncertain',items:[],account:'',sheetId:''};
+   }
+  }
+  function catalogClearWorkspace(){
+   state.catalogSelected.clear();state.catalogPreview=null;state.catalogBusy=false;
+   state.catalogMessage='';state.catalogJournal=null;
+  }
+  function catalogRender(){
+   const model=catalogLiveModel(),ctx=catalogContext(),journal=state.catalogJournal;
+   const recover=journal&&['submitting','uncertain'].includes(journal.status);
+   const usable=!!ctx&&model.complete&&!state.catalogBusy&&!recover;
+   const selected=[...state.catalogSelected].filter(id=>model.ready.some(x=>x.fileId===id));
+   $('catalogSummary').textContent=state.catalogBusy?'Catalog operation in progress. '+state.catalogMessage:
+    !model.complete?model.reason:
+    model.ready.length+' unindexed file(s) eligible · '+model.blocked.length+
+    ' blocked (new folders, invalid metadata or missing roots) · no automatic writes.';
+   $('catalogMessage').textContent=state.catalogMessage||'A full Drive verification is required. Preview before requesting temporary Google Sheets edit permission.';
+   $('catalogSelect10').disabled=!usable||!model.ready.length;
+   $('catalogClear').disabled=!usable||!state.catalogSelected.size;
+   $('catalogPreviewButton').disabled=!usable||!selected.length;
+   $('catalogApplyButton').disabled=!usable||!state.catalogPreview;
+   $('catalogRecoverButton').hidden=!recover;
+   $('catalogRecoverButton').disabled=!ctx||state.catalogBusy||!journal?.items?.length;
+   $('catalogJournalStatus').textContent=journal?
+     'Recovery: '+journal.status+' · '+(journal.items?.length||0)+
+     ' file(s). '+(recover?'Inspect Sheet read-only before trying another import.':
+     journal.status==='synced'?'Independent verification completed.':'No write verified.'):
+     'No catalog write history on this device.';
+   const listing=model.ready.slice(0,120);
+   $('catalogCandidates').innerHTML=listing.length?listing.map(e=>
+    '<label class="catalog-candidate"><input type="checkbox" data-catalog-id="'+escapeHTML(e.fileId)+
+    '" '+(state.catalogSelected.has(e.fileId)?'checked ':'')+(usable?'':'disabled ')+
+    'aria-label="Select '+escapeHTML(e.name)+'"><span><strong>'+escapeHTML(e.name)+
+    '</strong><small>'+escapeHTML(e.folder)+' · '+escapeHTML(e.mime)+
+    ' · '+escapeHTML(e.fileId)+'</small></span></label>').join(''):
+    '<p class="activity-empty">No eligible unindexed files in the verified folders.</p>';
+   $('catalogBlocked').textContent=model.blocked.length?
+     model.blocked.slice(0,5).map(x=>x.name+' ('+x.reason+')').join(' · '):'';
+   $('catalogPreviewDetails').hidden=!state.catalogPreview;
+   if(state.catalogPreview){
+    const p=state.catalogPreview;
+    $('catalogPreviewList').innerHTML=p.items.map(x=>'<li><strong>'+escapeHTML(x.name)+
+     '</strong> · Manifest row '+x.row+' · '+escapeHTML(x.folder)+
+     ' · visual review remains pending</li>').join('');
+    $('catalogPreviewSummary').textContent='Read-only verified '+p.items.length+
+     ' exact Drive file(s), empty Manifest destination rows and 13 Search Index anchors. '+
+     (p.formula.changedSearch?'Search Index boundary will grow. ':'')+
+     (p.formula.changedDashboard?'Dashboard range will be repaired. ':'')+
+     'Folder counts and Overview totals will be reconciled. No Drive metadata or media will change.';
+   }
+  }
+  async function catalogLiveFile(id,token){
+   if(!catalogReconcile.catalogId(id))throw new Error('Invalid Drive file ID.');
+   const query=new URLSearchParams({fields:'id,name,mimeType,parents,trashed,version,size,createdTime,modifiedTime',
+     supportsAllDrives:'true'});
+   const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(id)+'?'+query;
+   if(token===state.accessToken)return googleGet(url);
+   const resp=await fetch(url,{method:'GET',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',
+     headers:{Authorization:'Bearer '+token}});
+   if(!resp.ok)throw new Error('Drive metadata returned HTTP '+resp.status);
+   return resp.json();
+  }
+  async function catalogReadSource(token,count){
+   const sheet=encodeURIComponent(state.config.sheetId);
+   const meta=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+sheet+
+     '?fields=sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))',token);
+   const pick=name=>{
+    const hits=(meta.sheets||[]).filter(x=>x.properties?.title===name);
+    if(hits.length!==1||!Number.isSafeInteger(hits[0].properties.sheetId))throw new Error('Missing or ambiguous '+name+' tab.');
+    return hits[0].properties;
+   };
+   const tabs={manifest:pick('Manifest'),index:pick('Search Index'),
+    folders:pick('Folders'),overview:pick('Overview'),dashboard:pick('Library Dashboard')};
+   const size=tabs.manifest.gridProperties?.rowCount;
+   if(!Number.isSafeInteger(size)||size<2||size>catalogReconcile.CATALOG_MAX_ROWS)
+     throw new Error('Manifest row count exceeds the safe supported range.');
+   const ranges=['Manifest!A1:B'+size,'Manifest!D1:D'+size,'Manifest!F1:F'+size,
+    'Manifest!A1:AF1','Folders!A1:G'+tabs.folders.gridProperties.rowCount,
+    "'Search Index'!A2:M2","'Library Dashboard'!B3:B7",'Overview!A10:B16'];
+   const params=new URLSearchParams({valueRenderOption:'FORMULA'});
+   ranges.forEach(x=>params.append('ranges',x));
+   const data=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+sheet+
+     '/values:batchGet?'+params,token);
+   if(!Array.isArray(data.valueRanges)||data.valueRanges.length!==ranges.length)
+     throw new Error('A required catalog source range could not be read.');
+   const v=data.valueRanges.map(x=>x.values||[]);
+   const header=v[3]?.[0]||[];
+   if(header[2]!=='Original filename'||header[3]!=='Drive file ID'||
+      header[5]!=='MIME type'||header[19]!=='Review status'||
+      header[28]!=='Analysis method')
+     throw new Error('Manifest schema differs; additions are blocked.');
+   const rows=[];
+   for(let i=1;i<Math.max(v[0].length,v[1].length,v[2].length);i++){
+    const row=[];row[0]=v[0][i]?.[0]||'';row[1]=v[0][i]?.[1]||'';
+    row[3]=v[1][i]?.[0]||'';row[5]=v[2][i]?.[0]||'';rows.push(row);
+   }
+   const last=rows.reduce((n,row,i)=>row[3]?i+2:n,1);
+   const start=last+1,end=start+count-1;
+   if(end>catalogReconcile.CATALOG_MAX_ROWS)throw new Error('Catalog capacity limit reached.');
+   const param=new URLSearchParams({valueRenderOption:'FORMULA'});
+   const tailKind=[];
+   // New rows may be beyond the current grid. Never ask Google Sheets to read
+   // an out-of-bounds A1 range before a separately approved grid expansion.
+   if(start<=size){
+    param.append('ranges','Manifest!A'+start+':AF'+Math.min(end,size));
+    tailKind.push('manifest');
+   }
+   if(start<=tabs.index.gridProperties.rowCount){
+    param.append('ranges',"'Search Index'!C"+start+':K'+
+     Math.min(end,tabs.index.gridProperties.rowCount));
+    tailKind.push('index');
+   }
+   let tailRanges=[];
+   if(tailKind.length){
+    const tails=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+sheet+
+     '/values:batchGet?'+param,token);
+    if(!Array.isArray(tails.valueRanges)||tails.valueRanges.length!==tailKind.length)
+      throw new Error('Manifest destination could not be verified.');
+    tailRanges=tails.valueRanges;
+   }
+   const tailAt=kind=>tailKind.indexOf(kind)>=0?tailRanges[tailKind.indexOf(kind)]?.values||[]:[];
+   const destination=Array.from({length:count},(_,i)=>tailAt('manifest')[i]||[]);
+   if(tailAt('index').some(r=>r.some(x=>x!=='')))
+     throw new Error('Search Index destination already has data. Refusing to overwrite it.');
+   return {tabs,rows,destination,folders:v[4],anchors:v[5][0]||[],
+    dashboard:v[6].map(r=>String(r?.[0]||'')),overview:v[7],
+    manifestRows:size,indexRows:tabs.index.gridProperties.rowCount};
+  }
+  async function catalogReadPreview(){
+   const ctx=catalogContext(),model=catalogLiveModel();
+   if(!ctx||!model.complete||state.catalogBusy)return;
+   const entries=[...state.catalogSelected].map(id=>model.ready.find(x=>x.fileId===id));
+   if(!entries.length||entries.length>catalogReconcile.CATALOG_LIMIT||entries.some(x=>!x)){
+    state.catalogMessage='Choose 1–10 eligible files in the verified Drive catalog.';catalogRender();return;
+   }
+   state.catalogBusy=true;state.catalogPreview=null;state.catalogMessage='Read-only preflight of live Drive files and Manifest identity…';
+   catalogRender();
+   try{
+    const lives=await Promise.all(entries.map(e=>catalogLiveFile(e.fileId,state.accessToken)));
+    const source=await catalogReadSource(state.accessToken,entries.length);
+    if(!catalogContext()||ctx.epoch!==state.authEpoch||ctx.sheetId!==state.config.sheetId||
+       ctx.account!==state.driveIdentity)throw new Error('Account changed during preview.');
+    const plan=catalogReconcile.catalogPlan(entries,lives,source,ctx);
+    state.catalogPreview=plan;
+    state.catalogMessage='Preview verified. No Sheet or Drive writes. Inspect the exact additions, then approve explicitly.';
+   }catch(error){state.catalogMessage='Preview blocked: '+(error.message||error);}
+   finally{state.catalogBusy=false;if(state.view==='health')catalogRender();}
+  }
+  function catalogSession(ctx){return !!ctx&&state.connected&&state.authEpoch===ctx.epoch&&
+   state.driveIdentity===ctx.account&&state.config.sheetId===ctx.sheetId;}
+  async function catalogVerifyRows(items,token){
+   const params=new URLSearchParams({valueRenderOption:'FORMATTED_VALUE'});
+   const start=items[0].row,end=items[items.length-1].row;
+   params.append('ranges','Manifest!A'+start+':F'+end);
+   params.append('ranges',"'Search Index'!C"+start+':K'+end);
+   const sheet='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(state.config.sheetId);
+   const data=await sheetWriteFetch(sheet+'/values:batchGet?'+params,token);
+   if(!Array.isArray(data.valueRanges)||data.valueRanges.length!==2)return {ok:false,reason:'Read-back ranges missing.'};
+   const manifest=data.valueRanges[0]?.values||[],index=data.valueRanges[1]?.values||[];
+   let confirmed=0;
+   for(const [i,item] of items.entries()){
+    const m=manifest[i]||[],ix=index[i]||[];
+    if(m[2]===item.name&&m[3]===item.fileId&&m[5]===item.mime&&
+       ix[0]===item.name&&ix[8]===item.fileId)confirmed++;
+   }
+   return {ok:confirmed===items.length,confirmed,total:items.length,
+    reason:confirmed===items.length?'Every Manifest row and formula-derived index identity verified.':
+      'Only '+confirmed+'/'+items.length+' appended files verified. Do not replay this batch.'};
+  }
+  async function catalogVerifyAccount(token,ctx){
+   const r=await fetch('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)',{
+    method:'GET',mode:'cors',credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer',
+    headers:{Authorization:'Bearer '+token}});
+   if(!r.ok)throw new Error('Cannot verify the temporary Sheets-write Google account.');
+   const data=await r.json();
+   if(data.user?.permissionId!==ctx.account)throw new Error('Temporary write grant belongs to another account.');
+  }
+  async function catalogApply(){
+   const plan=state.catalogPreview,ctx=catalogContext();
+   if(!plan||!ctx||state.catalogBusy||state.catalogJournal&&
+     ['submitting','uncertain'].includes(state.catalogJournal.status))return;
+   if(!confirm('Import '+plan.items.length+' newly discovered Drive file(s) into Manifest? This requires temporary broad Google Sheets edit permission. Nothing will be renamed or moved.'))return;
+   state.catalogBusy=true;state.catalogMessage='Waiting for temporary Sheets write authorization…';catalogRender();
+   let submitted=false;
+   try{
+    const token=await sheetWriteAuthorize('catalogSheetDesktop');
+    if(!catalogSession(ctx)||state.view!=='health')throw new Error('Account or view changed before approval.');
+    await catalogVerifyAccount(token,ctx);
+    const model=catalogLiveModel();
+    if(!model.complete||plan.items.some(x=>!model.ready.some(y=>y.fileId===x.fileId&&y.name===x.name&&y.folderId===x.folderId)))
+     throw new Error('The full Drive scan changed. Run verification again.');
+    const entries=plan.items.map(x=>model.ready.find(y=>y.fileId===x.fileId));
+    const live=await Promise.all(entries.map(x=>catalogLiveFile(x.fileId,token)));
+    const source=await catalogReadSource(token,entries.length);
+    const next=catalogReconcile.catalogPlan(entries,live,source,ctx);
+    if(next.sourceFinger!==plan.sourceFinger||next.start!==plan.start||
+       next.items.some((x,i)=>x.version!==plan.items[i].version))
+     throw new Error('Manifest, Drive version or formulas changed after preview. Re-preview.');
+    if(!confirm('FINAL APPROVAL: append '+next.items.length+' exact file ID(s) to Manifest rows '+
+      next.start+'–'+next.finish+', reconcile Search Index, Library Dashboard, Overview and affected folder counts? New files remain Needs Review. This cannot be undone by app-version rollback.'))throw new Error('Final approval cancelled. No writes sent.');
+    if(!catalogSession(ctx)||state.view!=='health')throw new Error('Session changed. No writes sent.');
+    // Live read immediately after final consent; Sheet does not support atomic compare-and-swap.
+    const finalLive=await Promise.all(entries.map(x=>catalogLiveFile(x.fileId,token)));
+    const fresh=await catalogReadSource(token,entries.length);
+    const last=catalogReconcile.catalogPlan(entries,finalLive,fresh,ctx);
+    if(last.sourceFinger!==next.sourceFinger||last.items.some((x,i)=>x.version!==plan.items[i].version))
+     throw new Error('Another edit happened during approval. No catalog write submitted.');
+    const batch=catalogReconcile.catalogRequests(last,{
+      manifestId:fresh.tabs.manifest.sheetId,indexId:fresh.tabs.index.sheetId,
+      foldersId:fresh.tabs.folders.sheetId,overviewId:fresh.tabs.overview.sheetId,
+      dashboardId:fresh.tabs.dashboard.sheetId});
+    const journal={account:ctx.account,sheetId:ctx.sheetId,status:'submitting',
+      startedAt:new Date().toISOString(),items:last.items};
+    catalogJournalSave(journal);
+    submitted=true;state.catalogMessage='Submitting one approved Sheets transaction. Awaiting read-back…';catalogRender();
+    const url='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(ctx.sheetId)+':batchUpdate';
+    const reply=await sheetWriteFetch(url,token,{method:'POST',payload:batch});
+    if(!Array.isArray(reply.replies)||reply.replies.length!==batch.requests.length)
+     throw new Error('Sheets batch response was incomplete. Read-only inspection required.');
+    const check=await catalogVerifyRows(last.items,token);
+    if(!check.ok)throw new Error(check.reason);
+    catalogJournalSave({...journal,status:'synced'});
+    submitted=false; // Never downgrade a confirmed Sheet commit due to a UI/log refresh error.
+    state.catalogPreview=null;state.catalogSelected.clear();
+    state.catalogMessage='Verified '+last.items.length+' new Manifest record(s) and Search Index identities. Original Drive files unchanged.';
+    try{
+     logActivity('sheet-write',{count:last.items.length});
+     await refreshSheetAndDrive();
+    }catch(refreshError){
+     state.catalogMessage+=' Gallery refresh could not complete; press Sync Sheet + Drive.';
+    }
+   }catch(error){
+    if(submitted){
+     const j=state.catalogJournal;
+     try{catalogJournalSave({...j,status:'uncertain'});}catch{}
+     state.catalogMessage='IMPORT UNCERTAIN: '+(error.message||error)+
+      ' Do not submit again. Use Read-only recovery to inspect Manifest and Search Index.';
+    }else state.catalogMessage='Catalog approval stopped before writing: '+(error.message||error);
+   }finally{state.catalogBusy=false;if(state.view==='health')catalogRender();}
+  }
+  async function catalogRecover(){
+   const ctx=catalogContext(),j=state.catalogJournal;
+   if(!ctx||!j||!['submitting','uncertain'].includes(j.status)||!j.items?.length||state.catalogBusy)return;
+   state.catalogBusy=true;state.catalogMessage='Checking the recorded exact Manifest rows and index identities without writing…';catalogRender();
+   try{
+    const checked=await catalogVerifyRows(j.items,state.accessToken);
+    if(!catalogSession(ctx))throw new Error('Account changed during recovery.');
+    if(checked.ok){
+     catalogJournalSave({...j,status:'synced'});
+     state.catalogMessage='Recovered: all '+checked.confirmed+' files are already indexed. No second POST was sent.';
+     state.catalogSelected.clear();state.catalogPreview=null;
+     await refreshSheetAndDrive();
+    }else if(checked.confirmed===0){
+     const source=await catalogReadSource(state.accessToken,j.items.length);
+     if(source.rows.some(r=>j.items.some(x=>x.fileId===r[3])))
+      throw new Error('Some identities appear at unexpected rows. Manual reconciliation required.');
+     catalogJournalSave({...j,status:'not-applied'});
+     state.catalogMessage='No exact rows or Drive IDs were found. Re-run full scan and preview before any new approval.';
+    }else{
+     state.catalogMessage='Partial or conflicting catalog state: '+checked.reason+
+      ' Manual inspection required. No write was attempted.';
+    }
+   }catch(error){state.catalogMessage='Recovery blocked: '+(error.message||error)+'. No write attempted.';}
+   finally{state.catalogBusy=false;if(state.view==='health')catalogRender();}
+  }
+  function catalogInitEvents(){
+   $('catalogSelect10').onclick=()=>{
+    const ids=catalogLiveModel().ready.slice(0,catalogReconcile.CATALOG_LIMIT);
+    state.catalogSelected=new Set(ids.map(x=>x.fileId));state.catalogPreview=null;catalogRender();
+   };
+   $('catalogClear').onclick=()=>{state.catalogSelected.clear();state.catalogPreview=null;catalogRender();};
+   $('catalogCandidates').onchange=event=>{
+    const id=event.target?.dataset?.catalogId;
+    if(!id||state.catalogBusy)return;
+    if(event.target.checked){
+     if(state.catalogSelected.size>=catalogReconcile.CATALOG_LIMIT){event.target.checked=false;return;}
+     state.catalogSelected.add(id);
+    }else state.catalogSelected.delete(id);
+    state.catalogPreview=null;catalogRender();
+   };
+   $('catalogPreviewButton').onclick=catalogReadPreview;
+   $('catalogApplyButton').onclick=catalogApply;
+   $('catalogRecoverButton').onclick=catalogRecover;
+  }
+  /* GENERATED CATALOG 11A END */
   async function readSpreadsheetSnapshot() {
       const id = encodeURIComponent(state.config.sheetId);
       const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G", "'Manifest'!T:T", "'Manifest'!AC:AC", "'Manifest'!R:R", "'Manifest'!AD:AD"];
@@ -3604,7 +4148,7 @@
       if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
       const baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
         .map(r=>({path:r[1],id:r[2],indexedTotal:Number(r[4]||0),inventoryPath:r[1],discovered:false}));
-    return {images,baseFolderSources};
+    return {images,baseFolderSources,manifestIDs:new Set(byId.keys())};
   }
   async function loadLiveIndex() {
     const authorizationEpoch=state.authEpoch;
@@ -3619,11 +4163,12 @@
         const about=await googleGet('https://www.googleapis.com/drive/v3/about?fields=user(permissionId)');
         if(safeId(about?.user?.permissionId))state.driveIdentity=about.user.permissionId;
       }catch{}
-      const {images,baseFolderSources}=await readSpreadsheetSnapshot();
+      const {images,baseFolderSources,manifestIDs}=await readSpreadsheetSnapshot();
       if(authorizationEpoch!==state.authEpoch||!state.accessToken)return;
       state.snapshotLoadedAt=new Date().toISOString();
       state.lastSyncError='';
       state.inventory=images;
+      state.catalogManifestIDs=manifestIDs;
       state.baseFolderSources=baseFolderSources;
       state.folderSources=baseFolderSources.slice();
       state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;
@@ -3631,6 +4176,8 @@
       clearThumbnailCache(); state.images = images; state.connected = true; state.folder = 'all'; state.page = 1;
       const reviewLoadWarning=loadReviewNotes();
       state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWriteMessage='';
+      state.catalogSelected.clear();state.catalogPreview=null;state.catalogBusy=false;state.catalogMessage='';
+      catalogJournalLoad();
       state.reconcilePrepared=null;state.reconcileMessage='';
       state.sheetUndoPreview=null;state.sheetUndoMessage='';
       state.driveUndoPreview=null;state.driveUndoMessage='';
@@ -3656,7 +4203,7 @@
       if(authorizationEpoch!==state.authEpoch)return;
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
-      state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+      state.inventory=[];state.catalogManifestIDs.clear();state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
       state.images=DEMO;state.connected=false;state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.reviewFilter='pending';state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
@@ -3699,6 +4246,8 @@
     const signature=folders=>folders.map(f=>f.path+':'+f.id).sort().join('|');
     const changedFolders=signature(snapshot.baseFolderSources)!==signature(state.baseFolderSources);
     state.inventory=snapshot.images;
+    state.catalogManifestIDs=snapshot.manifestIDs||new Set(snapshot.images.map(x=>x.id));
+    state.catalogPreview=null;
     state.snapshotLoadedAt=new Date().toISOString();
     state.lastSyncError='';
     state.baseFolderSources=snapshot.baseFolderSources;
@@ -4413,6 +4962,7 @@
     $('healthChanges').innerHTML=lines.length?lines.slice(0,200).join('')+
       (lines.length>200?'<li>Showing first 200 differences. Narrow your scan or export the inventory for a complete comparison.</li>':''):
       '<li>No file differences recorded in verified folders.</li>';
+    catalogRender();
   }
 
   function clearThumbnailCache() {
@@ -4450,9 +5000,10 @@
     saveBrowsingPosition();
     stopScans();stopVideo();similarityClearLocal();state.videoSessionEvidence.clear();renameDeskClear();
     state.snapshotLoadedAt=null;state.lastSyncAttemptAt=null;state.lastSyncSuccessAt=null;state.lastSyncError='';
-    clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
+    clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.catalogManifestIDs.clear();state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
+    catalogClearWorkspace();
     clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.reconcilePrepared=null;state.reconcileMessage='';state.managerFilter='all';state.managerQuery='';state.managerPage=1;filenameReviewReset();state.sheetUndoPreview=null;state.sheetUndoMessage='';state.driveUndoPreview=null;state.driveUndoMessage='';state.smartJournal=null;state.smartJournalError='';state.smartMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
@@ -7104,7 +7655,7 @@
     renderSheetWrite();
   }
   async function sheetWriteAuthorize(credentialPrefix='sheetWriteDesktop'){
-    if(!['sheetWriteDesktop','smartSheetDesktop'].includes(credentialPrefix))
+    if(!['sheetWriteDesktop','smartSheetDesktop','catalogSheetDesktop'].includes(credentialPrefix))
       throw new Error('Invalid Sheet authorization form.');
     if(IN_NATIVE_DESKTOP){
       const clientId=$(credentialPrefix+'Client').value.trim();
@@ -8985,6 +9536,7 @@
     };
     $('syncButton').onclick=()=>refreshSheetAndDrive();
     $('healthScanButton').onclick=()=>syncWithDrive({full:true});
+    catalogInitEvents();
     $('clearSyncCacheButton').onclick=()=>{
       clearLocalSyncCache();
       updateScanSummary('Local scan cache cleared. The next sign-in will perform a full read-only scan.');

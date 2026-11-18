@@ -742,6 +742,41 @@
           <div class="health-summary" id="syncStatus" role="status" aria-live="polite">Sync has not run yet.</div>
           <h2 class="health-heading">Recent differences</h2>
           <ul class="health-differences" id="healthChanges"><li>Run a scan to check for changes.</li></ul>
+          <section class="catalog-health-panel" aria-labelledby="catalogHeading">
+            <div class="catalog-health-header">
+              <div><p class="eyebrow">PHASE 11A · APPROVAL-ONLY RECONCILIATION</p><h2 id="catalogHeading">Self-Healing Catalog</h2>
+                <p>Bring newly discovered Drive media into the Manifest without renaming, moving, deleting or pretending to visually review a file. Complete a verified folder scan before previewing changes.</p></div>
+              <span class="catalog-safety">READ-ONLY UNTIL APPROVED</span>
+            </div>
+            <p id="catalogSummary" class="health-summary" role="status">Run Discover &amp; verify folders first.</p>
+            <p id="catalogMessage" class="privacy-note" role="status" aria-live="polite">No Google data has been changed.</p>
+            <div class="catalog-health-actions">
+              <button id="catalogSelect10" class="btn outline" type="button">Select first 10 missing</button>
+              <button id="catalogClear" class="btn quiet" type="button">Clear selection</button>
+              <button id="catalogPreviewButton" class="btn outline" type="button">Preview exact Manifest additions</button>
+            </div>
+            <div id="catalogCandidates" class="catalog-candidates" role="group" aria-label="Eligible unindexed Drive media"></div>
+            <p id="catalogBlocked" class="catalog-blocked"></p>
+            <div id="catalogPreviewDetails" class="catalog-preview" hidden>
+              <h3>Read-only approval preview</h3>
+              <p id="catalogPreviewSummary"></p>
+              <ol id="catalogPreviewList"></ol>
+              <div class="catalog-approval">
+                <div class="catalog-desktop-consent">
+                  <label for="catalogSheetDesktopClient">Windows Desktop OAuth client ID (native app only)</label>
+                  <input id="catalogSheetDesktopClient" class="field" type="text" autocomplete="off" spellcheck="false">
+                  <label for="catalogSheetDesktopSecret">Desktop OAuth client secret (not saved)</label>
+                  <input id="catalogSheetDesktopSecret" class="field" type="password" autocomplete="off">
+                </div>
+                <button id="catalogApplyButton" class="btn primary" type="button">Authorize &amp; approve import</button>
+              </div>
+            </div>
+            <div class="catalog-recovery">
+              <p id="catalogJournalStatus" role="status">No catalog write history on this device.</p>
+              <button id="catalogRecoverButton" class="btn outline" type="button" hidden>Read-only recovery check</button>
+            </div>
+            <p class="privacy-note">File IDs, Drive parents, source Sheet rows and formula anchors are verified before the single approved Sheets batch. New records remain <strong>Needs Review</strong>. The app uses a separate temporary Sheets edit grant and two confirmations. An uncertain write is never automatically retried.</p>
+          </section>
           <h2 class="health-heading">Verified folders and discovery status</h2>
           <div class="health-table-wrap"><table class="health-table"><thead><tr><th>Folder</th><th>Inventory</th><th>Live</th><th>Change</th></tr></thead><tbody id="healthRows"></tbody></table></div>
           <p class="privacy-note">The spreadsheet is a historical inventory, not a live database. Folder discovery and Drive changes update the gallery's read-only view without modifying or deleting any originals. Full discovery stays within the existing two library roots. The account-bound local cache stores metadata and a changes cursor only, never photo or video bytes or Google access tokens.</p>
