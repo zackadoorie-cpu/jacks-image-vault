@@ -25,7 +25,7 @@ const headers=Array(32).fill('');
 headers[2]='Original filename';headers[3]='Drive file ID';headers[5]='MIME type';
 headers[19]='Review status';headers[28]='Analysis method';
 function api(value,status=200){return new Response(JSON.stringify(value),{status,headers:{'content-type':'application/json'}});}
-function harness({wrongAccount=false,failPost=false,versionChange=false,consent=true}={}){
+function harness({wrongAccount=false,failPost=false,versionChange=false,consent=true,smallGrid=false}={}){
  const storage=new Map(),els=new Map(),requests=[],value=[];let wrote=false,posts=0;
  const el=id=>{
   if(!els.has(id))els.set(id,{id,innerHTML:'',textContent:'',value:'',hidden:false,
@@ -33,7 +33,7 @@ function harness({wrongAccount=false,failPost=false,versionChange=false,consent=
   return els.get(id);
  };
  const metadata={sheets:['Manifest','Search Index','Folders','Overview','Library Dashboard'].map((title,i)=>({
-  properties:{title,sheetId:200+i,gridProperties:{rowCount:title==='Overview'?40:title==='Folders'?100:2500,columnCount:32}}
+  properties:{title,sheetId:200+i,gridProperties:{rowCount:title==='Overview'?40:title==='Folders'?100:smallGrid&&['Manifest','Search Index'].includes(title)?2:2500,columnCount:32}}
  }))};
  function ranges(params){
   const rs=params.getAll('ranges');
@@ -144,4 +144,20 @@ test('ambiguous Google Sheet response is journaled and read-only recovery does n
  assert.equal(x.posts,1,'recovery is GET-only');
  assert.equal(x.h.state.catalogJournal.status,'not-applied');
  assert.equal(x.h.state.catalogPreview!==null,true,'no automatic write after uncertainty');
+});
+
+test('catalog preview never reads out of existing grid; approval expands native Sheet safely',async()=>{
+ const x=harness({smallGrid:true});
+ x.h.state.catalogSelected.add(fid);
+ await x.h.catalogReadPreview();
+ assert.ok(x.h.state.catalogPreview,'no out-of-bounds A1 query in read-only preview');
+ assert.equal(x.h.state.catalogPreview.start,3);
+ assert.equal(x.h.state.catalogPreview.formula.expandManifest,true);
+ assert.equal(x.h.state.catalogPreview.formula.expandIndex,true);
+ assert.ok(!x.requests.some(r=>r.url.includes('Manifest%21A3%3AAF3')),'no invalid destination range fetch');
+ await x.h.catalogApply();
+ assert.equal(x.h.state.catalogJournal.status,'synced',x.h.state.catalogMessage);
+ const post=x.requests.find(r=>r.method==='POST'&&r.url.includes(':batchUpdate'));
+ assert.ok(post);
+ assert.equal(post.payload.requests.filter(r=>r.updateSheetProperties).length,2);
 });
