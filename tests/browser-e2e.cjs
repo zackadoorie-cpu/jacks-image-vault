@@ -246,6 +246,21 @@ async function main(){
     assert.equal(polls>=2,true);
     assert.equal(await p.locator('#settingsDialog').evaluate(d=>d.open),false);
     assert.equal(await p.locator('#desktopClientSecretInput').inputValue(),'');
+    // Phase 11B: the connected naming desk must render source-backed Sheet
+    // proposals without issuing a Drive PATCH or Sheets POST.
+    await p.locator('#homeActionFilenameReview').click();
+    assert.equal(await p.locator('#filenameReviewView').isVisible(),true);
+    assert.match(await p.locator('#filenameReviewTitle').innerText(),/Naming Completion/);
+    await p.locator('#smartQueueFilter').selectOption('all');
+    assert.equal(await p.locator('#namingTotal').innerText(),'1');
+    assert.equal(await p.locator('#smartQueueList .naming-completion-card').count(),1);
+    assert.match(await p.locator('#smartQueueList').innerText(),/Airfield - Vintage Aircraft/);
+    await p.locator('#smartQueueSearch').fill('not-present-in-this-library');
+    assert.equal(await p.locator('#smartQueueList .naming-completion-card').count(),0);
+    await p.locator('#smartQueueSearch').fill('');
+    assert.equal(await p.locator('#smartQueueList .naming-completion-card').count(),1);
+    assert.equal(desktop.requests.some(m=>m==='PATCH'||m==='POST'),false,
+      'Browsing naming proposals must not modify Drive or Sheets');
     const cached=await p.evaluate(()=>JSON.stringify(localStorage));
     assert.equal(cached.includes('fixture-public-secret'),false,'Desktop secret persisted to browser storage');
     assert.equal(cached.includes('fake-e2e-token'),false,'Desktop access token persisted to browser storage');

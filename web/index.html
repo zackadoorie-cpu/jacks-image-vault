@@ -46,7 +46,7 @@
           <summary class="nav-group-toggle"><span>REVIEW &amp; HEALTH</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
           <div class="nav-group-items">
             <button class="nav-item" data-view="manager-desk"><span class="nav-icon">☷</span>Library Desk</button>
-            <button class="nav-item" data-view="filename-review"><span class="nav-icon">✎</span>Filename Review</button>
+            <button class="nav-item" data-view="filename-review"><span class="nav-icon">✎</span>Naming Completion</button>
             <button class="nav-item" data-view="review-inbox"><span class="nav-icon">▤</span>Review Inbox</button>
             <button class="nav-item" data-view="rename-desk"><span class="nav-icon">✎</span>Rename Desk</button>
             <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
@@ -132,7 +132,7 @@
             </div>
             <div class="home-shortcuts">
               <button type="button" id="homeActionVideos" class="home-shortcut"><span class="home-shortcut-icon">▶</span><strong>Video Library</strong><small>Titles, descriptions and clips</small><span aria-hidden="true">↗</span></button>
-              <button type="button" id="homeActionFilenameReview" class="home-shortcut"><span class="home-shortcut-icon">✎</span><strong>Filename Review</strong><small>Meme, photo and video proposals</small><span aria-hidden="true">↗</span></button>
+              <button type="button" id="homeActionFilenameReview" class="home-shortcut"><span class="home-shortcut-icon">✎</span><strong>Naming Completion</strong><small>Meme, photo and video proposals</small><span aria-hidden="true">↗</span></button>
               <button type="button" id="homeActionDesk" class="home-shortcut"><span class="home-shortcut-icon">☷</span><strong>Library Desk</strong><small>All review and approval steps together</small><span aria-hidden="true">↗</span></button>
               <button type="button" id="homeActionRename" class="home-shortcut"><span class="home-shortcut-icon">✎</span><strong>Rename Desk</strong><small>Review filename proposals</small><span aria-hidden="true">↗</span></button>
               <button type="button" id="homeActionCollections" class="home-shortcut"><span class="home-shortcut-icon">✦</span><strong>Smart Collections</strong><small>Explore your curated views</small><span aria-hidden="true">↗</span></button>
@@ -370,8 +370,8 @@
         </section>
         <section id="filenameReviewView" class="view hidden" aria-labelledby="filenameReviewTitle">
           <div class="gallery-heading"><div>
-            <p class="eyebrow">PHASE 10F · GUIDED SHEET PROPOSALS</p>
-            <h1 id="filenameReviewTitle">Intelligent Filename Review</h1>
+            <p class="eyebrow">PHASE 11B · NAMING COMPLETION</p>
+            <h1 id="filenameReviewTitle">Smart Naming Completion</h1>
             <p>One private naming desk for memes, photos and videos. Preview and export plans, or deliberately authorize one verified Google Drive filename change at a time. No background renames or Sheet edits.</p>
           </div></div>
           <p class="activity-boundary" role="note"><strong>Review before changing Drive.</strong> The app reads proposed filenames from Manifest R. Photo names may use verified EXIF dates from Manifest P, but descriptive Sheet proposals without EXIF never claim a camera date. Prepare one proposal at a time, inspect it, then independently approve its live Drive rename. No automatic renames.</p>
@@ -415,16 +415,50 @@
           <p id="filenameReviewMessage" class="activity-status" role="status" aria-live="polite">No filenames have been modified.</p>
           <p id="filenameImportStatus" class="activity-status" aria-live="polite">No imported filename plan.</p>
           <section id="smartRenameSection" class="activity-boundary sheet-write-panel" aria-label="Smart Rename Queue">
-            <p class="eyebrow">PHASE 10H · SOURCE-VERIFIED FILE NAMES</p>
-            <h2>Smart Rename Queue</h2>
+            <p class="eyebrow">PHASE 11B · SOURCE-VERIFIED FILE NAMES</p>
+            <h2>Naming Completion Queue</h2>
             <p>Select up to 25 reviewed names already in <strong>Manifest R</strong>. Preview every real Drive file and the exact Sheet source before approval. One temporary Drive metadata grant and one separate Sheets edit grant cover the selected session, but each file is verified and written individually. Neither import nor selection changes Google data.</p>
+            <div class="naming-summary-metrics" aria-label="Filename proposal lifecycle">
+              <div><small>Sheet proposals</small><strong id="namingTotal">—</strong></div>
+              <div><small>Ready to preview</small><strong id="namingReady">—</strong></div>
+              <div><small>Needs attention</small><strong id="namingNeedsReview">—</strong></div>
+              <div><small>Recorded in Sheet</small><strong id="namingSheetRecorded">—</strong></div>
+              <div><small>Drive changed, Sheet pending</small><strong id="namingNeedsSheet">—</strong></div>
+            </div>
+            <div class="naming-toolbar">
+              <label for="smartQueueSearch">Find a name, folder or Drive file ID
+                <input id="smartQueueSearch" class="field" type="search" maxlength="120" placeholder="Search the entire naming inventory…">
+              </label>
+              <label for="smartQueueFilter">Show
+                <select id="smartQueueFilter" class="select">
+                  <option value="unresolved">Outstanding proposals</option>
+                  <option value="all">All Sheet proposals</option>
+                  <option value="ready">Ready to preview</option>
+                  <option value="needs-review">Needs visual evidence</option>
+                  <option value="conflict">Filename conflicts</option>
+                  <option value="blocked">Blocked / source mismatch</option>
+                  <option value="needs-sheet">Drive renamed, Sheet pending</option>
+                  <option value="uncertain">Uncertain operation</option>
+                  <option value="sheet-recorded">Already recorded in Sheet</option>
+                  <option value="history">Completed / undone in journal</option>
+                  <option value="meme">Memes</option>
+                  <option value="photo">Photos</option>
+                  <option value="video">Videos</option>
+                </select>
+              </label>
+            </div>
             <div class="activity-quicklinks">
-              <button class="btn outline" id="smartSelect25" type="button">Select first 25 ready</button>
+              <button class="btn outline" id="smartSelect25" type="button">Select next 25 ready</button>
               <button class="btn outline" id="smartClearSelected" type="button">Clear selection</button>
               <button class="btn outline" id="smartPreviewSelected" type="button">Preview selected (read-only)</button>
             </div>
             <p id="smartQueueStatus" class="activity-status" role="status" aria-live="polite">Connect Google Drive to load Manifest R proposals.</p>
-            <div id="smartQueueList" class="activity-list" aria-label="Reviewed Sheet filename proposals"></div>
+            <div id="smartQueueList" class="activity-list naming-completion-list" aria-label="Sheet filename proposal lifecycle"></div>
+            <div class="activity-pages naming-pagination">
+              <button id="smartQueuePrev" class="btn outline" type="button">Previous</button>
+              <span id="smartQueuePage" role="status" aria-live="polite">—</span>
+              <button id="smartQueueNext" class="btn outline" type="button">Next</button>
+            </div>
             <section id="smartQueuePreview" class="activity-boundary" hidden>
               <h3>Verified Drive and formula-backed Sheet preview</h3>
               <p id="smartPreviewSummary">All selected records were checked without modification.</p>
@@ -478,7 +512,7 @@
             <span id="filenameReviewPage" aria-live="polite">—</span>
             <button id="filenameReviewNext" class="btn outline" type="button">Next</button>
           </div>
-          <p class="privacy-note">The export limit is 25 filename proposals, NOT 25 simultaneous renames. Importing a filename plan restores a local one-by-one queue. Keep the Drive IDs and private filename data safe. Phase 10B permits exactly one explicitly chosen, separately authorized Drive rename at a time, after a complete live metadata preflight and a final confirmation. Google Drive has no atomic compare-and-swap for this update, so an outside editor can still race the final write. Google Sheets is not updated by a Drive rename. Use Sheet Approvals to reconcile Manifest AD; Search Index C remains formula-derived. Saved Windows sign-in remains read-only.</p>
+          <p class="privacy-note">The export and Naming Completion batch limits are each 25 proposals. Approved batch renames are still performed one file at a time, with fresh per-file Drive and Sheet verification. Importing a filename plan restores a local one-by-one queue. Keep the Drive IDs and private filename data safe. Phase 10B permits exactly one explicitly chosen, separately authorized Drive rename at a time, after a complete live metadata preflight and a final confirmation. Google Drive has no atomic compare-and-swap for this update, so an outside editor can still race the final write. Google Sheets is not updated by a Drive rename. Use Sheet Approvals to reconcile Manifest AD; Search Index C remains formula-derived. Saved Windows sign-in remains read-only.</p>
         </section>
         <section id="renameDeskView" class="view hidden" aria-labelledby="renameDeskTitle">
           <div class="gallery-heading"><div>

@@ -389,6 +389,131 @@
     return {SMART_RENAME_SCHEMA,SMART_RENAME_LIMIT,SMART_RENAME_HISTORY_LIMIT,SMART_RENAME_MAX_BYTES,SMART_RENAME_STATES,smartRenameID,smartRenameValidName,smartRenameBuild,smartRenameEmpty,smartRenameValidEntry,smartRenameParse,smartRenameAppend,smartRenameMove,smartRenameTotals};
   })();
   /* GENERATED SMART RENAME QUEUE END */
+  /* GENERATED NAMING COMPLETION START */
+  const namingCompletion=(()=>{
+    const NAMING_COMPLETION_PAGE_SIZE=12;
+    const NAMING_COMPLETION_BATCH_LIMIT=25;
+    const NAMING_COMPLETION_FILTERS=Object.freeze([
+     'unresolved','all','ready','needs-review','conflict','blocked',
+     'needs-sheet','uncertain','sheet-recorded','history','meme','photo','video'
+    ]);
+    const NAMING_COMPLETION_PRIORITY={
+     ready:0,'needs-sheet':1,'needs-review':2,conflict:3,uncertain:4,
+     blocked:5,history:6,'sheet-recorded':7
+    };
+    function namingCompletionKind(item){
+     return String(item?.mime||'').startsWith('video/')?'video':
+       String(item?.folder||'').startsWith('Memes/')?'meme':'photo';
+    }
+    function namingCompletionValidProposal(proposal,original){
+     if(typeof proposal!=='string'||!proposal||proposal.length>96||proposal.trim()!==proposal||
+        /[\\/:*?"<>|\u0000-\u001f\u007f]/.test(proposal)||/[ .]$/.test(proposal)||
+        proposal.startsWith('='))return false;
+     const a=/(\.[A-Za-z0-9]{2,6})$/.exec(String(original||''))?.[0].toLowerCase();
+     const b=/(\.[A-Za-z0-9]{2,6})$/.exec(proposal)?.[0].toLowerCase();
+     if(!a||!b||a!==b)return false;
+     const stem=proposal.slice(0,-b.length);
+     if(/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem))return false;
+     return proposal.normalize('NFKC').toLocaleLowerCase('en-US')!==
+       String(original||'').normalize('NFKC').toLocaleLowerCase('en-US');
+    }
+    function namingCompletionStatus(item,source,journal,{duplicate=false}={}){
+     const suggested=String(item.manifestProposedName||'').trim();
+     const original=String(item.manifestOriginalName||'');
+     const current=String(item.manifestCurrentName||'');
+     const indexed=String(item.name||'');
+     if(duplicate)return {status:'blocked',reason:'The loaded inventory contains this Drive ID more than once. Sync and inspect the original Sheet before acting.'};
+     // Manifest AD is a recorded value, not a substitute for live Drive read-back.
+     if(current&&current===suggested&&indexed===suggested)
+       return {status:'sheet-recorded',reason:'Manifest AD and the formula-derived index record this name. A fresh live Drive check is still required for another change.'};
+     if(journal){
+      if(['drive-verified','undo-drive-verified'].includes(journal.status))
+       return {status:'needs-sheet',reason:'Verified Drive change awaiting a separate, explicitly approved Manifest AD sync.'};
+      if(/submitting|uncertain/.test(journal.status))
+       return {status:'uncertain',reason:'An operation may have reached Google. Inspect the exact Drive ID and Sheet before any retry.'};
+      if(['synced','undone'].includes(journal.status))
+       return {status:'history',reason:'A prior rename or undo has a verified local record. Inspect Activity before reapplying.'};
+      if(journal.status==='blocked')
+       return {status:'blocked',reason:'Previous batch was blocked. Inspect the recorded reason before another approval.'};
+     }
+     if(!source)return {status:'blocked',reason:'The proposal cannot be joined to a source-reviewed filename row in the current index.'};
+     if(source.status==='conflict')
+       return {status:'conflict',reason:source.reason||'Two source proposals or filenames collide.'};
+     if(!['reviewed','source-reviewed'].includes(source.stage))
+       return {status:'needs-review',reason:'Visual source evidence is not yet sufficient for a Drive rename.'};
+     if(source.status!=='ready'||!source.eligible||!source.sheetProposal)
+       return {status:'blocked',reason:source.reason||'The source review is not eligible for an automatic filename approval.'};
+     if(!namingCompletionValidProposal(suggested,original))
+      return {status:'blocked',reason:'Invalid, reserved or changed-extension filename proposal. No Drive update can be approved.'};
+     if(!original||source.oldName!==original||indexed!==original||
+        source.proposed!==suggested||source.row!==item.manifestRow||
+        !Number.isSafeInteger(item.indexRow)||item.indexRow<2||
+        current&&current!==indexed||item.newInDrive||source.mime!==item.mime||
+        source.folder!==item.folder)
+      return {status:'blocked',reason:'Indexed filename, Manifest C/R/AD, file ID or row identity differs. Reload and inspect the source.'};
+     if(!suggested||suggested===indexed)
+      return {status:'blocked',reason:'The proposed name is empty or already identical to the current name.'};
+     return {status:'ready',reason:'Source-reviewed Manifest R proposal. Full Drive identity, version and folder collision checks occur at read-only preview.'};
+    }
+    function namingCompletionBuild(media,review,journal,{filter='unresolved',query='',page=1,
+     pageSize=NAMING_COMPLETION_PAGE_SIZE}={}){
+     const items=Array.isArray(media)?media:[],rows=new Map((review?.rows||[]).map(x=>[x.fileId,x]));
+     const log=new Map((journal?.entries||[]).map(x=>[x.fileId,x]));
+     const idCount=new Map();
+     for(const item of items)if(item&&!item.demo&&item.id){
+      idCount.set(item.id,(idCount.get(item.id)||0)+1);
+     }
+     const counts={total:0,ready:0,needsReview:0,conflict:0,blocked:0,
+      needsSheet:0,uncertain:0,sheetRecorded:0,history:0};
+     const results=[];
+     for(const item of items){
+      if(!item||item.demo||item.newInDrive||!item.manifestProposedName)continue;
+      const proposal=String(item.manifestProposedName).trim();
+      if(!proposal)continue;
+      const source=rows.get(item.id);
+      const {status,reason}=namingCompletionStatus(item,source,log.get(item.id),
+       {duplicate:idCount.get(item.id)>1});
+      const rec={fileId:String(item.id||''),name:String(item.name||''),
+       original:String(item.manifestOriginalName||item.name||''),
+       proposal,folder:String(item.folder||''),mime:String(item.mime||''),
+       row:Number(item.manifestRow||0),indexRow:Number(item.indexRow||0),
+       kind:namingCompletionKind(item),status,reason,stage:source?.stage||'',
+       evidence:source?.source||'',journalStatus:log.get(item.id)?.status||''};
+      counts.total++;
+      if(status==='needs-review')counts.needsReview++;
+      else if(status==='needs-sheet')counts.needsSheet++;
+      else if(status==='sheet-recorded')counts.sheetRecorded++;
+      else counts[status]=(counts[status]||0)+1;
+      results.push(rec);
+     }
+     results.sort((a,b)=>(NAMING_COMPLETION_PRIORITY[a.status]??9)-
+      (NAMING_COMPLETION_PRIORITY[b.status]??9)||a.row-b.row||
+      a.fileId.localeCompare(b.fileId));
+     const chosen=NAMING_COMPLETION_FILTERS.includes(filter)?filter:'unresolved';
+     const term=String(query||'').trim().slice(0,120).normalize('NFKC').toLocaleLowerCase('en-US');
+     const filtered=results.filter(x=>{
+      if(chosen==='unresolved'&&['sheet-recorded','history'].includes(x.status))return false;
+      if(chosen!=='all'&&chosen!=='unresolved'&&
+          chosen!==x.status&&chosen!==x.kind)return false;
+      return !term||[x.name,x.original,x.proposal,x.folder,x.fileId,String(x.row),
+       x.kind,x.status,x.reason].some(v=>String(v).normalize('NFKC').toLocaleLowerCase('en-US').includes(term));
+     });
+     const size=Math.max(6,Math.min(40,Math.floor(Number(pageSize))||NAMING_COMPLETION_PAGE_SIZE));
+     const pages=Math.max(1,Math.ceil(filtered.length/size));
+     const at=Math.max(1,Math.min(pages,Math.floor(Number(page))||1));
+     return {connected:!!review?.connected,filter:chosen,query:term,
+      counts,all:results,filtered,page:at,pages,total:filtered.length,
+      items:filtered.slice((at-1)*size,at*size)};
+    }
+    function namingCompletionSelect(model,limit=NAMING_COMPLETION_BATCH_LIMIT){
+     if(!model?.connected)return [];
+     return model.filtered.filter(x=>x.status==='ready').slice(0,
+      Math.max(1,Math.min(NAMING_COMPLETION_BATCH_LIMIT,Number(limit)||NAMING_COMPLETION_BATCH_LIMIT)))
+      .map(x=>x.fileId);
+    }
+    return {NAMING_COMPLETION_PAGE_SIZE,NAMING_COMPLETION_BATCH_LIMIT,NAMING_COMPLETION_FILTERS,namingCompletionKind,namingCompletionValidProposal,namingCompletionStatus,namingCompletionBuild,namingCompletionSelect};
+  })();
+  /* GENERATED NAMING COMPLETION END */
   /* GENERATED FILENAME RECONCILE START */
   const filenameReconcile=(()=>{
     const RECONCILE_DRIVE_KINDS=['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'];
@@ -1114,6 +1239,9 @@
     filenameStaged: new Set(),
     filenameImportedQueue: [],
     smartSelected: new Set(),
+    namingFilter: 'unresolved',
+    namingQuery: '',
+    namingPage: 1,
     smartPreview: null,
     smartUndoPreview: null,
     smartBusy: false,
@@ -6235,6 +6363,7 @@
     state.filenameDrafts.clear();state.filenameStaged.clear();
     state.filenameImportedQueue=[];state.filenameMessage='';
     state.smartSelected.clear();state.smartPreview=null;state.smartUndoPreview=null;
+    state.namingFilter='unresolved';state.namingQuery='';state.namingPage=1;
     state.renamePrepared=null;
   }
   function filenameReviewCurrent(row){
@@ -6466,37 +6595,80 @@
     }
     $('smartUndoApply').disabled=state.smartBusy||!state.smartUndoPreview;
   }
+  function namingCompletionModel(){
+    return namingCompletion.namingCompletionBuild(state.images,filenameReviewModel(),state.smartJournal,{
+      filter:state.namingFilter,query:state.namingQuery,page:state.namingPage
+    });
+  }
   function renderSmartQueue(){
     const connected=state.connected&&!!activityContext()&&!state.smartJournalError;
-    const model=filenameReviewModel();
-    const proposals=model.rows.filter(x=>x.sheetProposal&&x.status==='ready'&&
-      ['reviewed','source-reviewed'].includes(x.stage));
-    const journalIds=new Set((state.smartJournal?.entries||[]).filter(e=>e.status!=='ready').map(e=>e.fileId));
-    const eligible=proposals.filter(x=>!journalIds.has(x.fileId));
-    $('smartSelect25').disabled=!connected||state.smartBusy||state.renameBusy||state.sheetWriteBusy||!eligible.length;
+    const model=namingCompletionModel();
+    state.namingPage=model.page;
+    const counts=model.counts,filteredReady=namingCompletion.namingCompletionSelect(model);
+    const blocked=counts.needsReview+counts.conflict+counts.blocked+counts.uncertain;
+    const controlMetrics={
+      namingTotal:counts.total,namingReady:counts.ready,
+      namingNeedsReview:blocked,namingSheetRecorded:counts.sheetRecorded,
+      namingNeedsSheet:counts.needsSheet
+    };
+    for(const [id,value] of Object.entries(controlMetrics))
+      $(id).textContent=model.connected?format(value):'—';
+    $('smartQueueSearch').value=state.namingQuery;
+    $('smartQueueSearch').disabled=!connected;
+    $('smartQueueFilter').value=model.filter;
+    $('smartQueueFilter').disabled=!connected;
+    $('smartSelect25').disabled=!connected||state.smartBusy||state.renameBusy||
+      state.sheetWriteBusy||filteredReady.length===0;
     $('smartClearSelected').disabled=state.smartBusy||!state.smartSelected.size;
     $('smartPreviewSelected').disabled=!connected||state.smartBusy||state.renameBusy||
       state.sheetWriteBusy||!state.smartSelected.size;
     $('smartApprove').disabled=state.smartBusy||!state.smartPreview;
+    $('smartQueuePrev').disabled=!connected||model.page<=1;
+    $('smartQueueNext').disabled=!connected||model.page>=model.pages;
+    $('smartQueuePage').textContent=connected?
+      model.page+' / '+model.pages+' · '+model.total+' match(es) · '+
+      state.smartSelected.size+' selected':'—';
     $('smartQueueStatus').textContent=state.smartMessage||
-      (connected?eligible.length+' reviewed Manifest R proposals available. Select up to 25 and preview first.':
-        'Connect your Google account and a verified inventory to begin.');
-    $('smartQueueList').innerHTML=eligible.length?
-      eligible.slice(0,80).map(x=>'<article class="activity-entry"><div class="activity-entry-main">'+
-        '<span class="activity-entry-type">'+escapeHTML(x.kind.toUpperCase())+
-        ' · MANIFEST '+x.row+'</span>'+
-        '<h3>'+escapeHTML(x.oldName)+'</h3>'+
-        '<p>Proposed: '+escapeHTML(x.proposed)+'</p>'+
-        '<small>'+escapeHTML(x.folder)+'</small></div>'+
-        '<label><input type="checkbox" data-smart-select="'+escapeHTML(x.fileId)+'" '+
-        (state.smartSelected.has(x.fileId)?'checked ':'')+
-        (state.smartBusy?'disabled ':'')+
-        'aria-label="Select '+escapeHTML(x.oldName)+'"> Select</label></article>').join(''):
-      '<p class="activity-empty">'+(connected?'No new reviewed Manifest R proposals are eligible, or existing operations are recorded in progress.':'Connect Drive to list proposals.')+'</p>';
+      (connected?counts.total+' Manifest R proposals · '+counts.ready+
+        ' ready for verified preview · '+counts.sheetRecorded+
+        ' already recorded in Sheet · '+blocked+' need attention. '+
+        'Catalog names are not proof of live Drive names.':
+        'Connect Google Drive and a verified Sheet to review filename proposals.');
+    $('smartQueueList').innerHTML=model.items.length?
+      model.items.map(row=>{
+        const escape=escapeHTML,ready=row.status==='ready';
+        const checked=state.smartSelected.has(row.fileId);
+        const status=row.status==='sheet-recorded'?'SHEET-RECORDED':
+          row.status==='needs-sheet'?'DRIVE VERIFIED · SHEET PENDING':
+          row.status==='needs-review'?'NEEDS VISUAL REVIEW':
+          row.status==='history'?'PRIOR OPERATION':row.status.toUpperCase();
+        const evidence=row.evidence?' · '+row.evidence:'';
+        return '<article class="naming-completion-card" data-naming-status="'+escape(row.status)+'">'+
+          '<button class="tile-preview naming-thumb" type="button" data-open-image="'+escape(row.fileId)+
+          '" aria-label="Inspect media for '+escape(row.name)+'">'+
+          '<div class="tile-placeholder"><span class="placeholder-symbol">'+
+          (row.kind==='video'?'▶':'▧')+'</span><small>Open media</small></div></button>'+
+          '<div class="naming-content">'+
+          '<span class="naming-status">'+escape(row.kind)+' · '+escape(status)+'</span>'+
+          '<h3>'+escape(row.name)+'</h3>'+
+          '<p class="naming-proposed">Suggested: '+escape(row.proposal)+'</p>'+
+          '<p>Catalog original: '+escape(row.original)+'</p>'+
+          '<p>'+escape(row.folder)+' · Manifest '+escape(String(row.row))+
+          ' · '+escape(row.fileId)+'</p>'+
+          '<p class="naming-reason">'+escape(row.reason+evidence)+'</p>'+
+          (ready?'<label><input type="checkbox" data-smart-select="'+escape(row.fileId)+'" '+
+          (checked?'checked ':'')+(connected&&!state.smartBusy?'':'disabled ')+
+          'aria-label="Select '+escape(row.name)+' for verified preview"> Select for preview</label>':'')+
+          '</div></article>';
+      }).join(''):
+      '<p class="activity-empty">'+(connected?
+        'No proposals match this filter. Choose All proposals or clear the search.':
+        'Connect your Drive account and Sheet to inspect proposals.')+'</p>';
     $('smartQueuePreview').hidden=!state.smartPreview;
     if(state.smartPreview){
       $('smartPreviewSummary').textContent=state.smartPreview.entries.length+
-        ' files passed live Drive identity, permission, complete folder collision scan, version, exact Manifest/index Drive IDs, and source formula checks. Google has not been asked to edit anything.';
+        ' files passed live Drive identity: ID, current name, parent, canRename, version, complete folder collision checks, '+
+        'Manifest/index identities and formula anchors. No remote write has been requested.';
       $('smartPreviewList').innerHTML=state.smartPreview.entries.map(x=>
         '<article class="activity-entry"><div class="activity-entry-main"><strong>'+
         escapeHTML(x.drivePlan.oldName)+' → '+escapeHTML(x.drivePlan.newName)+
@@ -6505,6 +6677,18 @@
         ' · '+escapeHTML(x.drivePlan.fileId)+'</p></div></article>').join('');
     }
     smartQueueRenderProgress();
+    // Reuse the existing authenticated, bounded thumbnail pipeline.
+    // This never stores media or access tokens in the proposal records.
+    if(state.connected&&state.view==='filename-review'){
+      const byId=new Map(state.images.map(x=>[x.id,x]));
+      for(const row of model.items.slice(0,8)){
+        const image=byId.get(row.fileId);
+        if(!image||mediaKind(image)==='pdf')continue;
+        const cached=state.thumbCache.get(row.fileId);
+        if(cached)paintThumb(row.fileId,cached);
+        else if(!state.thumbErrors.has(row.fileId))requestThumb(image);
+      }
+    }
   }
   async function smartPreviewSelected(){
     if(state.smartBusy||state.renameBusy||state.sheetWriteBusy||!state.connected)return;
@@ -6517,15 +6701,20 @@
       const plans=smartQueueCandidatePlans();
       if(plans.some(p=>smartJournalEntry(p.entry.fileId)&&smartJournalEntry(p.entry.fileId).status!=='ready'))
         throw new Error('A selected file already has a progress history; inspect it before reapplying.');
-      const items=[];
+      const items=[],folderListings=new Map();
       for(let i=0;i<plans.length;i++){
         const {drivePlan,reconcilePlan,entry}=plans[i];
         if(!smartSession(ctx,epoch))throw new Error('Account or screen changed during read-only preview.');
         state.smartMessage='Read-only verification '+(i+1)+' of '+plans.length+': '+drivePlan.oldName;
         renderSmartQueue();
+        // A preview may contain 25 proposals in the same folder. One complete
+        // read-only sibling snapshot is sufficient for preview, while the
+        // actual guarded rename rereads the folder before EACH write.
+        if(!folderListings.has(entry.folderId))
+          folderListings.set(entry.folderId,driveRenameLiveFolder(entry.folderId,state.accessToken));
         const [live,siblings,sheet]=await Promise.all([
           driveRenameLiveFile(entry.fileId,state.accessToken),
-          driveRenameLiveFolder(entry.folderId,state.accessToken),
+          folderListings.get(entry.folderId),
           reconcileReadSheet(reconcilePlan,state.accessToken)
         ]);
         const dc=driveRename.driveRenameCheck(drivePlan,live,siblings);
@@ -9193,15 +9382,26 @@
     };
     $('filenameNextImported').onclick=filenameReviewNextImported;
     $('filenameNextSheet').onclick=()=>filenameReviewFocusSheet();
+    $('smartQueueSearch').oninput=event=>{
+      state.namingQuery=event.target.value.slice(0,120);
+      state.namingPage=1;renderSmartQueue();
+    };
+    $('smartQueueFilter').onchange=event=>{
+      if(!namingCompletion.NAMING_COMPLETION_FILTERS.includes(event.target.value))return;
+      state.namingFilter=event.target.value;state.namingPage=1;renderSmartQueue();
+    };
+    $('smartQueuePrev').onclick=()=>{
+      state.namingPage=Math.max(1,state.namingPage-1);renderSmartQueue();
+    };
+    $('smartQueueNext').onclick=()=>{
+      state.namingPage++;renderSmartQueue();
+    };
     $('smartSelect25').onclick=()=>{
       if(state.smartBusy||state.renameBusy||state.sheetWriteBusy)return;
-      const model=filenameReviewModel();
-      const old=new Set((state.smartJournal?.entries||[]).filter(x=>x.status!=='ready').map(x=>x.fileId));
-      state.smartSelected=new Set(model.rows.filter(row=>row.sheetProposal&&row.status==='ready'&&
-        !old.has(row.fileId)&&['reviewed','source-reviewed'].includes(row.stage))
-        .slice(0,smartRenameQueue.SMART_RENAME_LIMIT).map(row=>row.fileId));
+      state.smartSelected=new Set(namingCompletion.namingCompletionSelect(namingCompletionModel()));
       state.smartPreview=null;state.smartUndoPreview=null;
-      state.smartMessage=state.smartSelected.size+' reviewed Manifest R files selected. Preview before approval; no changes yet.';
+      state.smartMessage=state.smartSelected.size+
+        ' ready Manifest R proposals selected from this filter. Live Drive and Sheet preview is required before approval.';
       renderSmartQueue();
     };
     $('smartClearSelected').onclick=()=>{
@@ -9209,6 +9409,11 @@
       state.smartSelected.clear();state.smartPreview=null;state.smartUndoPreview=null;
       state.smartMessage='Selection cleared. The private progress and undo journal was retained.';
       renderSmartQueue();
+    };
+    $('smartQueueList').onclick=event=>{
+      const button=event.target.closest('button[data-open-image]');
+      if(button&&$('smartQueueList').contains(button)&&state.connected)
+        openImage(button.dataset.openImage,button);
     };
     $('smartQueueList').onchange=event=>{
       const input=event.target.closest('input[data-smart-select]');
