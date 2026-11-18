@@ -18,10 +18,10 @@ function namingCompletionKind(item){
 }
 function namingCompletionValidProposal(proposal,original){
  if(typeof proposal!=='string'||!proposal||proposal.length>96||proposal.trim()!==proposal||
-    /[\\\\/:*?"<>|\\u0000-\\u001f\\u007f]/.test(proposal)||/[ .]$/.test(proposal)||
+    /[\\/:*?"<>|\u0000-\u001f\u007f]/.test(proposal)||/[ .]$/.test(proposal)||
     proposal.startsWith('='))return false;
- const a=/(\\.[A-Za-z0-9]{2,6})$/.exec(String(original||''))?.[0].toLowerCase();
- const b=/(\\.[A-Za-z0-9]{2,6})$/.exec(proposal)?.[0].toLowerCase();
+ const a=/(\.[A-Za-z0-9]{2,6})$/.exec(String(original||''))?.[0].toLowerCase();
+ const b=/(\.[A-Za-z0-9]{2,6})$/.exec(proposal)?.[0].toLowerCase();
  if(!a||!b||a!==b)return false;
  const stem=proposal.slice(0,-b.length);
  if(/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem))return false;
