@@ -77,7 +77,7 @@ function catalogFormulaPlan(anchors,dashboard,required,indexRows,manifestRows,ex
  }
  if(ends.size!==1)return {ok:false,reason:'The Search Index has inconsistent source boundaries.'};
  const current=[...ends][0];
- if(!Number.isSafeInteger(current)||current<existingLast||current>CATALOG_MAX_ROWS)
+ if(!Number.isSafeInteger(current)||current<2||current>CATALOG_MAX_ROWS)
    return {ok:false,reason:'The Search Index boundary is invalid or too short for the existing inventory.'};
  for(const f of dashboard){
   if(typeof f!=='string'||!/^=COUNT(?:A|IF|IFS)\(/.test(f))return {ok:false,reason:'Library Dashboard formulas have changed.'};
