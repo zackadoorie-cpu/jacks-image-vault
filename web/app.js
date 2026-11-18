@@ -3918,14 +3918,29 @@
    const start=last+1,end=start+count-1;
    if(end>catalogReconcile.CATALOG_MAX_ROWS)throw new Error('Catalog capacity limit reached.');
    const param=new URLSearchParams({valueRenderOption:'FORMULA'});
-   param.append('ranges','Manifest!A'+start+':AF'+end);
-   param.append('ranges',"'Search Index'!C"+start+':K'+Math.min(end,tabs.index.gridProperties.rowCount));
-   const tails=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+sheet+
-    '/values:batchGet?'+param,token);
-   if(!Array.isArray(tails.valueRanges)||tails.valueRanges.length!==2)
-     throw new Error('Manifest destination could not be verified.');
-   const destination=Array.from({length:count},(_,i)=>tails.valueRanges[0]?.values?.[i]||[]);
-   if(tails.valueRanges[1]?.values?.some(r=>r.some(x=>x!=='')))
+   const tailKind=[];
+   // New rows may be beyond the current grid. Never ask Google Sheets to read
+   // an out-of-bounds A1 range before a separately approved grid expansion.
+   if(start<=size){
+    param.append('ranges','Manifest!A'+start+':AF'+Math.min(end,size));
+    tailKind.push('manifest');
+   }
+   if(start<=tabs.index.gridProperties.rowCount){
+    param.append('ranges',"'Search Index'!C"+start+':K'+
+     Math.min(end,tabs.index.gridProperties.rowCount));
+    tailKind.push('index');
+   }
+   let tailRanges=[];
+   if(tailKind.length){
+    const tails=await sheetWriteFetch('https://sheets.googleapis.com/v4/spreadsheets/'+sheet+
+     '/values:batchGet?'+param,token);
+    if(!Array.isArray(tails.valueRanges)||tails.valueRanges.length!==tailKind.length)
+      throw new Error('Manifest destination could not be verified.');
+    tailRanges=tails.valueRanges;
+   }
+   const tailAt=kind=>tailKind.indexOf(kind)>=0?tailRanges[tailKind.indexOf(kind)]?.values||[]:[];
+   const destination=Array.from({length:count},(_,i)=>tailAt('manifest')[i]||[]);
+   if(tailAt('index').some(r=>r.some(x=>x!=='')))
      throw new Error('Search Index destination already has data. Refusing to overwrite it.');
    return {tabs,rows,destination,folders:v[4],anchors:v[5][0]||[],
     dashboard:v[6].map(r=>String(r?.[0]||'')),overview:v[7],
