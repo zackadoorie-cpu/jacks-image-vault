@@ -48,7 +48,7 @@ test('duplicate scan IDs and missing/incomplete folder baselines fail closed',()
  assert.equal(C.catalogCandidates([],[],new Map(),{verified:true}).complete,false);
  assert.equal(C.catalogCandidates([],[folder,folder],data,{verified:true}).complete,false);
  assert.equal(C.catalogCandidates([],[folder],new Map(),{verified:true}).complete,false);
- assert.equal(C.catalogCandidates([],[folder],new Map([[e.folder,[data.get(e.folder)[0],data.get(e.folder)[0]]]),{verified:true}).complete,false);
+ assert.equal(C.catalogCandidates([],[folder],new Map([[e.folder,[data.get(e.folder)[0],data.get(e.folder)[0]]]]),{verified:true}).complete,false);
 });
 test('new import includes metadata only; review status always remains pending',()=>{
  const e=entry(),plan=C.catalogPlan([e],[live(e)],src(),ctx),row=C.catalogEntryRow(plan.items[0]);
