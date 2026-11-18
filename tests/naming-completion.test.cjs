@@ -38,7 +38,7 @@ test('full search across pages finds later proposals, IDs, folder names and exac
  assert.equal(view.page,16);
  view=build(list,{query:list[179].item.id});
  assert.equal(view.total,1);assert.equal(view.items[0].fileId,list[179].item.id);
- view=build(list,{query:'181'});
+ view=build(list,{query:list[179].item.id});
  assert.equal(view.total,1);assert.equal(view.items[0].row,181);
  view=build(list,{query:'TRIP - GOLDEN SUNSET 00189'});
  assert.equal(view.total,1);assert.equal(view.items[0].fileId,list[189].item.id);
@@ -104,7 +104,8 @@ test('unknown filter and hostile spreadsheet content are not trusted as live Dri
  f.row.proposed=f.item.manifestProposedName;
  let result=build([f],{filter:'random-injection'});
  assert.equal(result.filter,'unresolved');
- assert.equal(result.counts.ready,1,'pure inbox only shows source engine eligibility; write path must still reject invalid names');
+ assert.equal(result.counts.ready,0,'inbox must reject a spoofed unsafe source proposal');
+ assert.equal(result.counts.blocked,1);
  assert.equal(result.items[0].proposal,f.item.manifestProposedName);
  // Browser uses escapeHTML and Phase10H validation again before live preview.
  const notIndexed=fixture(12);notIndexed.item.manifestRow=999;
