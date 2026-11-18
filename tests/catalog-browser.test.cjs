@@ -123,7 +123,7 @@ test('two consent gates allow exactly one Sheet POST, no Drive changes, and veri
  assert.equal(x.h.state.catalogPreview,null);
  assert.equal(x.h.state.catalogSelected.size,0);
  assert.equal(x.requests.filter(x=>x.method==='PATCH'||x.method==='DELETE').length,0);
- const record=x.storage.get('jack-vault-catalog-journal-v1');
+ const record=x.storage.get('jack-vault-catalog-journal-v1|'+account+'|'+sheetId);
  assert.ok(record.includes(fid)&&!record.includes('fixture_write_token'));
 });
 test('declining approval or wrong-account grant never submits a Sheet write',async()=>{
