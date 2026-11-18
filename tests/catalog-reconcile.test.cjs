@@ -129,3 +129,11 @@ test('portable browser bundle remains in sync with testable source',()=>{
  }
  assert.match(app,/catalogJournalSave/);assert.match(app,/catalogReconcile\.catalogRequests/);
 });
+
+test('stale historic Search Index endpoint is safely extended instead of losing new entries',()=>{
+ const e=entry(200),old=src({count:12,end:10,manifestRows:2500,indexRows:2500});
+ const plan=C.catalogPlan([e],[live(e)],old,ctx);
+ assert.equal(plan.start,14);
+ assert.equal(plan.formula.changedSearch,true);
+ assert.ok(plan.formula.search.every(x=>x.includes('2500')));
+});
