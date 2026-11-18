@@ -25,7 +25,8 @@ function catalogCandidates(inventory,folders,scanned,{verified=false}={}){
  const indexed=new Set(inventory.map(x=>x.id)),all=new Set(),ready=[],blocked=[];
  const paths=new Set(),folderIDs=new Set();
  for(const folder of folders){
-  if(!catalogId(folder?.id)||typeof folder.path!=='string'||!catalogCollection(folder.path)||
+  if(!catalogId(folder?.id)||typeof folder.path!=='string'||
+     (!catalogCollection(folder.path)&&!['Memes','Jacks Photos'].includes(folder.path))||
      paths.has(folder.path)||folderIDs.has(folder.id)||!scanned.has(folder.path))
    return {...empty,reason:'The verified folder tree is inconsistent. Run Full rescan.'};
   paths.add(folder.path);folderIDs.add(folder.id);
@@ -39,7 +40,8 @@ function catalogCandidates(inventory,folders,scanned,{verified=false}={}){
    const entry={fileId:file.id,name:file.name,folder:folder.path,folderId:folder.id,
      collection:catalogCollection(folder.path),mime:file.mimeType,
      size:Number(file.size||0),modifiedTime:String(file.modifiedTime||'')};
-   const reason=folder.missing?'Folder is missing from the verified collection roots.':
+   const reason=!entry.collection?'Media in a collection root requires an indexed folder.':
+     folder.missing?'Folder is missing from the verified collection roots.':
      folder.discovered?'A new folder needs its own indexed Folders row before catalog import.':
      !catalogName(file.name)?'The Drive filename is not a safe Sheet literal.':
      !Number.isSafeInteger(entry.size)||entry.size<0?'The Drive size is invalid.':'';
@@ -60,7 +62,7 @@ function catalogDriveCheck(entry,live){
  return {ok:true,version:String(live.version),createdTime:String(live.createdTime||''),
    modifiedTime:String(live.modifiedTime||'')};
 }
-function catalogFormulaPlan(anchors,dashboard,required,indexRows,manifestRows){
+function catalogFormulaPlan(anchors,dashboard,required,indexRows,manifestRows,existingLast=required){
  if(!Array.isArray(anchors)||anchors.length!==CATALOG_FORMULAS||
     !Array.isArray(dashboard)||dashboard.length!==5||!Number.isSafeInteger(required)||
     required<2||required>CATALOG_MAX_ROWS)return {ok:false,reason:'Unexpected formula schema or row capacity.'};
@@ -75,7 +77,7 @@ function catalogFormulaPlan(anchors,dashboard,required,indexRows,manifestRows){
  }
  if(ends.size!==1)return {ok:false,reason:'The Search Index has inconsistent source boundaries.'};
  const current=[...ends][0];
- if(!Number.isSafeInteger(current)||current<required-1||current>CATALOG_MAX_ROWS)
+ if(!Number.isSafeInteger(current)||current<existingLast||current>CATALOG_MAX_ROWS)
    return {ok:false,reason:'The Search Index boundary is invalid or too short for the existing inventory.'};
  for(const f of dashboard){
   if(typeof f!=='string'||!/^=COUNT(?:A|IF|IFS)\(/.test(f))return {ok:false,reason:'Library Dashboard formulas have changed.'};
@@ -102,7 +104,7 @@ function catalogPlan(entries,liveFiles,source,{account,sheetId}={}){
     !Array.isArray(source.dashboard)||!Array.isArray(source.overview)||
     source.overview.length!==7||source.overview.some((x,i)=>x[0]!==CATALOG_OVERVIEW_LABELS[i]))
    throw new Error('Live Manifest, folders, formulas or Overview labels are not authoritative.');
- if(rows.length>CATALOG_MAX_ROWS||source.manifestRows>CATALOG_MAX_ROWS)return null;
+ if(rows.length>CATALOG_MAX_ROWS||source.manifestRows>CATALOG_MAX_ROWS)throw new Error('Manifest exceeds the safe catalog size limit.');
  let last=0,blank=false;
  for(let i=0;i<rows.length;i++){
   const id=String(rows[i]?.[3]||'');
@@ -112,8 +114,11 @@ function catalogPlan(entries,liveFiles,source,{account,sheetId}={}){
  if(last<2)throw new Error('The Manifest has no indexed file baseline.');
  const start=last+1,finish=start+entries.length-1;
  if(finish>CATALOG_MAX_ROWS)throw new Error('Manifest maximum safe row count reached.');
+ if(!Array.isArray(source.destination)||source.destination.length<entries.length||
+    source.destination.some(row=>Array.isArray(row)&&row.some(cell=>cell!==''&&cell!==null&&cell!==undefined)))
+   throw new Error('A destination Manifest cell is occupied. Re-preview and resolve the row.');
  const formula=catalogFormulaPlan(source.anchors,source.dashboard,finish,
-   source.indexRows,source.manifestRows);
+   source.indexRows,source.manifestRows,last);
  if(!formula.ok)throw new Error(formula.reason);
  const byFolder=new Map();
  for(const [i,row] of source.folders.entries()){
@@ -136,8 +141,8 @@ function catalogPlan(entries,liveFiles,source,{account,sheetId}={}){
  }
  return {account,sheetId,start,finish,items:planned,formula,
     overview:source.overview,baselineIDs:rows.map(r=>String(r?.[3]||'')),
-    folderSnapshot:source.folders,sourceFinger:JSON.stringify({
-      rows:source.rows,folders:source.folders,anchors:source.anchors,
+    folderSnapshot:source.folders,sourceRows:source.rows,sourceFinger:JSON.stringify({
+      rows:source.rows,folders:source.folders,destination:source.destination,anchors:source.anchors,
       dashboard:source.dashboard,overview:source.overview,
       indexRows:source.indexRows,manifestRows:source.manifestRows})};
 }
