@@ -8,7 +8,7 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '..', 'web', 'app.js'), 'utf8');
 const suffix = '  init();\n})();';
 assert.ok(source.includes(suffix), 'Application bootstrap changed; adjust the test harness');
-const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, discoverFolderTree, discoverLibraryRoots, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, generateVideoThumbnail, stopVideo, stopScans, disconnect, mergeLiveFolders, loadLiveIndex, renderHealth, reviewStage, reviewCounts, filterImages, saveCurrentReview, writeReviewNotes, loadReviewNotes, parseReviewBackup, reviewPayload, importReviewBackup, parseChatGPTReviewBatch, prepareChatGPTReviewMerge, importChatGPTReviewBatch, effectiveDescription, resetCurrentReview};\n})();');
+const instrumented = source.replace(suffix, '  globalThis.__vaultTest = {state, googleGet, listKnownFolder, discoverFolderTree, discoverLibraryRoots, syncWithDrive, syncDriveChanges, listDriveChanges, rememberSyncCache, restoreSyncCache, playVideo, generateVideoThumbnail, stopVideo, stopScans, disconnect, mergeLiveFolders, refreshSheetAndDrive, loadLiveIndex, renderHealth, reviewStage, reviewCounts, filterImages, saveCurrentReview, writeReviewNotes, loadReviewNotes, parseReviewBackup, reviewPayload, importReviewBackup, parseChatGPTReviewBatch, prepareChatGPTReviewMerge, importChatGPTReviewBatch, effectiveDescription, resetCurrentReview};\n})();');
 
 const id = i => 'media' + String(i).padStart(12, '0');
 const folder = (name, folderId = 'folder00000000001') => ({path: name, id: folderId});
@@ -1010,4 +1010,56 @@ test('legacy sheet visual-inspection labels do not keep already examined files i
     const item={...inv(file(905),'Memes/Pepes'),description:'Existing description',review:label};
     assert.equal(h.reviewStage(item),'pending',label);
   }
+});
+
+
+test('Sheet refresh completing after logout cannot resurrect private gallery data',async()=>{
+ let release;const gate=new Promise(resolve=>{release=resolve;});
+ const fid=id(3),folderId='folder00000000001';
+ const rangeData=[
+  [['Collection','Folder','Current filename','Open file','Visual description','Tags','OCR','Date','Duplicate','Review status','File ID','Confidence','Category'],
+   ['Memes','Memes/Cats','2025_02.jpg','','Coastal sunset','','','','','Source reviewed',fid,'','Other meme']],
+  [['Collection','Folder','Original filename','Drive file ID','Drive URL','MIME type'],
+   ['Memes','Memes/Cats','2025_02.jpg',fid,'https://drive.google.com/file/d/'+fid+'/view','image/jpeg']],
+  [['Collection','Folder path','Folder Drive ID'],['Memes','Memes/Cats',folderId]],
+  [['Review status'],['Visually verified against original Drive image']],
+  [['Analysis method'],['Original image pixels inspected']],
+  [['Proposed filename'],['Coastal Sunset - 2025_02.jpg']],
+  [['Current filename'],['']]
+ ];
+ const {h}=harness(async url=>{
+   if(url.includes('sheets.googleapis.com')){await gate;return ok({valueRanges:rangeData.map(values=>({values}))});}
+   return ok({files:[]});
+ },{instantTimeout:false});
+ h.state.config.sheetId='fixture_test_sheet';
+ h.state.driveIdentity='fixture_account';
+ h.state.inventory=[inv(file(1),'Memes/Cats')];
+ h.state.images=[...h.state.inventory];
+ const pending=h.refreshSheetAndDrive();
+ h.disconnect();
+ release();
+ await pending;
+ assert.equal(h.state.connected,false);
+ assert.equal(h.state.inventory.length,0);
+ assert.ok(h.state.images.every(x=>x.demo===true),'previously disconnected gallery may show only examples');
+});
+test('Sheet refresh ignores in-flight results from the previous account or spreadsheet',async()=>{
+ let release;const gate=new Promise(resolve=>{release=resolve;});
+ const {h}=harness(async url=>{
+   if(url.includes('sheets.googleapis.com')){await gate;return ok({valueRanges:[]});}
+   return ok({files:[]});
+ },{instantTimeout:false});
+ h.state.config.sheetId='original_sheet';
+ h.state.driveIdentity='original_account';
+ const original=inv(file(1),'Memes/Cats');
+ h.state.inventory=[original];h.state.images=[original];
+ const pending=h.refreshSheetAndDrive();
+ h.state.authEpoch++;
+ h.state.config.sheetId='another_sheet';
+ h.state.driveIdentity='another_account';
+ release();
+ assert.equal(await pending,false);
+ assert.equal(h.state.inventory.length,1);
+ assert.equal(h.state.inventory[0].id,original.id);
+ assert.equal(h.state.lastSyncError||'','');
 });
