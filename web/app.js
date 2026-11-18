@@ -3643,7 +3643,7 @@
      }
      if(ends.size!==1)return {ok:false,reason:'The Search Index has inconsistent source boundaries.'};
      const current=[...ends][0];
-     if(!Number.isSafeInteger(current)||current<existingLast||current>CATALOG_MAX_ROWS)
+     if(!Number.isSafeInteger(current)||current<2||current>CATALOG_MAX_ROWS)
        return {ok:false,reason:'The Search Index boundary is invalid or too short for the existing inventory.'};
      for(const f of dashboard){
       if(typeof f!=='string'||!/^=COUNT(?:A|IF|IFS)\(/.test(f))return {ok:false,reason:'Library Dashboard formulas have changed.'};
@@ -3776,6 +3776,11 @@
     return {CATALOG_LIMIT,CATALOG_MAX_ROWS,CATALOG_FORMULAS,catalogId,catalogName,catalogMime,catalogCollection,catalogCandidates,catalogDriveCheck,catalogFormulaPlan,catalogPlan,catalogEntryRow,catalogRequests};
   })();
   const CATALOG_JOURNAL_KEY='jack-vault-catalog-journal-v1';
+  function catalogJournalKey(ctx){
+   if(!ctx||!catalogReconcile.catalogId(ctx.account)||!catalogReconcile.catalogId(ctx.sheetId))
+    throw new Error('A connected account and Sheet are required for journal storage.');
+   return CATALOG_JOURNAL_KEY+'|'+ctx.account+'|'+ctx.sheetId;
+  }
   function catalogContext(){return state.connected&&catalogReconcile.catalogId(state.driveIdentity)&&catalogReconcile.catalogId(state.config.sheetId)?
    {account:state.driveIdentity,sheetId:state.config.sheetId,epoch:state.authEpoch}:null;}
   function catalogLiveModel(){
@@ -3784,23 +3789,25 @@
    return catalogReconcile.catalogCandidates(state.inventory,state.folderSources,state.syncedFolders,{verified});
   }
   function catalogJournalSave(journal){
-   if(!journal){try{localStorage.removeItem(CATALOG_JOURNAL_KEY);}catch{}return;}
+   if(!journal){try{localStorage.removeItem(catalogJournalKey(catalogContext()));}catch{}return;}
    // Only bounded metadata and status; no photo bytes, OAuth tokens or description text.
    const safe={version:1,account:journal.account,sheetId:journal.sheetId,status:journal.status,
     startedAt:journal.startedAt,items:journal.items.slice(0,10).map(x=>({
      fileId:x.fileId,name:x.name,row:x.row,mime:x.mime,folder:x.folder,folderId:x.folderId}))};
    const encoded=JSON.stringify(safe);
    if(encoded.length>5500)throw new Error('Catalog recovery journal exceeded its size limit.');
-   localStorage.setItem(CATALOG_JOURNAL_KEY,encoded);
+   localStorage.setItem(catalogJournalKey(journal),encoded);
    state.catalogJournal=safe;
   }
   function catalogJournalLoad(){
    state.catalogJournal=null;
    try{
-    const raw=localStorage.getItem(CATALOG_JOURNAL_KEY);
+    const ctx=catalogContext();
+    if(!ctx)return;
+    const raw=localStorage.getItem(catalogJournalKey(ctx));
     if(!raw)return;
     if(raw.length>5500)throw new Error('Catalog journal exceeds safe size.');
-    const j=JSON.parse(raw),ctx=catalogContext();
+    const j=JSON.parse(raw);
     if(j.version!==1||!ctx||j.account!==ctx.account||j.sheetId!==ctx.sheetId||
        !['submitting','uncertain','synced','not-applied'].includes(j.status)||
        !Array.isArray(j.items)||!j.items.length||j.items.length>10||
@@ -3833,7 +3840,7 @@
    $('catalogPreviewButton').disabled=!usable||!selected.length;
    $('catalogApplyButton').disabled=!usable||!state.catalogPreview;
    $('catalogRecoverButton').hidden=!recover;
-   $('catalogRecoverButton').disabled=!ctx||state.catalogBusy||!journal.items?.length;
+   $('catalogRecoverButton').disabled=!ctx||state.catalogBusy||!journal?.items?.length;
    $('catalogJournalStatus').textContent=journal?
      'Recovery: '+journal.status+' · '+(journal.items?.length||0)+
      ' file(s). '+(recover?'Inspect Sheet read-only before trying another import.':
