@@ -119,7 +119,7 @@ test('two consent gates allow exactly one Sheet POST, no Drive changes, and veri
  x.h.state.catalogSelected.add(fid);await x.h.catalogReadPreview();
  await x.h.catalogApply();
  assert.equal(x.posts,1);
- assert.equal(x.h.state.catalogJournal.status,'synced');
+ assert.equal(x.h.state.catalogJournal.status,'synced',x.h.state.catalogMessage);
  assert.equal(x.h.state.catalogPreview,null);
  assert.equal(x.h.state.catalogSelected.size,0);
  assert.equal(x.requests.filter(x=>x.method==='PATCH'||x.method==='DELETE').length,0);
@@ -133,7 +133,7 @@ test('declining approval or wrong-account grant never submits a Sheet write',asy
  const wrong=harness({wrongAccount:true});
  wrong.h.state.catalogSelected.add(fid);await wrong.h.catalogReadPreview();
  await wrong.h.catalogApply();assert.equal(wrong.posts,0);
- assert.match(wrong.h.state.catalogMessage,/different account/);
+ assert.match(wrong.h.state.catalogMessage,/another account/);
 });
 test('ambiguous Google Sheet response is journaled and read-only recovery does not replay POST',async()=>{
  const x=harness({failPost:true});
