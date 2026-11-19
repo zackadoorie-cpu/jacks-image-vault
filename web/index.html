@@ -22,40 +22,57 @@
         <img src="./icons/icon.svg" class="brand-icon" alt="">
         <div><strong>JACK'S VAULT</strong><span>IMAGE LIBRARY</span></div>
       </div>
-      <nav class="nav" id="navigation" aria-label="Library views">
-        <button class="nav-item active" data-view="home"><span class="nav-icon">▤</span>Command Center</button>
-        <details class="nav-group" data-nav-group="library" open>
-          <summary class="nav-group-toggle"><span>LIBRARY</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
+      <nav class="nav experience-nav" id="navigation" aria-label="Main library navigation">
+        <button class="nav-item active experience-primary" data-view="home" title="Home" aria-label="Home">
+          <span class="nav-icon" aria-hidden="true">⌂</span><span class="nav-text">Home</span>
+        </button>
+        <details class="nav-group experience-primary" data-nav-group="library" open>
+          <summary class="nav-group-toggle" title="Library" aria-label="Library">
+            <span class="nav-icon" aria-hidden="true">▧</span><span class="nav-text">Library</span>
+            <span class="nav-group-chevron" aria-hidden="true">⌄</span>
+          </summary>
           <div class="nav-group-items">
-            <button class="nav-item" data-view="all"><span class="nav-icon">▦</span>All media <span class="nav-count" id="allCount">—</span></button>
-            <button class="nav-item" data-view="memes"><span class="nav-icon">☺</span>Memes</button>
-            <button class="nav-item" data-view="photos"><span class="nav-icon">▧</span>Photos</button>
-            <button class="nav-item" data-view="video-library"><span class="nav-icon">▶</span>Videos</button>
-            <button class="nav-item" data-view="favorites"><span class="nav-icon">♡</span>Favorites</button>
+            <button class="nav-item" data-view="all"><span class="nav-icon" aria-hidden="true">▦</span><span class="nav-text">All media</span><span class="nav-count" id="allCount">—</span></button>
+            <button class="nav-item" data-view="photos"><span class="nav-icon" aria-hidden="true">▧</span><span class="nav-text">Photos</span></button>
+            <button class="nav-item" data-view="memes"><span class="nav-icon" aria-hidden="true">☺</span><span class="nav-text">Memes</span></button>
+            <button class="nav-item" data-view="video-library"><span class="nav-icon" aria-hidden="true">▶</span><span class="nav-text">Videos</span></button>
+            <button class="nav-item" data-view="favorites"><span class="nav-icon" aria-hidden="true">♡</span><span class="nav-text">Favorites</span></button>
           </div>
         </details>
-        <details class="nav-group" data-nav-group="explore">
-          <summary class="nav-group-toggle"><span>EXPLORE TOOLS</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
+        <details class="nav-group experience-primary" data-nav-group="review">
+          <summary class="nav-group-toggle" title="Review Center" aria-label="Review Center">
+            <span class="nav-icon" aria-hidden="true">✓</span><span class="nav-text">Review Center</span>
+            <span class="nav-group-chevron" aria-hidden="true">⌄</span>
+          </summary>
           <div class="nav-group-items">
-            <button class="nav-item" data-view="smart"><span class="nav-icon">✦</span>Smart Collections</button>
-            <button class="nav-item" data-view="memory"><span class="nav-icon">◷</span>Memory Lane</button>
-            <button class="nav-item" data-view="similarity"><span class="nav-icon">▥</span>Similarity Lab</button>
+            <button class="nav-item" data-view="manager-desk"><span class="nav-icon" aria-hidden="true">☷</span><span class="nav-text">Library Desk</span></button>
+            <button class="nav-item" data-view="review-inbox"><span class="nav-icon" aria-hidden="true">▤</span><span class="nav-text">Review Inbox</span></button>
+            <button class="nav-item" data-view="review"><span class="nav-icon" aria-hidden="true">◷</span><span class="nav-text">Needs review</span><span class="nav-count" id="reviewCount">—</span></button>
+            <button class="nav-item" data-view="filename-review"><span class="nav-icon" aria-hidden="true">✎</span><span class="nav-text">Naming Completion</span></button>
+            <button class="nav-item" data-view="rename-desk"><span class="nav-icon" aria-hidden="true">✎</span><span class="nav-text">Rename Desk</span></button>
+            <button class="nav-item" data-view="sheet-write"><span class="nav-icon" aria-hidden="true">✓</span><span class="nav-text">Sheet Approvals</span></button>
+            <button class="nav-item" data-view="activity"><span class="nav-icon" aria-hidden="true">↶</span><span class="nav-text">Activity &amp; Undo</span></button>
           </div>
         </details>
-        <details class="nav-group" data-nav-group="manage">
-          <summary class="nav-group-toggle"><span>REVIEW &amp; HEALTH</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
+        <button class="nav-item experience-primary" data-view="health" title="Library Health" aria-label="Library Health">
+          <span class="nav-icon" aria-hidden="true">♡</span><span class="nav-text">Library Health</span>
+        </button>
+        <details class="nav-group experience-primary" data-nav-group="tools">
+          <summary class="nav-group-toggle" title="Tools" aria-label="Tools">
+            <span class="nav-icon" aria-hidden="true">⚒</span><span class="nav-text">Tools</span>
+            <span class="nav-group-chevron" aria-hidden="true">⌄</span>
+          </summary>
           <div class="nav-group-items">
-            <button class="nav-item" data-view="manager-desk"><span class="nav-icon">☷</span>Library Desk</button>
-            <button class="nav-item" data-view="filename-review"><span class="nav-icon">✎</span>Naming Completion</button>
-            <button class="nav-item" data-view="review-inbox"><span class="nav-icon">▤</span>Review Inbox</button>
-            <button class="nav-item" data-view="rename-desk"><span class="nav-icon">✎</span>Rename Desk</button>
-            <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
-            <button class="nav-item" data-view="activity"><span class="nav-icon">↶</span>Activity &amp; Undo</button>
-            <button class="nav-item" data-view="sheet-write"><span class="nav-icon">✓</span>Sheet Approvals</button>
-            <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
+            <button class="nav-item" data-view="smart"><span class="nav-icon" aria-hidden="true">✦</span><span class="nav-text">Smart Collections</span></button>
+            <button class="nav-item" data-view="memory"><span class="nav-icon" aria-hidden="true">◷</span><span class="nav-text">Memory Lane</span></button>
+            <button class="nav-item" data-view="similarity"><span class="nav-icon" aria-hidden="true">▥</span><span class="nav-text">Similarity Lab</span></button>
           </div>
         </details>
       </nav>
+      <button class="experience-collapse" id="experienceSidebarToggle" type="button"
+        aria-controls="navigation" aria-pressed="false" title="Collapse sidebar to icons">
+        <span aria-hidden="true">⇤</span><span class="experience-collapse-label">Collapse sidebar</span>
+      </button>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-safety"><span class="safety-dot"></span> READ-ONLY ACCESS</div>
       <p class="sidebar-caption">Your original Drive files and folders remain untouched.</p>
@@ -67,7 +84,7 @@
 
     <div class="workspace">
       <header class="topbar">
-        <div class="location">YOUR DRIVE <span>/</span> <strong>IMAGE VAULT</strong></div>
+        <div class="location">JACK’S VAULT <span>/</span> <strong id="experienceBreadcrumb">HOME</strong></div>
         <div class="top-actions">
           <span class="connection-status" id="connectionStatus"><i></i> Preview mode</span>
           <button class="btn quiet hidden" id="syncButton" type="button" title="Reload visual reviews from Google Sheets, then check Drive changes (read-only)">↻ <span>Sync Sheet + Drive</span></button>
