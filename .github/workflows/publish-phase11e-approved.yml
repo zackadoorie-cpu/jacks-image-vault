@@ -1,0 +1,33 @@
+# User-approved one-shot Phase 11E release dispatcher.
+# Never bypass release.yml independent Windows, Chromium, security and checksum gates.
+name: Publish approved Phase 11E Library Experience
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-phase11e-approved.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Phase 11E Library Experience v2.1.41')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch verified v2.1.41 only once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.41 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.41 already exists, no duplicate dispatch"
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.41
+          echo "Requested independent Chrome, Windows, security and checksum release pipeline"
