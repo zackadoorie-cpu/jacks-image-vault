@@ -83,7 +83,7 @@ test('browser sources cannot write during audit; source parity stays green',()=>
  const end=script.indexOf('/* PHASE 11C INTEGRITY CONTROLLER END */',start);
  assert.ok(start>0&&end>start);
  const controller=script.slice(start,end);
- assert.match(controller,/method:'GET'/);
+ assert.match(controller,/googleGet\(/);
  assert.doesNotMatch(controller,/\b(?:PATCH|DELETE|PUT|POST)\b/);
  const ret=cp.spawnSync(process.execPath,['scripts/build-filename-integrity.cjs','--check'],{cwd:root,encoding:'utf8'});
  assert.equal(ret.status,0,ret.stdout+ret.stderr);
