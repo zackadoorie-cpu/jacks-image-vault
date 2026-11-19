@@ -41,6 +41,7 @@
     maxRows:32,
     rowHeight(layout,density){
       if(layout==='list')return 112;
+      if(density==='ultra-compact')return 182;
       if(density==='compact')return 260;
       if(density==='large')return 405;
       return 315;
@@ -2608,7 +2609,7 @@
   }
   function readUpdateRepo() {try {return localStorage.getItem(REPO_STORAGE) || '';} catch {return '';}}
   function readDensity() {
-    try{const value=localStorage.getItem(DENSITY_STORAGE);return ['comfortable','compact','large'].includes(value)?value:'comfortable';}
+    try{const value=localStorage.getItem(DENSITY_STORAGE);return ['comfortable','compact','ultra-compact','large'].includes(value)?value:'comfortable';}
     catch{return 'comfortable';}
   }
   function readPreferences() {
@@ -2716,7 +2717,7 @@
     const rememberBrowsing=$('prefRememberBrowsing').checked;
     const autoReconnect=!IN_NATIVE_DESKTOP&&$('prefAutoReconnect').checked;
     const theme=$('prefTheme').value;
-    if(![16,32,48].includes(batchSize)||!['compact','comfortable','large'].includes(density)||
+    if(![16,32,48].includes(batchSize)||!['compact','ultra-compact','comfortable','large'].includes(density)||
       !VAULT_THEMES.includes(theme))return;
     const shown=state.renderedCount;
     state.autoLoad=autoLoad;
@@ -10367,7 +10368,7 @@
       finally{event.target.value='';}
     };
     $('densitySelect').onchange=event=>{
-      if(!['comfortable','compact','large'].includes(event.target.value))return;
+      if(!['comfortable','compact','ultra-compact','large'].includes(event.target.value))return;
       state.density=event.target.value;
       try{localStorage.setItem(DENSITY_STORAGE,state.density);}catch{}
       renderGallery();
