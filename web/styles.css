@@ -1090,3 +1090,181 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .recovery-evidence { font-size:.91rem; opacity:.85; }
 .recovery-preview { margin-top:.75rem; padding:.85rem 1rem; border:1px solid var(--line, rgba(120,135,155,.38)); border-radius:12px; overflow-wrap:anywhere; }
 @media (max-width:720px) { .recovery-filters { grid-template-columns:1fr; } .recovery-actions .btn { flex:1 1 auto; } }
+
+
+/* Phase 11E · Calmer, gallery-first library shell. All palettes inherit their
+   semantic colors, while the existing data-view routes and write guards stay put. */
+:root{--experience-glow:color-mix(in srgb,var(--purple) 22%,transparent)}
+.main{max-width:1900px;padding:30px clamp(18px,3.3vw,56px) 68px}
+.topbar{padding:16px clamp(18px,3.3vw,56px);min-height:74px;background:color-mix(in srgb,var(--surface) 70%,var(--bg))}
+.footer{margin:0 clamp(18px,3.3vw,56px)}
+.sidebar{padding:27px 13px 18px;gap:10px}
+.sidebar .brand{padding:3px 12px 23px;border-bottom:1px solid var(--line)}
+.sidebar .nav{gap:7px;padding:6px 2px 10px}
+.sidebar .experience-primary{border-top:0;padding-top:0;margin:0;position:relative}
+.sidebar .experience-primary.nav-item,
+.sidebar .experience-primary>.nav-group-toggle{
+ display:flex;align-items:center;gap:13px;border:1px solid transparent;min-height:49px;
+ border-radius:12px;padding:12px 12px;color:var(--text);font-weight:750;font-size:13px;
+ letter-spacing:0;background:transparent;text-align:left;width:100%;
+}
+.sidebar .experience-primary>.nav-group-toggle:hover,
+.sidebar .experience-primary.nav-item:hover{background:var(--surface2);border-color:var(--line)}
+.sidebar .experience-primary.nav-item.active,
+.sidebar .experience-primary:has(.nav-item.active)>.nav-group-toggle{
+ background:color-mix(in srgb,var(--purple) 15%,var(--surface));
+ border-color:color-mix(in srgb,var(--purple) 37%,var(--line));color:var(--text)
+}
+.sidebar .experience-primary>.nav-group-toggle .nav-icon,
+.sidebar .experience-primary.nav-item>.nav-icon{
+ font-size:21px;color:var(--purple);width:25px;flex:none;line-height:1.1
+}
+.sidebar .experience-primary>.nav-group-toggle .nav-text{margin-right:auto;min-width:0}
+.sidebar .experience-primary>.nav-group-toggle .nav-group-chevron{flex:none}
+.sidebar .experience-primary:has(.nav-item.active)>.nav-group-toggle::before{display:none}
+.sidebar .nav-group-items{border-left:1px solid var(--line);margin:3px 0 5px 24px;padding:4px 0 5px 7px;gap:2px}
+.sidebar .nav-group .nav-item{border-radius:9px;min-height:37px;padding:7px 8px;gap:9px;font-size:12px}
+.sidebar .nav-group .nav-item .nav-icon{width:19px;font-size:15px}
+.sidebar .nav-group .nav-item .nav-text{min-width:0}
+.experience-collapse{
+ border:1px solid var(--line);border-radius:10px;background:var(--surface);
+ color:var(--muted);min-height:36px;padding:7px 11px;display:flex;align-items:center;
+ gap:9px;text-align:left;font-size:11px;font-weight:700;width:100%;
+}
+.experience-collapse:hover{border-color:var(--purple);color:var(--text)}
+.experience-collapse span:first-child{font-size:19px;line-height:1}
+.experience-collapse-label{white-space:nowrap}
+.experience-quick-links{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0 18px}
+.experience-quick-card{
+ display:flex;align-items:center;gap:12px;padding:14px 15px;min-height:84px;text-align:left;
+ border-radius:15px;border:1px solid var(--line);background:var(--surface);
+ color:var(--text);min-width:0;box-shadow:0 10px 30px #0000000a;
+}
+.experience-quick-card:hover{border-color:var(--purple);background:var(--surface2)}
+.experience-quick-card>span:nth-child(2){display:grid;gap:3px;min-width:0;flex:1}
+.experience-quick-card strong{font-size:12px;letter-spacing:-.1px}
+.experience-quick-card small{color:var(--muted);font-size:10px;line-height:1.35}
+.experience-quick-card>span:last-child{font-size:16px;color:var(--muted)}
+.experience-quick-icon{
+ width:42px;height:42px;border-radius:12px;display:grid;place-items:center;flex:none;
+ background:color-mix(in srgb,var(--purple) 13%,var(--surface2));color:var(--purple);font-size:24px;
+}
+.experience-quick-card:nth-child(3) .experience-quick-icon{color:var(--green);background:color-mix(in srgb,var(--green) 14%,var(--surface))}
+.experience-quick-card:nth-child(4) .experience-quick-icon{color:var(--blue);background:color-mix(in srgb,var(--blue) 14%,var(--surface))}
+.vault-home-hero{
+ min-height:300px;grid-template-columns:minmax(0,1.45fr) minmax(210px,.55fr);
+ background:radial-gradient(ellipse at 92% 25%,color-mix(in srgb,var(--blue) 32%,transparent),transparent 56%),
+ radial-gradient(ellipse at 48% 115%,color-mix(in srgb,var(--purple) 27%,transparent),transparent 60%),
+ linear-gradient(125deg,var(--surface2),var(--surface));
+ border:1px solid color-mix(in srgb,var(--purple) 25%,var(--line));box-shadow:0 15px 45px #0002;
+}
+.vault-home-hero .hero-copy{padding:clamp(28px,3.7vw,52px)}
+.vault-home-hero h1{font-size:clamp(32px,3.3vw,52px);line-height:1.14;letter-spacing:-1.4px}
+.vault-home-hero .hero-description{max-width:580px;font-size:13px;color:var(--muted)}
+.vault-home-art{min-height:285px}
+.vault-home-art .vault-art-core{width:116px;height:116px;font-size:55px}
+.vault-home-hero+.experience-quick-links+.stats{margin:12px 0 28px}
+.stats{gap:10px}
+.stat{background:var(--surface);border-color:var(--line);min-height:100px;padding:17px 19px}
+.stat strong{font-size:26px}
+.stat small{font-size:11px}
+.home-shortcuts{gap:10px}
+.home-shortcut{min-height:115px;padding:14px 15px}
+.home-shortcut-icon{font-size:22px}
+.command-center,.home-dashboard-grid>*{border-color:var(--line)}
+.gallery-heading{margin:0 0 19px}
+.gallery-heading h1{font-size:clamp(26px,2.7vw,37px)}
+#galleryView .filters{border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--surface);flex-wrap:wrap;align-items:stretch}
+#galleryView .filters .searchbox{flex:1 1 310px}
+#galleryView .filters .select{flex:0 1 auto}
+#galleryView .image-grid{gap:clamp(10px,1.2vw,19px)}
+.experience-health-tabs{
+ display:flex;align-items:center;gap:7px;overflow-x:auto;scrollbar-width:thin;
+ margin:21px 0 19px;border-bottom:1px solid var(--line);padding:0 1px 11px;
+}
+.experience-health-tab{
+ background:transparent;color:var(--muted);border:1px solid transparent;
+ border-radius:10px;min-height:43px;padding:10px 16px;font-size:12px;
+ font-weight:750;white-space:nowrap;flex:none;
+}
+.experience-health-tab:hover{background:var(--surface2);color:var(--text)}
+.experience-health-tab[aria-selected="true"]{
+ background:color-mix(in srgb,var(--purple) 14%,var(--surface));
+ border-color:color-mix(in srgb,var(--purple) 32%,var(--line));color:var(--text)
+}
+.experience-health-pane[hidden]{display:none!important}
+.experience-health-pane>.integrity-panel,
+.experience-health-pane>.recovery-panel,
+.experience-health-pane>.catalog-health-panel{margin:0 0 16px;box-shadow:0 9px 28px #0001}
+.experience-health-pane .index-metrics{margin-top:7px}
+:root[data-theme="daylight"] .vault-home-hero{
+ background:radial-gradient(ellipse at 92% 28%,#b9d6ed,transparent 52%),linear-gradient(125deg,#f1ecff,#e5effc);
+}
+:root[data-theme="daylight"] .experience-quick-card,
+:root[data-theme="daylight"] .experience-collapse,
+:root[data-theme="daylight"] .stat{box-shadow:0 10px 20px #21345c0a}
+@media(min-width:941px){
+ .app[data-sidebar-mode="compact"]{grid-template-columns:78px minmax(0,1fr)}
+ .app[data-sidebar-mode="compact"] .sidebar{
+   overflow:visible;z-index:20;padding:20px 10px 16px;gap:10px;
+ }
+ .app[data-sidebar-mode="compact"] .brand{justify-content:center;padding:1px 0 19px}
+ .app[data-sidebar-mode="compact"] .brand>div{display:none}
+ .app[data-sidebar-mode="compact"] .brand-icon{width:43px;height:43px}
+ .app[data-sidebar-mode="compact"] .nav{overflow:visible;gap:8px;padding:0}
+ .app[data-sidebar-mode="compact"] .experience-primary.nav-item,
+ .app[data-sidebar-mode="compact"] .experience-primary>.nav-group-toggle{
+   justify-content:center;padding:11px 6px;width:56px;min-height:53px;margin:0;
+ }
+ .app[data-sidebar-mode="compact"] .experience-primary>.nav-group-toggle .nav-text,
+ .app[data-sidebar-mode="compact"] .experience-primary.nav-item>.nav-text,
+ .app[data-sidebar-mode="compact"] .experience-primary>.nav-group-toggle .nav-group-chevron,
+ .app[data-sidebar-mode="compact"] .experience-primary>.nav-count,
+ .app[data-sidebar-mode="compact"] .sidebar-safety,
+ .app[data-sidebar-mode="compact"] .sidebar-caption,
+ .app[data-sidebar-mode="compact"] .experience-collapse-label{display:none}
+ .app[data-sidebar-mode="compact"] .experience-collapse{justify-content:center;width:56px;padding:7px}
+ .app[data-sidebar-mode="compact"] .nav-group-items{display:none;position:absolute;left:calc(100% + 10px);top:0;
+   width:237px;max-height:min(72vh,590px);overflow-y:auto;background:var(--sidebar);
+   border:1px solid var(--line);border-radius:12px;padding:9px;margin:0;
+   z-index:40;box-shadow:0 24px 60px #0006}
+ .app[data-sidebar-mode="compact"] .nav-group[open]>.nav-group-items{display:flex;flex-direction:column}
+ .app[data-sidebar-mode="compact"] .nav-group .nav-item{width:100%;justify-content:flex-start;min-height:40px}
+ .app[data-sidebar-mode="compact"] .nav-group .nav-text,
+ .app[data-sidebar-mode="compact"] .nav-group .nav-count{display:inline}
+ .app[data-sidebar-mode="compact"] .nav-group .nav-count{margin-left:auto}
+ .app[data-sidebar-mode="compact"] .side-settings{width:56px;min-height:45px;padding:11px 0 5px;text-align:center;font-size:0}
+ .app[data-sidebar-mode="compact"] #sidebarPreferences::before{content:'⚙';font-size:20px}
+ .app[data-sidebar-mode="compact"] #sidebarSettings::before{content:'🔗';font-size:19px}
+ .app[data-sidebar-mode="compact"] #sidebarUpdates::before{content:'↻';font-size:22px}
+ .app[data-sidebar-mode="compact"] .sidebar-resizer{display:none}
+}
+@media(max-width:1200px){
+ .experience-quick-links{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:940px){
+ .experience-collapse{display:none}
+ .experience-quick-links{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .vault-home-hero{grid-template-columns:1fr}
+ .vault-home-art{display:none}
+}
+@media(max-width:680px){
+ .experience-quick-links{gap:8px;margin:12px 0}
+ .experience-quick-card{min-height:75px;padding:11px}
+ .experience-quick-icon{width:35px;height:35px;font-size:20px}
+ .sidebar .nav{overflow-x:auto;overflow-y:visible;padding:4px 0 8px}
+ .sidebar .experience-primary.nav-item,.sidebar .experience-primary>.nav-group-toggle{width:auto;min-height:39px;padding:7px 10px;font-size:11px;white-space:nowrap;gap:7px}
+ .sidebar .experience-primary>.nav-group-toggle .nav-icon,
+ .sidebar .experience-primary.nav-item>.nav-icon{font-size:17px;width:18px}
+ .sidebar .nav-group-items{border-left:0;margin:3px 0;padding:0}
+ .sidebar .nav-group .nav-item{min-height:36px;flex:none;width:auto}
+ .experience-health-tabs{margin-top:14px}
+ .experience-health-tab{padding:9px 12px}
+}
+@media(max-width:420px){
+ .experience-quick-links{grid-template-columns:1fr}
+ .experience-quick-card{min-height:62px}
+}
+@media(prefers-reduced-motion:reduce){
+ .experience-quick-card,.experience-collapse,.experience-health-tab{transition:none!important}
+}
