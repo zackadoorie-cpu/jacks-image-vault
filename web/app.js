@@ -627,7 +627,7 @@
      if(mime.startsWith('video/')){
       if(/full(?:[- ]length)? (?:video )?playback (?:was )?verified|continuous playback verified/i.test(note))
        return {kind:'full-video',label:'Full playback evidenced',needsVisual:false};
-      if(/(?:original (?:mp4|video) (?:visually )?sampled|(?:video|original) (?:frames?|storyboard) (?:were )?sampled|sampled (?:original )?(?:video )?frames?|preview frames decoded|16 actual frames)/i.test(note))
+      if(/(?:original (?:mp4(?: video)?|video) (?:visually )?sampled|(?:video|original) (?:frames?|storyboard) (?:were )?sampled|sampled (?:original )?(?:video )?frames?|preview frames decoded|16 actual frames)/i.test(note))
        return {kind:'sampled-video',label:'Sampled video frames; audio unverified',needsVisual:false};
       if(/(?:poster(?:[- ]only| thumbnail| preview)|single (?:app[- ]generated )?thumbnail|video frames.*not inspected)/i.test(note))
        return {kind:'poster-only',label:'Poster only; original video frames not verified',needsVisual:true};
@@ -4656,7 +4656,7 @@
       $('recoveryVerifiedPreviewText').textContent=
        'Fresh read-only preflight: '+p.fileId+' · '+p.mime+' · version '+p.version+
        ' · parent '+p.folderId+' · expected "'+p.expected+'" · live "'+p.liveName+'". '+
-       'Account and Sheet snapshot verified. No Drive or Sheet edit was requested. '+
+       'Live metadata checked against the currently loaded account-bound Sheet snapshot; the Sheet was not re-read. No edit was requested. '+
        'To change a name, use the separately approved naming workflow and let it recheck the current file.';
     }
   }
