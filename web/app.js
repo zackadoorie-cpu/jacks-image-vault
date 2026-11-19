@@ -514,6 +514,105 @@
     return {NAMING_COMPLETION_PAGE_SIZE,NAMING_COMPLETION_BATCH_LIMIT,NAMING_COMPLETION_FILTERS,namingCompletionKind,namingCompletionValidProposal,namingCompletionStatus,namingCompletionBuild,namingCompletionSelect};
   })();
   /* GENERATED NAMING COMPLETION END */
+  /* GENERATED FILENAME INTEGRITY START */
+  const filenameIntegrity=(()=>{
+    const INTEGRITY_PAGE_SIZE=15;
+    const INTEGRITY_FILTERS=Object.freeze([
+     'all','sheet-unverified','original-unverified','live-verified',
+     'original-unchanged','drift','external-rename','inaccessible','blocked','uncertain'
+    ]);
+    function integritySafeId(value){
+     return typeof value==='string'&&/^[A-Za-z0-9_-]{10,100}$/.test(value);
+    }
+    function integritySource(media,journal){
+     const rows=Array.isArray(media)?media:[],counts=new Map();
+     for(const item of rows)if(item&&!item.demo&&!item.newInDrive&&integritySafeId(item.id))
+      counts.set(item.id,(counts.get(item.id)||0)+1);
+     const log=new Map((journal?.entries||[]).map(x=>[x.fileId,x.status]));
+     return rows.filter(x=>x&&!x.demo&&!x.newInDrive).map(item=>{
+      const fileId=String(item.id||''),original=String(item.manifestOriginalName||'');
+      const recorded=String(item.manifestCurrentName||'');
+      const indexed=String(item.name||''),expected=recorded||original;
+      const logStatus=String(log.get(fileId)||'');
+      const invalid=!integritySafeId(fileId)||!original||!expected||
+       !Number.isSafeInteger(item.manifestRow)||item.manifestRow<2||
+       counts.get(fileId)!==1||!String(item.mime||'');
+      const conflict=!!indexed&&indexed!==expected;
+      const pending=/(?:submitting|uncertain|drive-verified)/.test(logStatus);
+      const status=invalid||conflict?'blocked':pending?'uncertain':
+       recorded?'sheet-unverified':'original-unverified';
+      return {fileId,original,recorded,indexed,expected,
+       mime:String(item.mime||''),folder:String(item.folder||''),
+       folderId:String(item.folderId||''),row:item.manifestRow||0,
+       review:String(item.review||''),logStatus, status,
+       liveName:'',checkedAt:'',reason:invalid?
+       'Missing or duplicate source ID, original name, row or MIME. Audit blocked.':
+       conflict?'Search Index does not agree with Manifest C/AD. Audit blocked.':
+       pending?'A rename journal is pending or uncertain; use its existing recovery flow.':
+       'Not independently checked against live Drive metadata.'};
+     });
+    }
+    function integrityCompare(row,live,now){
+     if(!row||!integritySafeId(row.fileId))throw new Error('Invalid source identity');
+     if(!['sheet-unverified','original-unverified'].includes(row.status))
+      return {...row};
+     const when=String(now||'');
+     if(!live||live.error){
+      return {...row,status:'inaccessible',checkedAt:when,
+       reason:'Live Drive metadata unavailable; no assumption that the file was deleted.'};
+     }
+     if(live.id!==row.fileId||live.mimeType!==row.mime||
+        live.trashed===true||!Array.isArray(live.parents)||live.parents.length!==1||
+        (row.folderId&&live.parents[0]!==row.folderId)||
+        typeof live.name!=='string'||!live.name){
+      return {...row,status:'blocked',liveName:typeof live.name==='string'?live.name:'',
+       checkedAt:when,reason:'Drive identity, MIME, parent, trash or name differs from verified source. No repair attempted.'};
+     }
+     if(live.name!==row.expected){
+      return {...row,status:row.recorded?'drift':'external-rename',
+       liveName:live.name,checkedAt:when,
+       reason:row.recorded?'Live Drive filename differs from Manifest AD. Review explicitly.':
+       'Drive name changed outside Manifest C; no automatic proposal or rewrite.'};
+     }
+     return {...row,status:row.recorded?'live-verified':'original-unchanged',
+      liveName:live.name,checkedAt:when,
+      reason:row.recorded?'Live Drive filename matches recorded Manifest AD.':
+       'Original Manifest C matches the current Drive filename. Blank AD is normal.'};
+    }
+    function integrityPage(rows,{filter='all',query='',page=1,pageSize=INTEGRITY_PAGE_SIZE}={}){
+     const entries=Array.isArray(rows)?rows:[],selected=INTEGRITY_FILTERS.includes(filter)?filter:'all';
+     const term=String(query||'').trim().slice(0,120).normalize('NFKC').toLocaleLowerCase('en-US');
+     const matching=entries.filter(x=>(selected==='all'||x.status===selected)&&(!term||
+      [x.fileId,x.original,x.recorded,x.indexed,x.liveName,x.folder,x.status,x.reason]
+        .some(v=>String(v||'').normalize('NFKC').toLocaleLowerCase('en-US').includes(term))));
+     const size=Math.max(5,Math.min(50,Math.floor(Number(pageSize))||INTEGRITY_PAGE_SIZE));
+     const pages=Math.max(1,Math.ceil(matching.length/size));
+     const at=Math.min(pages,Math.max(1,Math.floor(Number(page))||1));
+     const counts={total:entries.length};
+     for(const status of INTEGRITY_FILTERS.slice(1))counts[status]=0;
+     for(const row of entries)counts[row.status]=(counts[row.status]||0)+1;
+     return {filter:selected,query:term,page:at,pages,total:matching.length,counts,
+       items:matching.slice((at-1)*size,at*size)};
+    }
+    function integrityCSV(rows){
+     const headings=['Drive file ID','Manifest row','Folder','Original filename',
+      'Recorded filename','Indexed filename','Expected filename','Live filename',
+      'Status','Checked UTC','Reason','Review evidence'];
+     const csvCell=v=>{
+      let s=String(v??'').replace(/\r\n?/g,'\n');
+      if(/^[\s]*[=+\-@]/.test(s))s="'"+s;
+      return '"'+s.replace(/"/g,'""')+'"';
+     };
+     const out=[headings.map(csvCell).join(',')];
+     for(const row of rows||[])out.push([
+      row.fileId,row.row,row.folder,row.original,row.recorded,row.indexed,
+      row.expected,row.liveName,row.status,row.checkedAt,row.reason,row.review
+     ].map(csvCell).join(','));
+     return '\ufeff'+out.join('\r\n')+'\r\n';
+    }
+    return {INTEGRITY_PAGE_SIZE,INTEGRITY_FILTERS,integritySafeId,integritySource,integrityCompare,integrityPage,integrityCSV};
+  })();
+  /* GENERATED FILENAME INTEGRITY END */
   /* GENERATED FILENAME RECONCILE START */
   const filenameReconcile=(()=>{
     const RECONCILE_DRIVE_KINDS=['drive-rename','drive-rename-unverified','drive-undo','drive-undo-unverified','sheet-name-sync','sheet-name-sync-unverified'];
@@ -1222,6 +1321,14 @@
     sheetWritePage: 1,
     sheetWriteMessage: '',
     sheetWriteBusy: false,
+    integrityRows: [],
+    integrityKey: '',
+    integrityMessage: '',
+    integrityRunning: false,
+    integrityAbort: null,
+    integrityFilter: 'all',
+    integrityQuery: '',
+    integrityPage: 1,
     catalogSelected: new Set(),
     catalogPreview: null,
     catalogBusy: false,
@@ -4233,6 +4340,140 @@
    $('catalogRecoverButton').onclick=catalogRecover;
   }
   /* GENERATED CATALOG 11A END */
+
+  /* PHASE 11C INTEGRITY CONTROLLER START */
+  function integrityIdentity(){
+    const ctx=activityContext();
+    return state.connected&&state.accessToken&&ctx?.account&&ctx?.sheetId&&state.snapshotLoadedAt?
+      ctx.account+'|'+ctx.sheetId+'|'+state.snapshotLoadedAt:'';
+  }
+  function integrityReset(){
+    if(state.integrityAbort)state.integrityAbort.abort();
+    state.integrityAbort=null;state.integrityRunning=false;
+    state.integrityRows=[];state.integrityKey='';
+    state.integrityPage=1;state.integrityMessage='';
+  }
+  function integrityActive(key,epoch,abort){
+    return !!key&&key===integrityIdentity()&&state.authEpoch===epoch&&
+      !abort.signal.aborted&&state.integrityAbort===abort;
+  }
+  function integrityRender(){
+    const active=integrityIdentity();
+    // An old Sheet snapshot or account must never be presented as current.
+    if(state.integrityKey&&state.integrityKey!==active)integrityReset();
+    const model=filenameIntegrity.integrityPage(state.integrityRows,{
+      filter:state.integrityFilter,query:state.integrityQuery,page:state.integrityPage
+    });
+    state.integrityPage=model.page;
+    $('integrityStart').disabled=!active||state.integrityRunning;
+    $('integrityStart').textContent=state.integrityRows.length?'Resume / recheck pending':'Start live name audit';
+    $('integrityCancel').disabled=!state.integrityRunning;
+    $('integrityExport').disabled=!state.integrityRows.length;
+    $('integritySearch').value=state.integrityQuery;
+    $('integrityFilter').value=model.filter;
+    $('integrityPrev').disabled=model.page<=1;
+    $('integrityNext').disabled=model.page>=model.pages;
+    $('integrityPageLabel').textContent=model.page+' / '+model.pages+' · '+model.total+' matching';
+    const done=state.integrityRows.filter(x=>!['sheet-unverified','original-unverified'].includes(x.status)).length;
+    const counts=model.counts;
+    $('integritySummary').textContent=state.integrityMessage||
+      (active?('Filename integrity is read-only. '+done+' of '+counts.total+
+      ' records classified; '+(counts['live-verified']||0)+
+      ' recorded names independently verified, '+(counts['original-unchanged']||0)+
+      ' originals unchanged, '+(counts.drift||0)+' live drifts, '+
+      (counts['external-rename']||0)+' outside renames and '+
+      (counts.inaccessible||0)+' metadata errors.'):
+      'Connect the same Google account and indexed Sheet to audit live filenames.');
+    $('integrityProgress').max=Math.max(1,counts.total);
+    $('integrityProgress').value=done;
+    $('integrityCounts').textContent=(counts['live-verified']||0)+' verified recorded · '+
+      (counts['original-unchanged']||0)+' originals unchanged · '+
+      (counts['sheet-unverified']||0)+(counts['original-unverified']||0)+
+      ' unverified · '+(counts.drift||0)+' drift · '+
+      (counts['external-rename']||0)+' externally renamed · '+
+      (counts.inaccessible||0)+' inaccessible · '+
+      (counts.blocked||0)+' blocked · '+(counts.uncertain||0)+' uncertain';
+    $('integrityList').innerHTML=model.items.length?
+      model.items.map(x=>'<article class="integrity-item" data-integrity-status="'+escapeHTML(x.status)+'">'+
+       '<strong>'+escapeHTML(x.expected)+'</strong><span class="integrity-status">'+
+       escapeHTML(x.status)+'</span><small>'+escapeHTML(x.folder)+' · Manifest row '+
+       escapeHTML(String(x.row))+' · '+escapeHTML(x.fileId)+'</small>'+
+       (x.liveName?'<p>Live Drive: '+escapeHTML(x.liveName)+'</p>':'')+
+       '<p>'+escapeHTML(x.reason)+'</p>'+
+       (x.checkedAt?'<small>Checked '+escapeHTML(x.checkedAt)+'</small>':'')+'</article>').join(''):
+       '<p class="activity-empty">No records match. Start a read-only audit or change the filter.</p>';
+  }
+  async function integrityRun(){
+    const key=integrityIdentity(),epoch=state.authEpoch;
+    if(!key||state.integrityRunning)return;
+    if(!state.integrityRows.length||state.integrityKey!==key){
+      integrityReset();
+      state.integrityKey=key;
+      const folderIds=new Map(state.baseFolderSources.map(x=>[x.path,x.id]));
+      state.integrityRows=filenameIntegrity.integritySource(state.inventory,state.smartJournal)
+        .map(x=>({...x,folderId:folderIds.get(x.folder)||''}))
+        .map(x=>x.folderId?x:{...x,status:'blocked',reason:'Indexed parent folder ID not verified; audit blocked.'});
+    }
+    const pending=[];
+    state.integrityRows.forEach((x,i)=>{
+      if(['sheet-unverified','original-unverified'].includes(x.status))pending.push(i);
+    });
+    if(!pending.length){
+      state.integrityMessage='Read-only audit has no pending rows; no remote changes were requested.';
+      integrityRender();return;
+    }
+    const controller=new AbortController();state.integrityAbort=controller;state.integrityRunning=true;
+    state.integrityMessage='Reading exact file IDs from Drive. No Sheet or media writes.';
+    integrityRender();
+    let cursor=0,completed=0;
+    async function worker(){
+      while(cursor<pending.length&&integrityActive(key,epoch,controller)){
+        const index=pending[cursor++],row=state.integrityRows[index];
+        const fields=new URLSearchParams({fields:'id,name,mimeType,parents,trashed,version,modifiedTime',supportsAllDrives:'true'});
+        const url='https://www.googleapis.com/drive/v3/files/'+
+          encodeURIComponent(row.fileId)+'?'+fields;
+        let live;
+        try{live=await googleGet(url,{signal:controller.signal});}
+        catch(error){if(!integrityActive(key,epoch,controller))break;
+          live={error:'Live metadata request failed'};}
+        if(!integrityActive(key,epoch,controller))break;
+        state.integrityRows[index]=filenameIntegrity.integrityCompare(
+          row,live,new Date().toISOString());
+        completed++;
+        if(completed%12===0&&state.view==='health')integrityRender();
+      }
+    }
+    try{await Promise.all(Array.from({length:Math.min(4,pending.length)},()=>worker()));}
+    finally{
+      const valid=key===integrityIdentity()&&state.authEpoch===epoch&&state.integrityAbort===controller;
+      if(valid){
+        state.integrityAbort=null;state.integrityRunning=false;
+        state.integrityMessage=controller.signal.aborted?
+          'Audit paused: '+completed+' additional files checked. Resume uses the same in-memory snapshot.':
+          'Read-only pass finished: '+completed+' additional file checks. Review statuses below; no writes performed.';
+        if(state.view==='health')integrityRender();
+      }
+    }
+  }
+  function integrityCancel(){
+    if(state.integrityAbort){
+      state.integrityAbort.abort();
+      state.integrityRunning=false;state.integrityAbort=null;
+      state.integrityMessage='Audit paused. Verified results remain in memory for this account and Sheet only.';
+    }
+    if(state.view==='health')integrityRender();
+  }
+  function integrityExport(){
+    if(!state.integrityRows.length)return;
+    const csv=filenameIntegrity.integrityCSV(state.integrityRows);
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob),link=document.createElement('a');
+    link.href=url;link.download='jacks-image-vault-integrity-local.csv';
+    document.body.append(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  /* PHASE 11C INTEGRITY CONTROLLER END */
+
   async function readSpreadsheetSnapshot() {
       const id = encodeURIComponent(state.config.sheetId);
       const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G", "'Manifest'!T:T", "'Manifest'!AC:AC", "'Manifest'!R:R", "'Manifest'!AD:AD"];
@@ -4279,6 +4520,7 @@
     return {images,baseFolderSources,manifestIDs:new Set(byId.keys())};
   }
   async function loadLiveIndex() {
+    integrityReset();
     const authorizationEpoch=state.authEpoch;
     // Invalidate previous scans before loading a refreshed spreadsheet snapshot.
     stopScans();
@@ -4373,6 +4615,7 @@
        sourceAccount!==state.driveIdentity){button.disabled=false;return false;}
     const signature=folders=>folders.map(f=>f.path+':'+f.id).sort().join('|');
     const changedFolders=signature(snapshot.baseFolderSources)!==signature(state.baseFolderSources);
+    integrityReset();
     state.inventory=snapshot.images;
     state.catalogManifestIDs=snapshot.manifestIDs||new Set(snapshot.images.map(x=>x.id));
     state.catalogPreview=null;
@@ -5091,6 +5334,7 @@
       (lines.length>200?'<li>Showing first 200 differences. Narrow your scan or export the inventory for a complete comparison.</li>':''):
       '<li>No file differences recorded in verified folders.</li>';
     catalogRender();
+    integrityRender();
   }
 
   function clearThumbnailCache() {
@@ -5104,6 +5348,7 @@
     if (state.observer) {state.observer.disconnect();state.observer=null;}
   }
   function disconnect() {
+    integrityReset();
     powerContextClose();
     powerPaletteClose();
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
@@ -9337,6 +9582,13 @@
   }
   function initEvents() {
     setupSidebarGroups();
+    $('integrityStart').onclick=()=>void integrityRun();
+    $('integrityCancel').onclick=integrityCancel;
+    $('integrityExport').onclick=integrityExport;
+    $('integrityFilter').onchange=e=>{state.integrityFilter=e.target.value;state.integrityPage=1;integrityRender();};
+    $('integritySearch').oninput=e=>{state.integrityQuery=e.target.value.slice(0,120);state.integrityPage=1;integrityRender();};
+    $('integrityPrev').onclick=()=>{state.integrityPage=Math.max(1,state.integrityPage-1);integrityRender();};
+    $('integrityNext').onclick=()=>{state.integrityPage++;integrityRender();};
     document.querySelectorAll('[data-view]').forEach(btn=>btn.onclick=()=>displayPage(btn.dataset.view));
     $('managerDeskSearch').oninput=event=>{
       state.managerQuery=event.target.value.slice(0,120);
