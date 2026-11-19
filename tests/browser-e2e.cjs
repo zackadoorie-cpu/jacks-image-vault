@@ -49,7 +49,7 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,t
      const source=fs.readFileSync(path.join(root,'app.js'),'utf8');
      const suffix='  init();\n})();';
      if(!source.includes(suffix))throw new Error('Turbo E2E app bootstrap changed');
-     const patched=source.replace(suffix,'  globalThis.__turboBench={state,renderGallery,appendGalleryBatch};\n'+suffix);
+     const patched=source.replace(suffix,'  globalThis.__turboBench={state,renderGallery,appendGalleryBatch,turboGallery};\n'+suffix);
      return route.fulfill({status:200,contentType:'text/javascript',body:patched});
    });
  }
@@ -426,6 +426,21 @@ async function main(){
     assert.equal(initial.virtual,true);
     assert.ok(initial.mounted<=180,'10k-media initial DOM must stay bounded: '+initial.mounted);
     assert.equal(initial.windowStart,0);
+    // 10,000-file virtualization still has bounded DOM with denser columns.
+    await p.locator('#densitySelect').selectOption('ultra-compact');
+    const dense=await p.evaluate(()=>{
+      const grid=document.querySelector('#galleryGrid');
+      const style=getComputedStyle(grid);
+      return {rowHeight:window.__turboBench.turboGallery.rowHeight('grid','ultra-compact'),
+        cssRow:style.getPropertyValue('--turbo-row-height').trim(),
+        cols:style.gridTemplateColumns.split(/\s+/).filter(Boolean).length,
+        mounted:grid.querySelectorAll('[data-open-image]').length};
+    });
+    assert.equal(dense.rowHeight,182);
+    assert.equal(dense.cssRow,'182px');
+    assert.ok(dense.cols>=8,'Ultra Compact should display many synthetic columns');
+    assert.ok(dense.mounted<=180);
+    await p.locator('#densitySelect').selectOption('comfortable');
     await p.evaluate(()=>{
       const grid=document.querySelector('#galleryGrid');
       window.scrollTo({top:grid.getBoundingClientRect().top+window.scrollY+grid.scrollHeight,behavior:'instant'});
@@ -472,6 +487,30 @@ async function main(){
     const browserErrors=[];
     p.on('pageerror',err=>browserErrors.push(err.message));
     await p.locator('[data-view="all"]').click();
+    // Ultra Compact must visibly increase columns, keep preview/detail actions,
+    // persist its existing density preference and avoid Google writes.
+    const densityBaseline=connected.requests.filter(method=>method!=='GET').length;
+    await p.locator('#densitySelect').selectOption('compact');
+    const compactCols=await p.locator('#galleryGrid').evaluate(el=>
+      getComputedStyle(el).gridTemplateColumns.split(/\s+/).filter(Boolean).length);
+    await p.locator('#densitySelect').selectOption('ultra-compact');
+    const ultraCols=await p.locator('#galleryGrid').evaluate(el=>
+      getComputedStyle(el).gridTemplateColumns.split(/\s+/).filter(Boolean).length);
+    assert.ok(ultraCols>compactCols,
+      'Ultra Compact must fit more columns than Compact ('+ultraCols+' vs '+compactCols+')');
+    assert.equal(await p.locator('#galleryGrid').getAttribute('data-density'),'ultra-compact');
+    assert.equal(await p.evaluate(()=>localStorage.getItem('jack-vault-gallery-density-v1')),'ultra-compact');
+    assert.equal(await p.locator('#galleryGrid .tile-description').first().isVisible(),false);
+    assert.equal(await p.locator('#galleryGrid [data-open-image]').count(),2);
+    assert.equal(await p.locator('#galleryGrid [data-favorite]').count(),2);
+    assert.equal(await p.locator('#galleryGrid [data-tile-actions]').count(),2);
+    assert.equal(await p.locator('#galleryGrid [data-open-image]').first().getAttribute('aria-label')!==null,true);
+    await p.locator('#sidebarPreferences').click();
+    assert.equal(await p.locator('#prefDensity').inputValue(),'ultra-compact');
+    await p.locator('#preferencesForm button[type="submit"]').click();
+    assert.equal(connected.requests.filter(method=>method!=='GET').length,densityBaseline,
+      'Density changes must never write to Drive or Sheets');
+    await p.locator('#densitySelect').selectOption('comfortable');
     const hostile='<img src=x onerror="window.__vaultXss=1">';
     await p.locator('#searchInput').fill(hostile);
     await p.locator('#saveSearchButton').click();

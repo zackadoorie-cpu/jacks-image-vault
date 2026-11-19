@@ -1268,3 +1268,104 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 @media(prefers-reduced-motion:reduce){
  .experience-quick-card,.experience-collapse,.experience-health-tab{transition:none!important}
 }
+
+
+/* v2.1.42 Ultra Compact: thumbnail-first density. Every existing tile action
+   and its accessible label remains in the DOM; full metadata is still shown
+   in the file detail view. List view intentionally retains its normal layout. */
+.image-grid[data-density="ultra-compact"]:not(.list){
+  grid-template-columns:repeat(auto-fill,minmax(112px,1fr));
+  gap:7px;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .image-tile{
+  border-radius:10px;
+  min-width:0;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-preview{
+  height:112px;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-placeholder{
+  gap:3px;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-placeholder .placeholder-symbol{
+  font-size:25px;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-placeholder small{
+  font-size:9px;
+  max-width:95%;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-badge{
+  font-size:7px;
+  letter-spacing:.25px;
+  top:5px;
+  left:5px;
+  padding:3px 5px;
+  border-radius:5px;
+  max-width:calc(100% - 10px);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-info{
+  padding:6px 7px 7px;
+  min-width:0;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-title{
+  font-size:10px;
+  line-height:1.25;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-description,
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-proposal-note,
+.image-grid[data-density="ultra-compact"]:not(.list) .smart-why,
+.image-grid[data-density="ultra-compact"]:not(.list) .memory-provenance{
+  display:none;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-footer{
+  margin-top:5px;
+  justify-content:flex-end;
+  gap:3px;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-footer .folder-label{
+  display:none;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-more,
+.image-grid[data-density="ultra-compact"]:not(.list) .tiny-heart{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:26px;
+  min-height:26px;
+  padding:2px;
+  line-height:1;
+  font-size:16px;
+  border-radius:6px;
+}
+.image-grid.turbo[data-density="ultra-compact"]:not(.list){
+  --turbo-row-height:182px;
+}
+@media(max-width:680px){
+  .image-grid[data-density="ultra-compact"]:not(.list){
+    grid-template-columns:repeat(auto-fill,minmax(98px,1fr));
+    gap:6px;
+  }
+  .image-grid[data-density="ultra-compact"]:not(.list) .tile-preview{
+    height:98px;
+  }
+  .image-grid.turbo[data-density="ultra-compact"]:not(.list){
+    --turbo-row-height:182px;
+  }
+}
+@media(max-width:390px){
+  .image-grid[data-density="ultra-compact"]:not(.list){
+    grid-template-columns:repeat(auto-fill,minmax(92px,1fr));
+  }
+  .image-grid[data-density="ultra-compact"]:not(.list) .tile-preview{
+    height:92px;
+  }
+  .image-grid.turbo[data-density="ultra-compact"]:not(.list){
+    --turbo-row-height:182px;
+  }
+}
