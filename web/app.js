@@ -6720,20 +6720,20 @@
     try{compact=localStorage.getItem(EXPERIENCE_SIDEBAR_KEY)==='compact';}catch{}
     experienceSetSidebarMode(compact);
     $('experienceSidebarToggle').addEventListener('click',()=>{
-      experienceSetSidebarMode($('app').dataset.sidebarMode!=='compact',{persist:true});
+      experienceSetSidebarMode($('app')?.dataset?.sidebarMode!=='compact',{persist:true});
     });
     // Only one compact menu flyout at a time; the expanded layout keeps the
     // user's existing independently-open group preferences.
     document.querySelectorAll('#navigation details[data-nav-group]').forEach(group=>{
       group.addEventListener('toggle',()=>{
-        if($('app').dataset.sidebarMode!=='compact'||!group.open)return;
+        if($('app')?.dataset?.sidebarMode!=='compact'||!group.open)return;
         document.querySelectorAll('#navigation details[data-nav-group]').forEach(other=>{
           if(other!==group)other.open=false;
         });
       });
     });
     document.addEventListener('pointerdown',event=>{
-      if($('app').dataset.sidebarMode!=='compact'||event.target.closest('#navigation'))return;
+      if($('app')?.dataset?.sidebarMode!=='compact'||event.target.closest('#navigation'))return;
       document.querySelectorAll('#navigation details[data-nav-group]').forEach(group=>{group.open=false;});
     });
   }
@@ -6801,7 +6801,7 @@
     const item=Array.from(document.querySelectorAll('#navigation [data-view]'))
       .find(node=>node.dataset.view===named);
     const group=item?.closest('details[data-nav-group]');
-    if(group&&!group.open&&$('app').dataset.sidebarMode!=='compact')group.open=true;
+    if(group&&!group.open&&$('app')?.dataset?.sidebarMode!=='compact')group.open=true;
   }
   function displayPage(view,{reset=true,scroll=true}={}) {
     powerContextClose();
@@ -6815,7 +6815,7 @@
     if(view!=='sheet-write')state.reconcilePrepared=null;
     state.view=view;
     experienceUpdateBreadcrumb(view);
-    if($('app').dataset.sidebarMode==='compact')
+    if($('app')?.dataset?.sidebarMode==='compact')
       document.querySelectorAll('#navigation details[data-nav-group]').forEach(group=>{group.open=false;});
     revealSidebarGroup(view);
     if(view!=='smart-results')state.smartCollectionId='';
