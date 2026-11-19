@@ -57,6 +57,8 @@ test('video names remain private to runtime, source strings escaped before rende
   assert.match(html,/Original Drive filenames/);
   assert.match(app,/revealSidebarGroup\(view\)/);
   assert.match(app,/jack-vault-sidebar-groups-v1/);
-  for(const id of ['library','explore','manage'])assert.ok(html.includes('data-nav-group="'+id+'"'));
+  for(const id of ['library','review','tools'])assert.ok(html.includes('data-nav-group="'+id+'"'));
+  assert.match(html,/id="experienceSidebarToggle"/);
+  assert.match(html,/data-health-tab="integrity"/);
   for(const view of ['home','all','memes','photos','favorites','smart','memory','video-library','similarity','review-inbox','review','health'])assert.ok(html.includes('data-view="'+view+'"'),view);
 });
