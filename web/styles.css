@@ -1075,3 +1075,18 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .integrity-item[data-integrity-status="drift"],.integrity-item[data-integrity-status="inaccessible"],.integrity-item[data-integrity-status="blocked"],.integrity-item[data-integrity-status="uncertain"] { border-style:dashed; }
 .integrity-pages { justify-content:space-between; }
 @media (max-width: 720px) { .integrity-filters { grid-template-columns:1fr; } .integrity-actions .btn { flex:1 1 auto; } }
+
+
+/* Phase 11D: review-first recovery desk, no automatic Drive/Sheet mutations. */
+.recovery-panel { margin: 1.15rem 0 1.5rem; padding: 1.2rem; border: 1px solid var(--line, rgba(120,135,155,.38)); border-radius:18px; background:var(--panel,transparent); }
+.recovery-filters { display:grid; grid-template-columns:auto minmax(160px,1fr) auto minmax(160px,1fr); gap:.5rem; align-items:center; margin:1rem 0; }
+.recovery-actions { display:flex; flex-wrap:wrap; gap:.55rem; align-items:center; margin:.65rem 0; }
+.recovery-list { display:grid; gap:.65rem; }
+.recovery-card { padding:.95rem 1rem; border-radius:12px; border:1px solid var(--line, rgba(125,139,155,.38)); overflow-wrap:anywhere; }
+.recovery-card[data-recovery-status="drift"],.recovery-card[data-recovery-status="uncertain"],.recovery-card[data-recovery-status="blocked"],.recovery-card[data-recovery-status="inaccessible"] { border-style:dashed; }
+.recovery-header { display:flex; align-items:baseline; gap:.75rem; flex-wrap:wrap; }
+.recovery-card small { display:block; opacity:.78; margin:.3rem 0; }
+.recovery-card p { margin:.45rem 0; }
+.recovery-evidence { font-size:.91rem; opacity:.85; }
+.recovery-preview { margin-top:.75rem; padding:.85rem 1rem; border:1px solid var(--line, rgba(120,135,155,.38)); border-radius:12px; overflow-wrap:anywhere; }
+@media (max-width:720px) { .recovery-filters { grid-template-columns:1fr; } .recovery-actions .btn { flex:1 1 auto; } }
