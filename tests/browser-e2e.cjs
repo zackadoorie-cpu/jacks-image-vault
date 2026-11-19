@@ -98,6 +98,33 @@ async function main(){
  const {server:host,url}=await server();let browser;
  try{
   browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+  // Phase 11D real-Chromium recovery triage uses synthetic Google metadata.
+  // The fixture denies individual file metadata: classify as inaccessible,
+  // not deleted, and never issue Drive or Sheet writes during a recheck.
+  const recovery=await fixturePage(browser,url);
+  try{
+    const p=recovery.page;
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    await p.evaluate(()=>document.querySelector('[data-view="health"]').click());
+    await p.locator('#integrityStart').click();
+    await p.waitForFunction(()=>document.querySelector('#integrityCounts')?.textContent.includes('2 inaccessible'),null,{timeout:18000});
+    assert.match(await p.locator('#recoveryCounts').innerText(),/2 integrity issues/);
+    assert.equal(await p.locator('#recoveryFilter').inputValue(),'action');
+    await p.locator('#recoveryFilter').selectOption('sampled-video');
+    assert.equal(await p.locator('#recoveryList .recovery-card').count(),1,
+      'Sampled video must not be silently treated as poster-only or full playback.');
+    await p.locator('#recoveryFilter').selectOption('date-evidence');
+    assert.equal(await p.locator('#recoveryList .recovery-card').count(),1,
+      'Missing photo date evidence must not imply failed visual review.');
+    await p.locator('#recoveryFilter').selectOption('inaccessible');
+    const before=recovery.requests.filter(method=>method!=='GET').length;
+    await p.locator('#recoveryList [data-recovery-recheck]').first().click();
+    await p.waitForFunction(()=>document.querySelector('#recoveryStatus')?.textContent.includes('No repair authorized'),null,{timeout:18000});
+    assert.equal(recovery.requests.filter(method=>method!=='GET').length,before,
+      'Read-only Recovery Desk must never write to Google.');
+    assert.equal(await p.locator('#recoveryVerifiedPreview').isVisible(),false);
+  }finally{await recovery.ctx.close();}
   const preview=await fixturePage(browser,url);
   try{
     const p=preview.page;

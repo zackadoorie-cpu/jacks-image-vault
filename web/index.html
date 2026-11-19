@@ -817,6 +817,51 @@
             </div>
             <p class="privacy-note">All checks are GET-only and remain in this session's memory. Resume works only for the same connected account and inventory snapshot. Export downloads locally; no audit names, credentials, photographs or results are uploaded to GitHub.</p>
           </section>
+          <section class="recovery-panel" aria-labelledby="recoveryHeading">
+            <div class="catalog-health-header">
+              <div>
+                <p class="eyebrow">PHASE 11D · EVIDENCE-AWARE TRIAGE</p>
+                <h2 id="recoveryHeading">Recovery Desk</h2>
+                <p>Understand filename drift, review evidence and safe next actions after your live audit. Nothing is repaired automatically.</p>
+              </div>
+              <span class="catalog-safety">FRESH VERIFICATION REQUIRED</span>
+            </div>
+            <p id="recoveryStatus" class="health-summary" role="status" aria-live="polite">Run Filename Integrity above to populate recovery cases.</p>
+            <p id="recoveryCounts" class="privacy-note">No recovery findings in this session.</p>
+            <div class="recovery-filters">
+              <label for="recoverySearch">Find a case</label>
+              <input id="recoverySearch" class="field" type="search" placeholder="Filename, folder, status or Drive ID" autocomplete="off">
+              <label for="recoveryFilter">Category</label>
+              <select id="recoveryFilter" class="field">
+                <option value="action">Needs attention</option>
+                <option value="all">All checked and unchecked</option>
+                <option value="drift">Manifest filename drift</option>
+                <option value="external-rename">External renames</option>
+                <option value="uncertain">Interrupted or uncertain</option>
+                <option value="inaccessible">Drive metadata errors</option>
+                <option value="blocked">Identity conflicts</option>
+                <option value="needs-visual">Needs visual review</option>
+                <option value="poster-only">Poster-only videos</option>
+                <option value="sampled-video">Sampled-frame videos</option>
+                <option value="date-evidence">Missing verified date evidence</option>
+                <option value="verified">Verified live names</option>
+              </select>
+            </div>
+            <div class="recovery-actions">
+              <button id="recoveryExport" class="btn outline" type="button" disabled>Export audit CSV locally</button>
+            </div>
+            <div id="recoveryList" class="recovery-list" aria-live="polite"></div>
+            <div id="recoveryVerifiedPreview" class="recovery-preview" hidden>
+              <h3>Independent live preflight</h3>
+              <p id="recoveryVerifiedPreviewText"></p>
+            </div>
+            <div class="integrity-pages">
+              <button id="recoveryPrev" class="btn outline" type="button" disabled>Previous</button>
+              <span id="recoveryPageLabel">1 / 1</span>
+              <button id="recoveryNext" class="btn outline" type="button" disabled>Next</button>
+            </div>
+            <p class="privacy-note">A fresh recheck reads immutable ID, parent, MIME, version and live name. Naming/Activity buttons only open existing workflows. Any later repair still needs its own separate preview, account validation and explicit approvals. Missing EXIF is never treated as a failed visual review. Sampled video frames do not establish audio or continuous playback verification.</p>
+          </section>
           <section class="catalog-health-panel" aria-labelledby="catalogHeading">
             <div class="catalog-health-header">
               <div><p class="eyebrow">PHASE 11A · APPROVAL-ONLY RECONCILIATION</p><h2 id="catalogHeading">Self-Healing Catalog</h2>

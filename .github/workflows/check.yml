@@ -42,6 +42,7 @@ jobs:
           node scripts/build-smart-rename-queue.cjs --check
           node scripts/build-naming-completion.cjs --check
           node scripts/build-filename-integrity.cjs --check
+          node scripts/build-recovery-desk.cjs --check
           node scripts/build-catalog-reconcile.cjs --check
           node scripts/build-review-inbox.cjs --check
           node scripts/build-review-inbox-controller.cjs --check
