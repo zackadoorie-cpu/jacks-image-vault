@@ -22,40 +22,57 @@
         <img src="./icons/icon.svg" class="brand-icon" alt="">
         <div><strong>JACK'S VAULT</strong><span>IMAGE LIBRARY</span></div>
       </div>
-      <nav class="nav" id="navigation" aria-label="Library views">
-        <button class="nav-item active" data-view="home"><span class="nav-icon">▤</span>Command Center</button>
-        <details class="nav-group" data-nav-group="library" open>
-          <summary class="nav-group-toggle"><span>LIBRARY</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
+      <nav class="nav experience-nav" id="navigation" aria-label="Main library navigation">
+        <button class="nav-item active experience-primary" data-view="home" title="Home" aria-label="Home">
+          <span class="nav-icon" aria-hidden="true">⌂</span><span class="nav-text">Home</span>
+        </button>
+        <details class="nav-group experience-primary" data-nav-group="library" open>
+          <summary class="nav-group-toggle" title="Library" aria-label="Library">
+            <span class="nav-icon" aria-hidden="true">▧</span><span class="nav-text">Library</span>
+            <span class="nav-group-chevron" aria-hidden="true">⌄</span>
+          </summary>
           <div class="nav-group-items">
-            <button class="nav-item" data-view="all"><span class="nav-icon">▦</span>All media <span class="nav-count" id="allCount">—</span></button>
-            <button class="nav-item" data-view="memes"><span class="nav-icon">☺</span>Memes</button>
-            <button class="nav-item" data-view="photos"><span class="nav-icon">▧</span>Photos</button>
-            <button class="nav-item" data-view="video-library"><span class="nav-icon">▶</span>Videos</button>
-            <button class="nav-item" data-view="favorites"><span class="nav-icon">♡</span>Favorites</button>
+            <button class="nav-item" data-view="all"><span class="nav-icon" aria-hidden="true">▦</span><span class="nav-text">All media</span><span class="nav-count" id="allCount">—</span></button>
+            <button class="nav-item" data-view="photos"><span class="nav-icon" aria-hidden="true">▧</span><span class="nav-text">Photos</span></button>
+            <button class="nav-item" data-view="memes"><span class="nav-icon" aria-hidden="true">☺</span><span class="nav-text">Memes</span></button>
+            <button class="nav-item" data-view="video-library"><span class="nav-icon" aria-hidden="true">▶</span><span class="nav-text">Videos</span></button>
+            <button class="nav-item" data-view="favorites"><span class="nav-icon" aria-hidden="true">♡</span><span class="nav-text">Favorites</span></button>
           </div>
         </details>
-        <details class="nav-group" data-nav-group="explore">
-          <summary class="nav-group-toggle"><span>EXPLORE TOOLS</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
+        <details class="nav-group experience-primary" data-nav-group="review">
+          <summary class="nav-group-toggle" title="Review Center" aria-label="Review Center">
+            <span class="nav-icon" aria-hidden="true">✓</span><span class="nav-text">Review Center</span>
+            <span class="nav-group-chevron" aria-hidden="true">⌄</span>
+          </summary>
           <div class="nav-group-items">
-            <button class="nav-item" data-view="smart"><span class="nav-icon">✦</span>Smart Collections</button>
-            <button class="nav-item" data-view="memory"><span class="nav-icon">◷</span>Memory Lane</button>
-            <button class="nav-item" data-view="similarity"><span class="nav-icon">▥</span>Similarity Lab</button>
+            <button class="nav-item" data-view="manager-desk"><span class="nav-icon" aria-hidden="true">☷</span><span class="nav-text">Library Desk</span></button>
+            <button class="nav-item" data-view="review-inbox"><span class="nav-icon" aria-hidden="true">▤</span><span class="nav-text">Review Inbox</span></button>
+            <button class="nav-item" data-view="review"><span class="nav-icon" aria-hidden="true">◷</span><span class="nav-text">Needs review</span><span class="nav-count" id="reviewCount">—</span></button>
+            <button class="nav-item" data-view="filename-review"><span class="nav-icon" aria-hidden="true">✎</span><span class="nav-text">Naming Completion</span></button>
+            <button class="nav-item" data-view="rename-desk"><span class="nav-icon" aria-hidden="true">✎</span><span class="nav-text">Rename Desk</span></button>
+            <button class="nav-item" data-view="sheet-write"><span class="nav-icon" aria-hidden="true">✓</span><span class="nav-text">Sheet Approvals</span></button>
+            <button class="nav-item" data-view="activity"><span class="nav-icon" aria-hidden="true">↶</span><span class="nav-text">Activity &amp; Undo</span></button>
           </div>
         </details>
-        <details class="nav-group" data-nav-group="manage">
-          <summary class="nav-group-toggle"><span>REVIEW &amp; HEALTH</span><span class="nav-group-chevron" aria-hidden="true">⌄</span></summary>
+        <button class="nav-item experience-primary" data-view="health" title="Library Health" aria-label="Library Health">
+          <span class="nav-icon" aria-hidden="true">♡</span><span class="nav-text">Library Health</span>
+        </button>
+        <details class="nav-group experience-primary" data-nav-group="tools">
+          <summary class="nav-group-toggle" title="Tools" aria-label="Tools">
+            <span class="nav-icon" aria-hidden="true">⚒</span><span class="nav-text">Tools</span>
+            <span class="nav-group-chevron" aria-hidden="true">⌄</span>
+          </summary>
           <div class="nav-group-items">
-            <button class="nav-item" data-view="manager-desk"><span class="nav-icon">☷</span>Library Desk</button>
-            <button class="nav-item" data-view="filename-review"><span class="nav-icon">✎</span>Naming Completion</button>
-            <button class="nav-item" data-view="review-inbox"><span class="nav-icon">▤</span>Review Inbox</button>
-            <button class="nav-item" data-view="rename-desk"><span class="nav-icon">✎</span>Rename Desk</button>
-            <button class="nav-item" data-view="review"><span class="nav-icon">◷</span>Needs review <span class="nav-count" id="reviewCount">—</span></button>
-            <button class="nav-item" data-view="activity"><span class="nav-icon">↶</span>Activity &amp; Undo</button>
-            <button class="nav-item" data-view="sheet-write"><span class="nav-icon">✓</span>Sheet Approvals</button>
-            <button class="nav-item" data-view="health"><span class="nav-icon">▤</span>Library Health</button>
+            <button class="nav-item" data-view="smart"><span class="nav-icon" aria-hidden="true">✦</span><span class="nav-text">Smart Collections</span></button>
+            <button class="nav-item" data-view="memory"><span class="nav-icon" aria-hidden="true">◷</span><span class="nav-text">Memory Lane</span></button>
+            <button class="nav-item" data-view="similarity"><span class="nav-icon" aria-hidden="true">▥</span><span class="nav-text">Similarity Lab</span></button>
           </div>
         </details>
       </nav>
+      <button class="experience-collapse" id="experienceSidebarToggle" type="button"
+        aria-controls="navigation" aria-pressed="false" title="Collapse sidebar to icons">
+        <span aria-hidden="true">⇤</span><span class="experience-collapse-label">Collapse sidebar</span>
+      </button>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-safety"><span class="safety-dot"></span> READ-ONLY ACCESS</div>
       <p class="sidebar-caption">Your original Drive files and folders remain untouched.</p>
@@ -67,7 +84,7 @@
 
     <div class="workspace">
       <header class="topbar">
-        <div class="location">YOUR DRIVE <span>/</span> <strong>IMAGE VAULT</strong></div>
+        <div class="location">JACK’S VAULT <span>/</span> <strong id="experienceBreadcrumb">HOME</strong></div>
         <div class="top-actions">
           <span class="connection-status" id="connectionStatus"><i></i> Preview mode</span>
           <button class="btn quiet hidden" id="syncButton" type="button" title="Reload visual reviews from Google Sheets, then check Drive changes (read-only)">↻ <span>Sync Sheet + Drive</span></button>
@@ -85,9 +102,9 @@
         <section id="homeView" class="view">
           <div class="hero vault-home-hero">
             <div class="hero-copy">
-              <p class="eyebrow"><span class="eyebrow-dot"></span> YOUR PRIVATE CREATIVE UNIVERSE</p>
-              <h1>Your library.<br><em>Every shade of you.</em></h1>
-              <p class="hero-description">One thoughtful home for your photos, memes, clips and favorite moments. Organized for discovery, with originals protected in Google Drive.</p>
+              <p class="eyebrow"><span class="eyebrow-dot"></span> YOUR LIBRARY, SIMPLIFIED</p>
+              <h1>Your memories.<br><em>Beautifully organized.</em></h1>
+              <p class="hero-description">A calmer place to browse, organize, and enjoy your photos and videos. Your originals stay protected in Google Drive.</p>
               <div class="hero-actions">
                 <button class="btn primary large" id="exploreButton" type="button">Explore your library <span aria-hidden="true">→</span></button>
                 <button class="btn outline large" id="heroConnectButton" type="button">Connect Google Drive</button>
@@ -102,6 +119,12 @@
               <div class="vault-art-core">J<span>V</span></div>
             </div>
           </div>
+          <section class="experience-quick-links" aria-label="What would you like to do?">
+            <button id="experienceQuickSearch" class="experience-quick-card" type="button"><span class="experience-quick-icon" aria-hidden="true">⌕</span><span><strong>Search your library</strong><small>Find photos, videos, and moments</small></span><span aria-hidden="true">↗</span></button>
+            <button id="experienceQuickReview" class="experience-quick-card" type="button"><span class="experience-quick-icon" aria-hidden="true">✓</span><span><strong>Review Center</strong><small>Organize work that needs attention</small></span><span aria-hidden="true">↗</span></button>
+            <button id="experienceQuickHealth" class="experience-quick-card" type="button"><span class="experience-quick-icon" aria-hidden="true">♡</span><span><strong>Library Health</strong><small>Check integrity and recovery</small></span><span aria-hidden="true">↗</span></button>
+            <button id="experienceQuickTools" class="experience-quick-card" type="button"><span class="experience-quick-icon" aria-hidden="true">✦</span><span><strong>Explore tools</strong><small>Collections, timeline, and more</small></span><span aria-hidden="true">↗</span></button>
+          </section>
           <div class="stats" id="stats">
             <div class="stat"><span>◈</span><strong id="statImages">—</strong><small>Files in Sheet snapshot</small></div>
             <div class="stat"><span>☺</span><strong id="statMemes">—</strong><small>Meme files in gallery</small></div>
@@ -770,12 +793,21 @@
         </section>
         <section id="healthView" class="view hidden" aria-labelledby="healthTitle">
           <div class="gallery-heading"><div><p class="eyebrow">READ-ONLY DRIVE AUDIT</p><h1 id="healthTitle">Library Health</h1><p>Compare the original spreadsheet snapshot with current Drive files. New subfolders under the verified Memes and Jacks Photos roots are discovered automatically.</p></div><div class="health-actions"><button id="healthScanButton" class="btn primary" type="button">↻ Discover &amp; verify folders</button><button id="clearSyncCacheButton" class="btn outline" type="button">Clear local sync cache</button></div></div>
+          <div class="experience-health-tabs" role="tablist" aria-label="Library Health tools">
+            <button id="healthTabOverview" class="experience-health-tab" data-health-tab="overview" role="tab" aria-controls="healthPaneOverview" aria-selected="true" tabindex="0" type="button">Overview</button>
+            <button id="healthTabIntegrity" class="experience-health-tab" data-health-tab="integrity" role="tab" aria-controls="healthPaneIntegrity" aria-selected="false" tabindex="-1" type="button">Filename Integrity</button>
+            <button id="healthTabRecovery" class="experience-health-tab" data-health-tab="recovery" role="tab" aria-controls="healthPaneRecovery" aria-selected="false" tabindex="-1" type="button">Recovery Desk</button>
+            <button id="healthTabCatalog" class="experience-health-tab" data-health-tab="catalog" role="tab" aria-controls="healthPaneCatalog" aria-selected="false" tabindex="-1" type="button">Catalog &amp; Sync</button>
+          </div>
+          <div class="experience-health-pane" id="healthPaneOverview" data-health-pane="overview" role="tabpanel" aria-labelledby="healthTabOverview">
           <div class="index-metrics" id="indexMetrics" aria-label="Index coverage"><div class="index-metric"><span>Spreadsheet snapshot</span><strong id="metricSnapshot">—</strong><small>Original inventory, unchanged</small></div><div class="index-metric"><span>Live Drive files</span><strong id="metricLive">—</strong><small id="metricLiveNote">Not yet verified</small></div><div class="index-metric"><span>New files</span><strong id="metricAdded">—</strong><small>Not in spreadsheet snapshot</small></div><div class="index-metric"><span>Missing files</span><strong id="metricMissing">—</strong><small>No longer in watched roots</small></div></div>
           <div class="health-summary" id="discoverySummary" role="status">Folder discovery has not run.</div>
           <div class="health-summary" id="healthSummary">Connect Drive to inspect the indexed folders.</div>
           <div class="health-summary" id="syncStatus" role="status" aria-live="polite">Sync has not run yet.</div>
           <h2 class="health-heading">Recent differences</h2>
           <ul class="health-differences" id="healthChanges"><li>Run a scan to check for changes.</li></ul>
+          </div>
+          <div class="experience-health-pane" id="healthPaneIntegrity" data-health-pane="integrity" role="tabpanel" aria-labelledby="healthTabIntegrity" hidden>
           <section class="integrity-panel" aria-labelledby="integrityHeading">
             <div class="catalog-health-header">
               <div><p class="eyebrow">PHASE 11C · LIVE FILE INTEGRITY</p>
@@ -817,6 +849,8 @@
             </div>
             <p class="privacy-note">All checks are GET-only and remain in this session's memory. Resume works only for the same connected account and inventory snapshot. Export downloads locally; no audit names, credentials, photographs or results are uploaded to GitHub.</p>
           </section>
+          </div>
+          <div class="experience-health-pane" id="healthPaneRecovery" data-health-pane="recovery" role="tabpanel" aria-labelledby="healthTabRecovery" hidden>
           <section class="recovery-panel" aria-labelledby="recoveryHeading">
             <div class="catalog-health-header">
               <div>
@@ -862,6 +896,8 @@
             </div>
             <p class="privacy-note">A fresh recheck reads immutable ID, parent, MIME, version and live name. Naming/Activity buttons only open existing workflows. Any later repair still needs its own separate preview, account validation and explicit approvals. Missing EXIF is never treated as a failed visual review. Sampled video frames do not establish audio or continuous playback verification.</p>
           </section>
+          </div>
+          <div class="experience-health-pane" id="healthPaneCatalog" data-health-pane="catalog" role="tabpanel" aria-labelledby="healthTabCatalog" hidden>
           <section class="catalog-health-panel" aria-labelledby="catalogHeading">
             <div class="catalog-health-header">
               <div><p class="eyebrow">PHASE 11A · APPROVAL-ONLY RECONCILIATION</p><h2 id="catalogHeading">Self-Healing Catalog</h2>
@@ -900,6 +936,7 @@
           <h2 class="health-heading">Verified folders and discovery status</h2>
           <div class="health-table-wrap"><table class="health-table"><thead><tr><th>Folder</th><th>Inventory</th><th>Live</th><th>Change</th></tr></thead><tbody id="healthRows"></tbody></table></div>
           <p class="privacy-note">The spreadsheet is a historical inventory, not a live database. Folder discovery and Drive changes update the gallery's read-only view without modifying or deleting any originals. Full discovery stays within the existing two library roots. The account-bound local cache stores metadata and a changes cursor only, never photo or video bytes or Google access tokens.</p>
+          </div>
         </section>
       </main>
       <footer class="footer"><span>JACK'S IMAGE VAULT <b>•</b> READ-ONLY BY DEFAULT</span><span id="footerStatus">Local preview · No private data stored</span></footer>

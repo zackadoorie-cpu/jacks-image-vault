@@ -107,8 +107,10 @@ async function main(){
     await p.locator('#connectButton').click();
     await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
     await p.evaluate(()=>document.querySelector('[data-view="health"]').click());
+    await p.locator('#healthTabIntegrity').click();
     await p.locator('#integrityStart').click();
     await p.waitForFunction(()=>document.querySelector('#integrityCounts')?.textContent.includes('2 inaccessible'),null,{timeout:18000});
+    await p.locator('#healthTabRecovery').click();
     assert.match(await p.locator('#recoveryCounts').innerText(),/2 integrity issues/);
     assert.equal(await p.locator('#recoveryFilter').inputValue(),'action');
     await p.locator('#recoveryFilter').selectOption('sampled-video');
@@ -210,6 +212,50 @@ async function main(){
     await p.keyboard.press('Control+k');
     await p.keyboard.press('Escape');
     assert.equal(await p.locator('#powerPaletteDialog').evaluate(d=>d.open),false);
+    // Phase 11E: the same legacy tools remain routable, but the desktop shell
+    // has five purposeful destinations and Health subviews are tabs.
+    assert.deepEqual(await p.locator('#navigation > .experience-primary').count(),5);
+    assert.equal(await p.locator('#navigation [data-view]').count(),17);
+    assert.equal(await p.locator('#healthTabOverview').getAttribute('aria-selected'),'true');
+    await p.locator('#healthTabIntegrity').click();
+    assert.equal(await p.locator('#healthPaneIntegrity').isVisible(),true);
+    assert.equal(await p.locator('#healthPaneOverview').isVisible(),false);
+    await p.locator('#healthTabIntegrity').focus();
+    await p.keyboard.press('ArrowRight');
+    assert.equal(await p.locator('#healthTabRecovery').getAttribute('aria-selected'),'true');
+    assert.equal(await p.locator('#healthPaneRecovery').isVisible(),true);
+    await p.keyboard.press('End');
+    assert.equal(await p.locator('#healthTabCatalog').getAttribute('aria-selected'),'true');
+    await p.keyboard.press('Home');
+    assert.equal(await p.locator('#healthTabOverview').getAttribute('aria-selected'),'true');
+    await p.locator('#experienceSidebarToggle').click();
+    assert.equal(await p.locator('#app').getAttribute('data-sidebar-mode'),'compact');
+    assert.equal(await p.locator('#experienceSidebarToggle').getAttribute('aria-pressed'),'true');
+    assert.equal(await p.locator('#navigation [data-nav-group="tools"] summary').getAttribute('aria-label'),'Tools');
+    await p.locator('#navigation [data-nav-group="tools"] summary').click();
+    assert.equal(await p.locator('#navigation [data-nav-group="tools"]').getAttribute('open')!==null,true);
+    await p.locator('#navigation [data-view="similarity"]').click();
+    assert.equal(await p.locator('#similarityView').isVisible(),true);
+    assert.equal(await p.locator('#experienceBreadcrumb').innerText(),'TOOLS');
+    await p.reload({waitUntil:'domcontentloaded'});
+    assert.equal(await p.locator('#app').getAttribute('data-sidebar-mode'),'compact');
+    await p.locator('#experienceSidebarToggle').click();
+    assert.equal(await p.locator('#app').getAttribute('data-sidebar-mode'),'expanded');
+    assert.equal(await p.evaluate(()=>localStorage.getItem('jack-vault-sidebar-icon-mode-v1')),'expanded');
+    await p.locator('#experienceQuickSearch').click();
+    assert.equal(await p.locator('#galleryView').isVisible(),true);
+    assert.equal(await p.evaluate(()=>document.activeElement.id),'searchInput');
+    // Alt+1 is deliberately ignored while a search input has focus; use
+    // explicit Home navigation, which must work without altering the search.
+    await p.locator('#navigation [data-view="home"]').click();
+    await p.locator('#experienceQuickReview').click();
+    assert.equal(await p.locator('#managerDeskView').isVisible(),true);
+    await p.keyboard.press('Alt+1');
+    await p.locator('#experienceQuickHealth').click();
+    assert.equal(await p.locator('#healthPaneOverview').isVisible(),true);
+    await p.keyboard.press('Alt+1');
+    await p.locator('#experienceQuickTools').click();
+    assert.equal(await p.locator('#smartView').isVisible(),true);
     const resize=p.locator('#sidebarResizer');
     await resize.focus();await p.keyboard.press('ArrowRight');
     assert.equal(await resize.getAttribute('aria-valuenow'),'260');
@@ -557,7 +603,7 @@ async function main(){
     await p.locator('#managerOpenInbox').click();
     assert.equal(await p.locator('#reviewInboxView').isVisible(),true);
     // The new Library Desk navigation can already have expanded this group.
-    const manageNav=p.locator('#navigation details[data-nav-group="manage"]');
+    const manageNav=p.locator('#navigation details[data-nav-group="review"]');
     if(await manageNav.getAttribute('open')===null)await manageNav.locator('summary').click();
     assert.equal(await manageNav.getAttribute('open')!==null,true);
     await p.locator('[data-view="review-inbox"]').click();
@@ -1049,8 +1095,9 @@ async function main(){
     await p.locator('#reviewSaveDraft').click();
     await p.locator('#reviewApprove').click();
     await p.mouse.click(5,5);
-    await p.locator('#navigation details[data-nav-group="manage"] summary').click();
-    await p.locator('[data-view="sheet-write"]').click();
+    const reviewNavigation=p.locator('#navigation details[data-nav-group="review"]');
+    if(await reviewNavigation.getAttribute('open')===null)await reviewNavigation.locator('summary').click();
+    await reviewNavigation.locator('[data-view="sheet-write"]').click();
     assert.equal(await p.locator('#sheetWriteView').isVisible(),true);
     await p.keyboard.press('Alt+1');
     await p.locator('#homeActionDesk').click();

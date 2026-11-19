@@ -6673,6 +6673,110 @@
     state.renamePage=1;
   }
   /* GENERATED RENAME DESK CONTROLLER END */
+
+  /* PHASE 11E EXPERIENCE CONTROLLER START */
+  const EXPERIENCE_SIDEBAR_KEY='jack-vault-sidebar-icon-mode-v1';
+  const EXPERIENCE_HEALTH_PANES=Object.freeze(['overview','integrity','recovery','catalog']);
+  const EXPERIENCE_ROUTE_CATEGORIES=Object.freeze({
+    home:'HOME',all:'LIBRARY',photos:'LIBRARY',memes:'LIBRARY',
+    'video-library':'LIBRARY',favorites:'LIBRARY',
+    review:'REVIEW CENTER','review-inbox':'REVIEW CENTER',
+    'manager-desk':'REVIEW CENTER','filename-review':'REVIEW CENTER',
+    'rename-desk':'REVIEW CENTER','sheet-write':'REVIEW CENTER',
+    activity:'REVIEW CENTER',
+    health:'LIBRARY HEALTH',
+    smart:'TOOLS','smart-results':'TOOLS',memory:'TOOLS',
+    'memory-results':'TOOLS',similarity:'TOOLS'
+  });
+  let experienceRestoreGroups=null;
+  function experienceUpdateBreadcrumb(view){
+    $('experienceBreadcrumb').textContent=EXPERIENCE_ROUTE_CATEGORIES[view]||'LIBRARY';
+  }
+  function experienceSetSidebarMode(compact,{persist=false}={}){
+    const app=$('app'),toggle=$('experienceSidebarToggle');
+    if(!app||!toggle)return;
+    const prior=app.dataset.sidebarMode==='compact';
+    const groups=[...document.querySelectorAll('#navigation details[data-nav-group]')];
+    // Flyout menus are opened on demand in compact mode. Restore prior
+    // expanded groups when returning to the full-width sidebar.
+    if(compact&&!prior){
+      experienceRestoreGroups=new Map(groups.map(x=>[x.dataset.navGroup,x.open]));
+      groups.forEach(x=>{x.open=false;});
+    }else if(!compact&&prior&&experienceRestoreGroups){
+      groups.forEach(x=>{if(experienceRestoreGroups.has(x.dataset.navGroup))
+        x.open=experienceRestoreGroups.get(x.dataset.navGroup);});
+      experienceRestoreGroups=null;
+    }
+    app.dataset.sidebarMode=compact?'compact':'expanded';
+    toggle.setAttribute('aria-pressed',String(compact));
+    toggle.setAttribute('aria-label',compact?'Expand sidebar labels':'Collapse sidebar to icons');
+    toggle.title=compact?'Expand sidebar labels':'Collapse sidebar to icons';
+    toggle.querySelector('.experience-collapse-label').textContent=compact?'Expand sidebar':'Collapse sidebar';
+    toggle.querySelector('span[aria-hidden]').textContent=compact?'⇥':'⇤';
+    if(persist)try{localStorage.setItem(EXPERIENCE_SIDEBAR_KEY,compact?'compact':'expanded');}catch{}
+  }
+  function experienceSidebarInit(){
+    let compact=false;
+    try{compact=localStorage.getItem(EXPERIENCE_SIDEBAR_KEY)==='compact';}catch{}
+    experienceSetSidebarMode(compact);
+    $('experienceSidebarToggle').addEventListener('click',()=>{
+      experienceSetSidebarMode($('app')?.dataset?.sidebarMode!=='compact',{persist:true});
+    });
+    // Only one compact menu flyout at a time; the expanded layout keeps the
+    // user's existing independently-open group preferences.
+    document.querySelectorAll('#navigation details[data-nav-group]').forEach(group=>{
+      group.addEventListener('toggle',()=>{
+        if($('app')?.dataset?.sidebarMode!=='compact'||!group.open)return;
+        document.querySelectorAll('#navigation details[data-nav-group]').forEach(other=>{
+          if(other!==group)other.open=false;
+        });
+      });
+    });
+    document.addEventListener('pointerdown',event=>{
+      if($('app')?.dataset?.sidebarMode!=='compact'||event.target.closest('#navigation'))return;
+      document.querySelectorAll('#navigation details[data-nav-group]').forEach(group=>{group.open=false;});
+    });
+  }
+  function experienceSelectHealthPane(name,{focus=false}={}){
+    const pane=EXPERIENCE_HEALTH_PANES.includes(name)?name:'overview';
+    state.experienceHealthPane=pane;
+    for(const button of document.querySelectorAll('[data-health-tab]')){
+      const selected=button.dataset.healthTab===pane;
+      button.setAttribute('aria-selected',String(selected));
+      button.tabIndex=selected?0:-1;
+      if(selected&&focus)button.focus();
+    }
+    for(const section of document.querySelectorAll('[data-health-pane]'))
+      section.hidden=section.dataset.healthPane!==pane;
+  }
+  function experienceHealthKeys(event){
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+    const buttons=[...document.querySelectorAll('#healthView [data-health-tab]')];
+    const at=buttons.indexOf(event.target);if(at<0)return;
+    event.preventDefault();
+    let next=event.key==='Home'?0:event.key==='End'?buttons.length-1:
+      (at+(event.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;
+    experienceSelectHealthPane(buttons[next].dataset.healthTab,{focus:true});
+  }
+  function experienceInit(){
+    experienceSidebarInit();
+    document.querySelectorAll('#healthView [data-health-tab]').forEach(button=>{
+      button.addEventListener('click',()=>experienceSelectHealthPane(button.dataset.healthTab));
+      button.addEventListener('keydown',experienceHealthKeys);
+    });
+    $('experienceQuickSearch').onclick=()=>{
+      displayPage('all');$('searchInput').focus();
+    };
+    $('experienceQuickReview').onclick=()=>displayPage('manager-desk');
+    $('experienceQuickHealth').onclick=()=>{
+      displayPage('health');experienceSelectHealthPane('overview');
+    };
+    $('experienceQuickTools').onclick=()=>displayPage('smart');
+    experienceSelectHealthPane('overview');
+    experienceUpdateBreadcrumb('home');
+  }
+  /* PHASE 11E EXPERIENCE CONTROLLER END */
+
   function setupSidebarGroups(){
     const groups=Array.from(document.querySelectorAll('#navigation details[data-nav-group]'));
     const key='jack-vault-sidebar-groups-v1';
@@ -6697,7 +6801,7 @@
     const item=Array.from(document.querySelectorAll('#navigation [data-view]'))
       .find(node=>node.dataset.view===named);
     const group=item?.closest('details[data-nav-group]');
-    if(group&&!group.open)group.open=true;
+    if(group&&!group.open&&$('app')?.dataset?.sidebarMode!=='compact')group.open=true;
   }
   function displayPage(view,{reset=true,scroll=true}={}) {
     powerContextClose();
@@ -6710,6 +6814,9 @@
     if(view!=='activity')state.driveUndoPreview=null;
     if(view!=='sheet-write')state.reconcilePrepared=null;
     state.view=view;
+    experienceUpdateBreadcrumb(view);
+    if($('app')?.dataset?.sidebarMode==='compact')
+      document.querySelectorAll('#navigation details[data-nav-group]').forEach(group=>{group.open=false;});
     revealSidebarGroup(view);
     if(view!=='smart-results')state.smartCollectionId='';
     if(reset){
@@ -9849,6 +9956,7 @@
   }
   function initEvents() {
     setupSidebarGroups();
+    experienceInit();
     $('recoveryFilter').onchange=e=>{state.recoveryFilter=e.target.value;state.recoveryPage=1;recoveryRender();};
     $('recoverySearch').oninput=e=>{state.recoveryQuery=e.target.value.slice(0,120);state.recoveryPage=1;recoveryRender();};
     $('recoveryPrev').onclick=()=>{state.recoveryPage=Math.max(1,state.recoveryPage-1);recoveryRender();};
