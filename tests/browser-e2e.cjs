@@ -245,7 +245,9 @@ async function main(){
     await p.locator('#experienceQuickSearch').click();
     assert.equal(await p.locator('#galleryView').isVisible(),true);
     assert.equal(await p.evaluate(()=>document.activeElement.id),'searchInput');
-    await p.keyboard.press('Alt+1');
+    // Alt+1 is deliberately ignored while a search input has focus; use
+    // explicit Home navigation, which must work without altering the search.
+    await p.locator('#navigation [data-view="home"]').click();
     await p.locator('#experienceQuickReview').click();
     assert.equal(await p.locator('#managerDeskView').isVisible(),true);
     await p.keyboard.press('Alt+1');
