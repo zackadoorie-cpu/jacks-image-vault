@@ -1,0 +1,32 @@
+# Single approved density-only release. No files ship without release.yml checks.
+name: Publish approved Ultra Compact v2.1.42
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-ultra-compact-v2142.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Ultra Compact Gallery v2.1.42')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Run existing verified release pipeline once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.42 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.42 already exists; no duplicate dispatch."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.42
+          echo "Requested independent Chromium, Windows, updater and SHA-256 release checks."
