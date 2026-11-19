@@ -1355,7 +1355,7 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
     height:98px;
   }
   .image-grid.turbo[data-density="ultra-compact"]:not(.list){
-    --turbo-row-height:168px;
+    --turbo-row-height:182px;
   }
 }
 @media(max-width:390px){
@@ -1366,6 +1366,6 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
     height:92px;
   }
   .image-grid.turbo[data-density="ultra-compact"]:not(.list){
-    --turbo-row-height:162px;
+    --turbo-row-height:182px;
   }
 }
