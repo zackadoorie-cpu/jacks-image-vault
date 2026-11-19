@@ -776,6 +776,47 @@
           <div class="health-summary" id="syncStatus" role="status" aria-live="polite">Sync has not run yet.</div>
           <h2 class="health-heading">Recent differences</h2>
           <ul class="health-differences" id="healthChanges"><li>Run a scan to check for changes.</li></ul>
+          <section class="integrity-panel" aria-labelledby="integrityHeading">
+            <div class="catalog-health-header">
+              <div><p class="eyebrow">PHASE 11C · LIVE FILE INTEGRITY</p>
+                <h2 id="integrityHeading">Filename Integrity</h2>
+                <p>Compare each indexed Drive ID and name against the live original. Recorded Sheet names are not treated as proof until checked. Original filenames with no AD entry are normal.</p>
+              </div>
+              <span class="catalog-safety">READ-ONLY · NO MEDIA CHANGES</span>
+            </div>
+            <div class="integrity-actions">
+              <button id="integrityStart" type="button" class="btn primary">Start live name audit</button>
+              <button id="integrityCancel" type="button" class="btn outline" disabled>Pause audit</button>
+              <button id="integrityExport" type="button" class="btn outline" disabled>Export local CSV</button>
+            </div>
+            <p id="integritySummary" class="health-summary" role="status" aria-live="polite">Connect a verified account and Sheet to start.</p>
+            <progress id="integrityProgress" max="1" value="0" aria-label="Filename checks completed"></progress>
+            <p id="integrityCounts" class="privacy-note" role="status">No integrity checks have run in this session.</p>
+            <div class="integrity-filters">
+              <label for="integritySearch">Search records</label>
+              <input id="integritySearch" type="search" class="field" placeholder="Name, folder, status or Drive ID" autocomplete="off">
+              <label for="integrityFilter">Result status</label>
+              <select id="integrityFilter" class="field">
+                <option value="all">All records</option>
+                <option value="sheet-unverified">Sheet recorded · not checked</option>
+                <option value="original-unverified">Original · not checked</option>
+                <option value="live-verified">Live verified</option>
+                <option value="original-unchanged">Original unchanged</option>
+                <option value="drift">Recorded name drift</option>
+                <option value="external-rename">External rename</option>
+                <option value="inaccessible">Inaccessible / missing</option>
+                <option value="blocked">Blocked identity</option>
+                <option value="uncertain">Uncertain journal</option>
+              </select>
+            </div>
+            <div id="integrityList" class="integrity-list" aria-live="polite"></div>
+            <div class="integrity-pages">
+              <button id="integrityPrev" class="btn outline" type="button" disabled>Previous</button>
+              <span id="integrityPageLabel">1 / 1</span>
+              <button id="integrityNext" class="btn outline" type="button" disabled>Next</button>
+            </div>
+            <p class="privacy-note">All checks are GET-only and remain in this session's memory. Resume works only for the same connected account and inventory snapshot. Export downloads locally; no audit names, credentials, photographs or results are uploaded to GitHub.</p>
+          </section>
           <section class="catalog-health-panel" aria-labelledby="catalogHeading">
             <div class="catalog-health-header">
               <div><p class="eyebrow">PHASE 11A · APPROVAL-ONLY RECONCILIATION</p><h2 id="catalogHeading">Self-Healing Catalog</h2>
