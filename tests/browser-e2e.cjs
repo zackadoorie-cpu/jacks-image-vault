@@ -107,8 +107,10 @@ async function main(){
     await p.locator('#connectButton').click();
     await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
     await p.evaluate(()=>document.querySelector('[data-view="health"]').click());
+    await p.locator('#healthTabIntegrity').click();
     await p.locator('#integrityStart').click();
     await p.waitForFunction(()=>document.querySelector('#integrityCounts')?.textContent.includes('2 inaccessible'),null,{timeout:18000});
+    await p.locator('#healthTabRecovery').click();
     assert.match(await p.locator('#recoveryCounts').innerText(),/2 integrity issues/);
     assert.equal(await p.locator('#recoveryFilter').inputValue(),'action');
     await p.locator('#recoveryFilter').selectOption('sampled-video');
