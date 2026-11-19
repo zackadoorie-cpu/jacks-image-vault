@@ -49,7 +49,7 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,t
      const source=fs.readFileSync(path.join(root,'app.js'),'utf8');
      const suffix='  init();\n})();';
      if(!source.includes(suffix))throw new Error('Turbo E2E app bootstrap changed');
-     const patched=source.replace(suffix,'  globalThis.__turboBench={state,renderGallery,appendGalleryBatch};\n'+suffix);
+     const patched=source.replace(suffix,'  globalThis.__turboBench={state,renderGallery,appendGalleryBatch,turboGallery};\n'+suffix);
      return route.fulfill({status:200,contentType:'text/javascript',body:patched});
    });
  }
