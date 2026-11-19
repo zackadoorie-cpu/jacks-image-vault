@@ -603,7 +603,7 @@ async function main(){
     await p.locator('#managerOpenInbox').click();
     assert.equal(await p.locator('#reviewInboxView').isVisible(),true);
     // The new Library Desk navigation can already have expanded this group.
-    const manageNav=p.locator('#navigation details[data-nav-group="manage"]');
+    const manageNav=p.locator('#navigation details[data-nav-group="review"]');
     if(await manageNav.getAttribute('open')===null)await manageNav.locator('summary').click();
     assert.equal(await manageNav.getAttribute('open')!==null,true);
     await p.locator('[data-view="review-inbox"]').click();
@@ -1095,8 +1095,9 @@ async function main(){
     await p.locator('#reviewSaveDraft').click();
     await p.locator('#reviewApprove').click();
     await p.mouse.click(5,5);
-    await p.locator('#navigation details[data-nav-group="manage"] summary').click();
-    await p.locator('[data-view="sheet-write"]').click();
+    const reviewNavigation=p.locator('#navigation details[data-nav-group="review"]');
+    if(await reviewNavigation.getAttribute('open')===null)await reviewNavigation.locator('summary').click();
+    await reviewNavigation.locator('[data-view="sheet-write"]').click();
     assert.equal(await p.locator('#sheetWriteView').isVisible(),true);
     await p.keyboard.press('Alt+1');
     await p.locator('#homeActionDesk').click();
