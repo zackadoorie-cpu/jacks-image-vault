@@ -10024,6 +10024,8 @@
     const poster=entry?`<img src="${escapeHTML(entry.src)}" alt="${escapeHTML(item.description||item.name)}">`:`<div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${kind==='video'?'Video preview available on demand':kind==='pdf'?'Open in Drive to view the document':item.demo?'Design preview':error?'Preview unavailable; use Retry or Open in Drive':'Preview loading…'}</small></div>`;
     const playable=!item.demo&&(kind==='video'||isGIF(item));
     const oversized=kind==='video'&&item.size>videoLibrary.VIDEO_STREAM_MAX || isGIF(item)&&item.size>256*1024*1024;
+    if(playable)setMediaPlaybackState(oversized?'error':'ready',oversized?'Open in Drive':'Ready to play',item.id);
+    else $('mediaPlaybackState').hidden=true;
     const drive=oversized?linkToDrive(item):'';
     const label=isGIF(item)?'Play GIF animation':'Play video';
     const affordance=!playable?'':oversized&&drive?
@@ -10196,6 +10198,28 @@ async function nativeMediaPost(route,body,signal){
     if(Date.now()>state.expiry||!state.accessToken)throw new Error('Google sign-in expired.');
     await nativeMediaPost('renew',{id,accessToken:state.accessToken});
   }
+  // Playback feedback is derived from HTMLMediaElement events, never from a
+  // guessed decoder or network progress. It is scoped to the active item.
+  function setMediaPlaybackState(status,label,id){
+    if(id&&state.activeImage?.id!==id)return;
+    const el=$('mediaPlaybackState');if(!el)return;
+    el.hidden=false;el.dataset.status=status;el.textContent=label;
+  }
+  function bindVideoPlaybackState(video,item){
+    const set=(status,label)=>{
+      if(state.activeImage?.id!==item.id||state.playingMediaId!==item.id||!video.isConnected)return;
+      setMediaPlaybackState(status,label,item.id);
+    };
+    video.addEventListener('loadedmetadata',()=>set('ready','Video ready'));
+    video.addEventListener('waiting',()=>set('buffering','Buffering video…'));
+    video.addEventListener('stalled',()=>set('buffering','Waiting for video data…'));
+    video.addEventListener('seeking',()=>set('seeking','Seeking…'));
+    video.addEventListener('seeked',()=>set(video.paused?'paused':'playing',video.paused?'Paused':'Playing'));
+    video.addEventListener('playing',()=>set('playing','Playing'));
+    video.addEventListener('pause',()=>{if(!video.ended)set('paused','Paused');});
+    video.addEventListener('ended',()=>set('ready','Playback finished'));
+    video.addEventListener('error',()=>set('error','Video cannot be played here'));
+  }
   function nativeMediaShowPlayer(item,ticket,clip){
     state.videoStreamId=ticket.id;state.playingMediaId=item.id;state.videoLastRenew=Date.now();
     $('modalPicture').innerHTML='';
@@ -10204,11 +10228,13 @@ async function nativeMediaPost(route,body,signal){
       img.onerror=()=>{if(state.playingMediaId===item.id)$('previewDetails').textContent='GIF decoder or stream failed. Open in Drive.';};
       img.src=ticket.url;$('modalPicture').appendChild(img);
       $('previewDetails').textContent='Large GIF streaming on demand. Closing this viewer stops it.';
+      setMediaPlaybackState('playing','Animation streaming',item.id);
       return;
     }
     const video=document.createElement('video');
     video.controls=true;video.playsInline=true;video.preload='metadata';
     video.setAttribute('aria-label',item.name);
+    bindVideoPlaybackState(video,item);
     video.onerror=()=>{if(state.playingMediaId===item.id)
       $('previewDetails').textContent='Streaming interrupted by network, permissions or codec. Retry Play or open in Drive.';};
     video.onended=()=>{
@@ -10224,14 +10250,17 @@ async function nativeMediaPost(route,body,signal){
       });
     };
     video.src=ticket.url;$('modalPicture').appendChild(video);
+    setMediaPlaybackState('loading','Connecting to private stream…',item.id);
     $('previewDetails').textContent='Secure Drive streaming. Pause and seek without downloading the entire video.';
     video.onloadedmetadata=()=>{
       if(state.videoStreamId===ticket.id)
         $('previewDetails').textContent='Video metadata decoded. Use ▶, pause or seek controls.';
     };
     video.play().catch(()=>{
-      if(state.videoStreamId===ticket.id)
+      if(state.videoStreamId===ticket.id){
         $('previewDetails').textContent='Playback could not start automatically. Press ▶ or open in Drive.';
+        setMediaPlaybackState('paused','Press play to start',item.id);
+      }
     });
   }
   async function viewOriginalImage(){
@@ -10317,17 +10346,20 @@ async function nativeMediaPost(route,body,signal){
     const large=item.size>maxBytes;
     if(clip&&!videoLibrary.videoStreamEligibility(item).allowed){
       const message=videoLibrary.videoStreamEligibility(item).reason;
-      $('previewDetails').textContent=message;modalPlayFeedback(message);return;
+      $('previewDetails').textContent=message;modalPlayFeedback(message);
+      setMediaPlaybackState('error','Cannot play this file',item.id);return;
     }
     if(gif&&(!Number.isSafeInteger(item.size)||item.size<=0||item.size>256*1024*1024)){
       const message='GIF exceeds the 256 MiB safe streaming limit. Open in Drive.';
-      $('previewDetails').textContent=message;modalPlayFeedback(message);return;
+      $('previewDetails').textContent=message;modalPlayFeedback(message);
+      setMediaPlaybackState('error','Open in Drive',item.id);return;
     }
     // Attempt decoding instead of rejecting a container-only canPlayType() result.
     stopVideo();
     const controller=new AbortController();state.videoController=controller;
     const button=$('playVideoButton');button.disabled=true;
     const loading=gif?'Loading animated GIF…':'Loading private video preview…';
+    setMediaPlaybackState('loading',loading,item.id);
     $('previewDetails').textContent=loading;
     modalPlayFeedback(loading,{busy:true});
     try{
@@ -10384,10 +10416,12 @@ async function nativeMediaPost(route,body,signal){
         img.src=objectUrl;
         $('modalPicture').appendChild(img);
         $('previewDetails').textContent='Animated GIF loaded locally. Close this viewer to free its memory.';
+        setMediaPlaybackState('playing','Animation loaded',item.id);
       }else{
         const video=document.createElement('video');
         video.controls=true;video.playsInline=true;video.autoplay=false;video.preload='metadata';
         video.setAttribute('aria-label',item.name);
+        bindVideoPlaybackState(video,item);
         video.onerror=()=>{
           if(state.playingMediaId===item.id){
             const code=video.error?.code;
@@ -10412,7 +10446,10 @@ async function nativeMediaPost(route,body,signal){
         $('previewDetails').textContent='Opening small video in the decoder…';
         // A browser may reject autoplay once the authenticated download finishes.
         video.play().catch(()=>{
-          if(state.playingMediaId===item.id)$('previewDetails').textContent='Video ready. Press ▶ in the player to start playback.';
+          if(state.playingMediaId===item.id){
+            $('previewDetails').textContent='Video ready. Press ▶ in the player to start playback.';
+            setMediaPlaybackState('paused','Press play to start',item.id);
+          }
         });
       }
     }catch(error){
@@ -10420,6 +10457,7 @@ async function nativeMediaPost(route,body,signal){
         const message=`Cannot preview ${gif?'GIF':'video'}: ${error.message}. Open in Drive or retry.`;
         $('previewDetails').textContent=message;
         modalPlayFeedback(message);
+        setMediaPlaybackState('error','Playback failed · retry or open in Drive',item.id);
       }
     }finally{
       if(state.videoController===controller){
