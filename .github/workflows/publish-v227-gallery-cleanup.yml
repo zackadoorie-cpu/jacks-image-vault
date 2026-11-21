@@ -1,0 +1,48 @@
+# Guarded one-time publisher for v2.2.7 Jump Navigator removal.
+name: Publish v2.2.7 Gallery Cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v227-gallery-cleanup.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v2.2.7 gallery cleanup')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify Jump Navigator removal merged and release tag unused
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          if gh release view v2.2.7 --repo "$REPO" >/dev/null 2>&1; then
+            echo "::notice::v2.2.7 is already published; skipping duplicate dispatch."
+            exit 0
+          fi
+          if ! gh pr view 125 --repo "$REPO" --json state,mergedAt \
+            --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .; then
+            echo "::error::Cleanup PR #125 must be merged before publishing."
+            exit 1
+          fi
+          STATUS="$(gh api "repos/$REPO/compare/89557d0ce9aefccef31d4d064856aa1680352081...$GITHUB_SHA" --jq '.status')"
+          if [[ "$STATUS" != "ahead" && "$STATUS" != "identical" ]]; then
+            echo "::error::Release source must include verified cleanup commit."
+            exit 1
+          fi
+          if gh api "repos/$REPO/git/ref/tags/v2.2.7" >/dev/null 2>&1; then
+            echo "::error::v2.2.7 tag already exists."
+            exit 1
+          fi
+          gh workflow run release.yml --repo "$REPO" --ref main -f version=2.2.7
+          echo "Dispatched independent v2.2.7 release validation."
