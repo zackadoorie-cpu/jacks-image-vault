@@ -271,7 +271,7 @@
         </section>
 
         <section id="galleryView" class="view hidden">
-          <div class="gallery-heading"><div><p class="eyebrow" id="galleryEyebrow">YOUR PRIVATE GALLERY</p><h1 id="galleryTitle">All media</h1><button class="btn quiet hidden" id="backSmartCollections" type="button">← All Smart Collections</button><button class="btn quiet hidden" id="backMemoryLane" type="button">← Memory Lane</button><p id="galleryDescription">Browse every collection in one place.</p></div><div class="gallery-counters"><span class="result-count" id="resultCount">—</span><span class="preview-stat" id="previewStatus">Previews start when visible</span><span class="browse-progress" id="browseProgress" role="status">0 shown</span><button class="btn outline hidden" type="button" id="retryFailedButton">↻ Retry failed</button></div></div>
+          <div class="gallery-heading"><div><p class="eyebrow" id="galleryEyebrow">YOUR PRIVATE GALLERY</p><h1 id="galleryTitle">All media</h1><button class="btn quiet hidden" id="backSmartCollections" type="button">← All Smart Collections</button><button class="btn quiet hidden" id="backMemoryLane" type="button">← Memory Lane</button><button class="btn quiet hidden" id="backManual" type="button">← Manual Albums</button><p id="galleryDescription">Browse every collection in one place.</p></div><div class="gallery-counters"><span class="result-count" id="resultCount">—</span><span class="preview-stat" id="previewStatus">Previews start when visible</span><span class="browse-progress" id="browseProgress" role="status">0 shown</span><button class="btn outline hidden" type="button" id="retryFailedButton">↻ Retry failed</button></div></div>
           <div class="filters">
             <label class="searchbox"><span>⌕</span><input type="search" id="searchInput" placeholder="Search images, videos, moments, tags…" autocomplete="off" aria-label="Search media"><kbd>/</kbd></label>
             <select class="select" id="mediaTypeSelect" aria-label="File type"><option value="all">All media</option><option value="image">Images</option><option value="video">Videos</option><option value="pdf">PDFs</option></select>
@@ -286,6 +286,19 @@
             <span class="active-filters-label">Active filters</span>
             <div id="activeFilterChips" class="active-filter-chips"></div>
             <button type="button" class="active-filters-clear" id="clearGalleryFilters">Clear all</button>
+          </div>
+
+          <div class="album-start"><button type="button" class="btn outline hidden" id="bulkToggle" aria-pressed="false">Select files</button><small>Hand-picked local albums. No Google file changes.</small></div>
+          <div class="gallery-bulk-bar hidden" id="bulkBar" role="group" aria-label="Manual album selection"><strong id="bulkCount" role="status">0 selected</strong>
+            <div class="gallery-bulk-actions">
+              <button class="btn quiet" id="bulkDisplayed" type="button">Select displayed</button>
+              <button class="btn quiet" id="bulkAll" type="button">Select all matching</button>
+              <button class="btn quiet" id="bulkClear" type="button">Clear</button>
+              <select id="bulkAlbum" class="select" aria-label="Choose manual album"><option value="">Choose manual album…</option></select>
+              <button class="btn primary" id="bulkAdd" type="button" disabled>Add to album</button>
+              <button class="btn outline hidden" id="bulkRemove" type="button">Remove from album</button>
+              <button class="btn outline" id="bulkNew" type="button">+ New album</button>
+            </div>
           </div>
           <div class="gallery-compare-bar hidden" id="galleryCompareBar" role="group" aria-label="Side-by-side comparison">
             <div><strong id="galleryCompareCount">0 of 2 selected</strong><small id="galleryCompareHint">Select two files using Compare on the gallery tiles.</small></div>
@@ -353,6 +366,18 @@
           </div>
           <p class="smart-status" id="smartCollectionStatus" role="status"></p>
           <div class="smart-grid" id="smartCollectionCards"></div>
+
+          <div class="section-heading manual-heading"><div><p class="eyebrow">HAND-PICKED FILES</p><h2>Manual Albums</h2></div></div>
+          <p class="field-help">Choose individual photos and videos independently of folder and Smart Collection rules. Stored only for this verified account and spreadsheet.</p>
+          <div class="smart-actions">
+            <button id="manualNew" class="btn primary" type="button">+ New album</button>
+            <button id="manualExport" class="btn outline" type="button">Export backup</button>
+            <button id="manualImport" class="btn quiet" type="button">Import backup</button>
+            <input id="manualImportFile" class="hidden" type="file" accept=".json,application/json" aria-label="Import manual album backup">
+          </div>
+          <p id="manualStatus" class="smart-status" role="status"></p>
+          <div id="manualCards" class="smart-grid"></div>
+          <p class="field-help">Backups save album names and Drive file IDs, never actual media. Export before clearing browser storage.</p>
           <p class="privacy-note">Suggested collections use general tags and words, not an external AI model. Custom collections live only in this browser for the connected account and Sheet; backing them up is your responsibility.</p>
         </section>
         <section id="memoryView" class="view hidden" aria-labelledby="memoryTitle">
@@ -1248,6 +1273,13 @@
         <div class="dialog-actions"><button class="btn quiet" type="button" id="smartEditorCancel">Cancel</button><button class="btn primary" type="submit">Save collection</button></div>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="albumDialog" class="dialog search-save-dialog" aria-labelledby="albumTitle">
+    <form id="manualForm"><div class="dialog-header"><h2 id="albumTitle">New manual album</h2></div>
+      <div class="search-save-body"><label class="field-label" for="albumName">Album name</label><input id="albumName" class="field" maxlength="80" required autocomplete="off">
+      <p class="field-help">Local membership only. Google Drive files are not moved, renamed or uploaded.</p>
+      <div class="dialog-actions"><button class="btn quiet" id="manualCancel" type="button">Cancel</button><button class="btn primary" type="submit">Create</button></div></div></form>
   </dialog>
   <dialog id="saveSearchDialog" class="dialog search-save-dialog" aria-labelledby="saveSearchTitle">
     <form id="saveSearchForm">

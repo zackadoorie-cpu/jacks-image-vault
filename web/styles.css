@@ -1812,3 +1812,16 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
   .quick-peek-footer .btn{flex:1 1 auto}
 }
 @media(max-width:450px){.gallery-compare-actions{width:100%}.gallery-compare-actions .btn{flex:1}}
+
+/* v2.2 Phase 5: opt-in manual album bulk selection. */
+.manual-heading{margin:28px 0 8px}
+.album-start{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:9px 0}
+.album-start small{font-size:11px;color:var(--muted)}
+.gallery-bulk-bar{display:grid;gap:10px;padding:12px 14px;margin:8px 0 12px;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.gallery-bulk-bar.hidden{display:none!important}
+.gallery-bulk-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.gallery-bulk-actions .select{min-width:170px;max-width:300px;flex:1}
+.tile-bulk{display:inline-flex;align-items:center;gap:5px;min-height:29px;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:var(--surface2);font-size:11px;cursor:pointer}
+.tile-bulk input{width:15px;height:15px;margin:0;accent-color:var(--purple)}
+.tile-bulk:focus-within{outline:2px solid var(--purple);outline-offset:2px}
+@media(max-width:560px){.gallery-bulk-actions .select{min-width:100%;max-width:none}.gallery-bulk-actions .btn{flex:1 1 auto}}

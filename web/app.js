@@ -18,6 +18,7 @@
   const REVIEW_STORAGE = 'jack-vault-local-reviews-v1';
   const SAVED_SEARCHES_STORAGE = 'jack-vault-searches-v2.1';
   const SMART_COLLECTIONS_STORAGE = 'jack-vault-smart-collections-v1';
+  const ALBUM_STORE='jack-vault-manual-albums-v1';
   const MAX_SAVED_SEARCHES = 30;
   const MAX_REVIEW_BYTES = 2600000;
   const MAX_REVIEW_ITEMS = 15000;
@@ -1382,6 +1383,8 @@
     savedSearches: [],
     activeSavedSearch: '',
     smartCollections: [],
+    manualAlbums: [],manualAlbumId:'',albumHealthy:true,
+    bulkEnabled:false,bulkIds:new Set(),
     smartCollectionId: '',
     smartDraft: null,
     smartStorageHealthy: true,
@@ -3306,7 +3309,7 @@
     return smartEngine.smartMatch(item,collection,smartContext(item));
   }
   function loadSmartCollections(){
-    state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;
+    state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.manualAlbums=[];state.manualAlbumId='';state.albumHealthy=true;state.bulkEnabled=false;state.bulkIds.clear();
     const key=smartStorageKey();if(!key)return;
     try{
       const raw=localStorage.getItem(key);
@@ -3539,6 +3542,155 @@
     return memoryEngine.memoryMonthLabel(key);
   }
   /* GENERATED MEMORY CONTROLLER END */
+
+  // Private per-account, per-Sheet album definitions; no Google writes.
+  function albumStorageKey(){
+    return state.connected&&safeId(state.driveIdentity)&&state.config.sheetId?
+      ALBUM_STORE+'-'+state.driveIdentity+'-'+state.config.sheetId:'';
+  }
+  function albumParse(raw){
+    if(typeof raw!=='string'||raw.length>1800000)throw new Error('Album backup too large');
+    let value;try{value=JSON.parse(raw);}catch{throw new Error('Invalid JSON');}
+    if(!value||value.schema!==1||!Array.isArray(value.albums)||value.albums.length>40)
+      throw new Error('Invalid album backup format');
+    const ids=new Set(),names=new Set();
+    return value.albums.map(a=>{
+      if(!a||typeof a!=='object'||typeof a.id!=='string'||!/^a\d{13}_\d+$/.test(a.id)||
+         typeof a.name!=='string'||!a.name.trim()||a.name.length>80||
+         !Array.isArray(a.ids)||a.ids.length>10000||!a.ids.every(safeId)||
+         a.ids.length!==new Set(a.ids).size||
+         !Number.isSafeInteger(a.createdAt)||!Number.isSafeInteger(a.updatedAt)||
+         a.createdAt<0||a.updatedAt<a.createdAt||a.updatedAt>Date.now()+60000||
+         ids.has(a.id)||names.has(a.name.trim().toLowerCase()))
+        throw new Error('Invalid or duplicate album');
+      ids.add(a.id);names.add(a.name.trim().toLowerCase());
+      return {id:a.id,name:a.name.trim(),ids:[...a.ids],createdAt:a.createdAt,updatedAt:a.updatedAt};
+    });
+  }
+  function albumSave(albums){
+    const key=albumStorageKey();
+    if(!key||!state.albumHealthy)throw new Error('Verified account or album recovery required');
+    const raw=JSON.stringify({schema:1,albums}),checked=albumParse(raw);
+    try{localStorage.setItem(key,raw);}catch{throw new Error('Local storage unavailable; no changes applied');}
+    state.manualAlbums=checked;
+  }
+  function albumLoad(){
+    state.manualAlbums=[];state.manualAlbumId='';state.albumHealthy=true;
+    state.bulkEnabled=false;state.bulkIds.clear();
+    const key=albumStorageKey();if(!key)return;
+    try{const raw=localStorage.getItem(key);if(raw)state.manualAlbums=albumParse(raw);}
+    catch(error){state.albumHealthy=false;alertUser('Album data needs recovery, not overwritten: '+error.message,'error');}
+  }
+  function currentAlbum(){return state.manualAlbums.find(a=>a.id===state.manualAlbumId)||null;}
+  function albumCards(){
+    const area=$('manualCards');if(!area)return;
+    const ready=!!albumStorageKey()&&state.albumHealthy;
+    $('manualNew').disabled=!ready||state.manualAlbums.length>=40;
+    $('manualExport').disabled=!ready||!state.manualAlbums.length;
+    $('manualImport').disabled=!ready;
+    $('manualStatus').textContent=state.connected?state.manualAlbums.length+' manual albums saved locally for this Drive account.':'Connect Google Drive to use private albums.';
+    const known=new Set(state.images.map(x=>x.id));
+    area.innerHTML=state.manualAlbums.map(a=>'<article class="smart-card"><div class="smart-card-heading"><span aria-hidden="true">▣</span><div><strong>'+
+      escapeHTML(a.name)+'</strong><small>'+format(a.ids.filter(id=>known.has(id)).length)+' loaded / '+
+      format(a.ids.length)+' saved IDs</small></div></div><p>Files stay in their Drive folders.</p>'+
+      '<div class="smart-card-actions"><button class="btn outline" data-album-open="'+a.id+'">Browse</button>'+
+      '<button class="btn quiet" data-album-delete="'+a.id+'">Delete</button></div></article>').join('')||
+      '<p class="field-help">Create an album, then select files in the gallery to add them.</p>';
+    area.querySelectorAll('[data-album-open]').forEach(b=>b.onclick=()=>{
+      state.manualAlbumId=b.dataset.albumOpen;state.search='';state.mediaType='all';
+      state.folder='all';state.page=1;$('searchInput').value='';
+      displayPage('manual-results',{reset:false});
+    });
+    area.querySelectorAll('[data-album-delete]').forEach(b=>b.onclick=()=>{
+      const a=state.manualAlbums.find(x=>x.id===b.dataset.albumDelete);
+      if(!a||!confirm('Delete local album "'+a.name+'"? No Google file changes.'))return;
+      try{albumSave(state.manualAlbums.filter(x=>x.id!==a.id));}
+      catch(error){alertUser(error.message,'error');return;}
+      albumCards();alertUser('Album deleted locally; Drive unchanged.','success');
+    });
+  }
+  function albumNew(){
+    if(!albumStorageKey()||!state.albumHealthy||state.manualAlbums.length>=40)return;
+    $('albumName').value='';$('albumDialog').showModal();$('albumName').focus();
+  }
+  function albumCreate(e){
+    e.preventDefault();const name=$('albumName').value.trim();
+    if(!name||name.length>80||state.manualAlbums.some(x=>x.name.toLowerCase()===name.toLowerCase())){
+      alertUser('Choose a unique album name (1–80 characters).','error');return;
+    }
+    const at=Date.now(),id='a'+at+'_'+(state.manualAlbums.length+1);
+    try{albumSave([...state.manualAlbums,{id,name,ids:[],createdAt:at,updatedAt:at}]);}
+    catch(error){alertUser(error.message,'error');return;}
+    $('albumDialog').close();if(state.view==='smart')albumCards();else albumBar();
+    alertUser('Album created locally. Select files to add them.','success');
+  }
+  function albumExport(){
+    const raw=JSON.stringify({schema:1,albums:state.manualAlbums});
+    const url=URL.createObjectURL(new Blob([raw],{type:'application/json'}));
+    const a=document.createElement('a');a.href=url;a.download='image-vault-manual-albums.json';
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),0);
+  }
+  async function albumImport(file){
+    if(!albumStorageKey()||!state.albumHealthy||!file||file.size>1800000)
+      throw new Error('Verified Drive account and valid backup required');
+    const found=albumParse(await file.text());
+    const names=new Set(state.manualAlbums.map(a=>a.name.toLowerCase()));
+    const ids=new Set(state.manualAlbums.map(a=>a.id));
+    const additions=found.filter(a=>!ids.has(a.id)&&!names.has(a.name.toLowerCase()));
+    if(!additions.length){alertUser('No new albums in the backup.');return;}
+    if(state.manualAlbums.length+additions.length>40)throw new Error('40 album limit');
+    if(!confirm('Import '+additions.length+' local albums? Drive files remain unchanged.'))return;
+    albumSave([...state.manualAlbums,...additions]);albumCards();
+  }
+  function albumBar(){
+    const show=state.connected&&state.albumHealthy&&
+      ['all','photos','memes','favorites','review','smart-results','memory-results','manual-results'].includes(state.view);
+    $('bulkToggle').classList.toggle('hidden',!show);
+    $('bulkToggle').textContent=state.bulkEnabled?'Done selecting':'Select files';
+    $('bulkToggle').setAttribute('aria-pressed',String(state.bulkEnabled));
+    $('bulkBar').classList.toggle('hidden',!show||!state.bulkEnabled);
+    if(!show||!state.bulkEnabled)return;
+    const live=new Set(state.images.map(x=>x.id));
+    for(const id of state.bulkIds)if(!live.has(id))state.bulkIds.delete(id);
+    $('bulkCount').textContent=format(state.bulkIds.size)+' selected across filters';
+    const dropdown=$('bulkAlbum'),chosen=dropdown.value;
+    dropdown.innerHTML='<option value="">Choose manual album…</option>'+
+      state.manualAlbums.map(a=>'<option value="'+a.id+'">'+escapeHTML(a.name)+'</option>').join('');
+    dropdown.value=state.manualAlbums.some(a=>a.id===chosen)?chosen:'';
+    $('bulkAdd').disabled=!state.bulkIds.size||!dropdown.value;
+    $('bulkRemove').classList.toggle('hidden',state.view!=='manual-results');
+    $('bulkRemove').disabled=!state.bulkIds.size||!currentAlbum();
+    $('bulkClear').disabled=!state.bulkIds.size;
+    $('galleryGrid').querySelectorAll('[data-bulk-id]').forEach(x=>{x.checked=state.bulkIds.has(x.dataset.bulkId);});
+  }
+  function bulkChoose(id,checked){
+    if(!state.bulkEnabled||!state.connected||!state.images.some(x=>!x.demo&&x.id===id))return;
+    if(checked&&state.bulkIds.size>=10000&&!state.bulkIds.has(id)){
+      alertUser('Maximum 10,000 files in one selection.','error');albumBar();return;
+    }
+    if(checked)state.bulkIds.add(id);else state.bulkIds.delete(id);albumBar();
+  }
+  function bulkSelect(all){
+    const ids=all?state.filtered.map(x=>x.id):
+      [...$('galleryGrid').querySelectorAll('[data-bulk-id]')].map(x=>x.dataset.bulkId);
+    const next=new Set([...state.bulkIds,...ids.filter(safeId)]);
+    if(next.size>10000){alertUser('Narrow your search: maximum 10,000 selected files.','error');return;}
+    state.bulkIds=next;albumBar();
+  }
+  function bulkApply(remove=false){
+    const album=remove?currentAlbum():state.manualAlbums.find(a=>a.id===$('bulkAlbum').value);
+    if(!album||!state.bulkIds.size||!state.albumHealthy)return;
+    const ids=new Set(album.ids);
+    for(const id of state.bulkIds)if(remove)ids.delete(id);else ids.add(id);
+    if(ids.size>10000){alertUser('Maximum 10,000 IDs per album.','error');return;}
+    try{albumSave(state.manualAlbums.map(a=>a.id===album.id?
+      {...a,ids:[...ids],updatedAt:Math.max(Date.now(),a.updatedAt)}:a));}
+    catch(error){alertUser(error.message,'error');return;}
+    state.bulkIds.clear();
+    if(state.view==='manual-results')renderGallery();else albumBar();
+    alertUser((remove?'Removed from ':'Saved to ')+album.name+' locally. Drive unchanged.','success');
+  }
+
   function savedSearchStorageKey(){
     return state.driveIdentity&&state.config.sheetId?
       SAVED_SEARCHES_STORAGE+'-'+state.driveIdentity+'-'+state.config.sheetId:'';
@@ -4992,6 +5144,7 @@
       loadSmartJournal();
       loadSavedSearches();
       loadSmartCollections();
+       albumLoad();
       state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};
       if(restoreSyncCache())mergeLiveFolders();
       buildFolderIndex(); updateStatus();
@@ -5009,7 +5162,7 @@
       // An unsuccessful refresh must not leave the previous user's private index in memory.
       stopScans();clearThumbnailCache();
       state.inventory=[];state.catalogManifestIDs.clear();state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
-      state.images=DEMO;state.connected=false;state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.reviewFilter='pending';state.folder='all';state.page=1;
+      state.images=DEMO;state.connected=false;state.reviewEdits.clear();state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.manualAlbums=[];state.manualAlbumId='';state.albumHealthy=true;state.bulkEnabled=false;state.bulkIds.clear();state.reviewFilter='pending';state.folder='all';state.page=1;
       buildFolderIndex();updateStatus();render();
       alertUser(`Could not load the library: ${error.message || error}`,'error');
     }
@@ -5818,7 +5971,7 @@
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
     if(wasDesktop)void desktopAuthPost('forget',{}).catch(()=>{});
     catalogClearWorkspace();
-    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.reconcilePrepared=null;state.reconcileMessage='';state.managerFilter='all';state.managerQuery='';state.managerPage=1;filenameReviewReset();state.sheetUndoPreview=null;state.sheetUndoMessage='';state.driveUndoPreview=null;state.driveUndoMessage='';state.smartJournal=null;state.smartJournalError='';state.smartMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
+    clearThumbnailCache(); state.reviewEdits.clear();state.sheetWriteStaged.clear();state.sheetWritePreview=null;state.sheetWritePage=1;state.sheetWriteMessage='';state.reconcilePrepared=null;state.reconcileMessage='';state.managerFilter='all';state.managerQuery='';state.managerPage=1;filenameReviewReset();state.sheetUndoPreview=null;state.sheetUndoMessage='';state.driveUndoPreview=null;state.driveUndoMessage='';state.smartJournal=null;state.smartJournalError='';state.smartMessage='';state.activityHistory=null;state.activityError='';state.activityQuery='';state.activityFilter='all';state.activityPage=1;state.savedSearches=[];state.activeSavedSearch='';state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.manualAlbums=[];state.manualAlbumId='';state.albumHealthy=true;state.bulkEnabled=false;state.bulkIds.clear();state.memoryYear='all';state.memorySource='all';state.memorySelection={key:'all',source:'all'};state.reviewDirty=false;state.reviewFilter='pending';state.filtered=[];state.filteredById.clear();state.turboEnabled=false;state.turboStart=-1;state.turboEnd=-1;state.images=DEMO; state.folder='all'; state.page=1;buildFolderIndex(); updateStatus(); displayPage('home');
     alertUser('Disconnected. Your private images and access token have been cleared from this tab.', 'success');
   }
   function buildFolderIndex() {
@@ -7007,7 +7160,7 @@
     activity:'REVIEW CENTER',
     health:'LIBRARY HEALTH',
     smart:'TOOLS','smart-results':'TOOLS',memory:'TOOLS',
-    'memory-results':'TOOLS',similarity:'TOOLS'
+    'memory-results':'TOOLS','manual-results':'TOOLS',similarity:'TOOLS'
   });
   let experienceRestoreGroups=null;
   function experienceUpdateBreadcrumb(view){
@@ -7118,7 +7271,7 @@
     }
   }
   function revealSidebarGroup(view){
-    const named=view==='smart-results'?'smart':view==='memory-results'?'memory':view;
+    const named=(view==='smart-results'||view==='manual-results')?'smart':view==='memory-results'?'memory':view;
     const item=Array.from(document.querySelectorAll('#navigation [data-view]'))
       .find(node=>node.dataset.view===named);
     const group=item?.closest('details[data-nav-group]');
@@ -7144,6 +7297,7 @@
       document.querySelectorAll('#navigation details[data-nav-group]').forEach(group=>{group.open=false;});
     revealSidebarGroup(view);
     if(view!=='smart-results')state.smartCollectionId='';
+    if(view!=='manual-results')state.manualAlbumId='';
     if(reset){
       state.folder='all';state.folderQuery='';state.page=1;
       if($('folderSearch'))$('folderSearch').value='';
@@ -7167,7 +7321,7 @@
       const label=view==='health'?'Close Library Health and return Home':'Library Health';
       healthNav.title=label;healthNav.setAttribute('aria-label',label);
     }
-    document.querySelectorAll('[data-view]').forEach(btn=>{const active=btn.dataset.view===(view==='smart-results'?'smart':view==='memory-results'?'memory':view); btn.classList.toggle('active',active);if(active)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');});
+    document.querySelectorAll('[data-view]').forEach(btn=>{const active=btn.dataset.view===(view==='smart-results'||view==='manual-results'?'smart':view==='memory-results'?'memory':view); btn.classList.toggle('active',active);if(active)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');});
     render();
     if(scroll)window.scrollTo({top:0,behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth'});
     updateScrollControls();
@@ -9400,7 +9554,7 @@
       state.activityError='';state.activityPage=1;renderActivity();
     }catch(err){$('activityStatus').textContent='Could not clear local activity: '+err.message;}
   }
-  function render() {if(state.view==='filename-review')renderFilenameReview();else if(state.view==='manager-desk')renderManagerDesk();else if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart')renderSmartCollections();else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else if(state.view==='rename-desk')renameDeskRender();else if(state.view==='activity')renderActivity();else if(state.view==='sheet-write')renderSheetWrite();else renderGallery();}
+  function render() {if(state.view==='filename-review')renderFilenameReview();else if(state.view==='manager-desk')renderManagerDesk();else if(state.view==='home')renderHome();else if(state.view==='health')renderHealth();else if(state.view==='smart'){renderSmartCollections();albumCards();}else if(state.view==='memory')renderMemoryLane();else if(state.view==='similarity')renderSimilarityLab();else if(state.view==='video-library')videoRenderCatalog();else if(state.view==='review-inbox')reviewInboxRender();else if(state.view==='rename-desk')renameDeskRender();else if(state.view==='activity')renderActivity();else if(state.view==='sheet-write')renderSheetWrite();else renderGallery();}
   function renderHome() {
     const count = key => state.connected ? format(key) : '—';
     $('statImages').textContent=count(state.inventory.length);
@@ -9461,6 +9615,7 @@
         if(state.reviewFilter==='reviewed'&&stage!=='reviewed')continue;
       }
       if(state.view==='smart-results'&&!smartFor(image).matched)continue;
+      if(state.view==='manual-results'&&!currentAlbum()?.ids.includes(image.id))continue;
       if(state.view==='memory-results'&&!memoryEngine.memoryMatches(image,state.memorySelection,new Date()))continue;
       if(state.folder!=='all'&&image.folder!==state.folder)continue;
       if(state.mediaType!=='all'&&mediaKind(image)!==state.mediaType)continue;
@@ -9485,7 +9640,7 @@
     });
     return scored.map(x=>x.image);
   }
-  function galleryTitle() {if(state.view==='memory-results')return memoryTitle();if(state.view==='smart-results')return currentSmartCollection()?.name||'Smart Collection';return ({all:'All media',memes:'Meme gallery',photos:'Photo archive',favorites:'Your favorites',review:'Needs review'})[state.view]||'Gallery';}
+  function galleryTitle() {if(state.view==='manual-results')return currentAlbum()?.name||'Manual Album';if(state.view==='memory-results')return memoryTitle();if(state.view==='smart-results')return currentSmartCollection()?.name||'Smart Collection';return ({all:'All media',memes:'Meme gallery',photos:'Photo archive',favorites:'Your favorites',review:'Needs review'})[state.view]||'Gallery';}
   function virtualGalleryAvailable(){
     const grid=$('galleryGrid');
     return state.filtered.length>turboGallery.threshold &&
@@ -9541,7 +9696,7 @@
     return true;
   }
   function scheduleTurboWindow(){
-    if(!state.turboEnabled||state.turboScrollScheduled||!['all','memes','photos','favorites','review','smart-results','memory-results'].includes(state.view))return;
+    if(!state.turboEnabled||state.turboScrollScheduled||!['all','memes','photos','favorites','review','smart-results','memory-results','manual-results'].includes(state.view))return;
     state.turboScrollScheduled=true;
     const schedule=typeof window.requestAnimationFrame==='function'?window.requestAnimationFrame.bind(window):
       callback=>setTimeout(callback,16);
@@ -9552,6 +9707,7 @@
   }
   function bindGalleryTileEvents(previews,hearts){
     for(const btn of previews)btn.addEventListener('click',()=>openImage(btn.dataset.openImage,btn));
+    $('galleryGrid').querySelectorAll('[data-bulk-id]').forEach(x=>x.onchange=()=>bulkChoose(x.dataset.bulkId,x.checked));
     for(const btn of hearts)btn.addEventListener('click',e=>{
       e.preventDefault();toggleFavorite(btn.dataset.favorite);renderGallery();
     });
@@ -9623,12 +9779,14 @@
     state.autoLoadPending=false;
     const title=galleryTitle();$('galleryTitle').textContent=title;
     $('backSmartCollections').classList.toggle('hidden',state.view!=='smart-results');
+    $('backManual').classList.toggle('hidden',state.view!=='manual-results');
     $('backMemoryLane').classList.toggle('hidden',state.view!=='memory-results');
     renderReviewToolbar();
     $('galleryEyebrow').textContent=state.connected?'YOUR PRIVATE LIBRARY':'DESIGN PREVIEW';
     $('galleryDescription').textContent=state.connected ?
       state.view==='memory-results'?'Timeline grouped by evidence: EXIF, filename-derived, or Drive-added (not necessarily captured). No files moved.':
       state.view==='smart-results'?'Virtual collection · '+smartEngine.smartExplain(currentSmartCollection())+'. Original Drive files stay put.':
+      state.view==='manual-results'?'Private hand-picked album. Files stay in their original Drive folders.':
       state.view==='review'?'Only unresolved visual reviews appear here. Missing EXIF dates and duplicate decisions remain separate in your Sheet.':
       'Search the current Drive library. Visible previews queue immediately; nearby rows preload as you scroll.' :
       'Connect Google Drive to load your real collections and thumbnails.';
@@ -9688,6 +9846,7 @@
     updateLoadMoreArea();
     updatePreviewStats();
     renderCompareBar();
+    albumBar();
     scheduleBrowseSave();
   }
   // Phase 2: summarize active filters without exposing or mutating private
@@ -9779,7 +9938,7 @@
       status==='deferred'?'deferred':'';
     const why=state.view==='smart-results'?smartFor(item).reasons.join(' · '):'';
     const when=state.view==='memory-results'?memorySourceLabel(item):'';
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-preview-state="${previewState}" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(display.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Select ▶ to play · no thumbnail':'Preview unavailable · open for retry'):state.loadingThumbs.has(item.id)?'Queued for preview…':'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(display.name)}">${escapeHTML(display.name)}</div>${display.suggested?`<p class="tile-proposal-note">${display.reviewed?"Suggested name":"Suggestion awaiting review"} · Drive: ${escapeHTML(display.original)}</p>`:""}<p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tile-compare" data-compare-image="${escapeHTML(item.id)}" aria-label="Add ${escapeHTML(display.name)} to comparison" aria-pressed="${state.compareIds.includes(item.id)}" title="Compare cached previews without changing files"><svg class="vault-icon" aria-hidden="true"><use href="#vicon-similar"></use></svg><span>${state.compareIds.includes(item.id)?'Selected':'Compare'}</span></button><button type="button" class="tile-more" data-tile-actions="${escapeHTML(item.id)}" aria-label="More actions for ${escapeHTML(item.name)}" title="Read-only file actions">⋯</button><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-preview-state="${previewState}" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(display.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Select ▶ to play · no thumbnail':'Preview unavailable · open for retry'):state.loadingThumbs.has(item.id)?'Queued for preview…':'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(display.name)}">${escapeHTML(display.name)}</div>${display.suggested?`<p class="tile-proposal-note">${display.reviewed?"Suggested name":"Suggestion awaiting review"} · Drive: ${escapeHTML(display.original)}</p>`:""}<p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span>${state.bulkEnabled&&state.connected?`<label class="tile-bulk"><input type="checkbox" data-bulk-id="${escapeHTML(item.id)}" aria-label="Select ${escapeHTML(display.name)} for album" ${state.bulkIds.has(item.id)?'checked':''}>Select</label>`:''}<button type="button" class="tile-compare" data-compare-image="${escapeHTML(item.id)}" aria-label="Add ${escapeHTML(display.name)} to comparison" aria-pressed="${state.compareIds.includes(item.id)}" title="Compare cached previews without changing files"><svg class="vault-icon" aria-hidden="true"><use href="#vicon-similar"></use></svg><span>${state.compareIds.includes(item.id)?'Selected':'Compare'}</span></button><button type="button" class="tile-more" data-tile-actions="${escapeHTML(item.id)}" aria-label="More actions for ${escapeHTML(item.name)}" title="Read-only file actions">⋯</button><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   const THUMB_PRELOAD_MARGIN=320;
   function enqueueViewportThumbs(tiles){
@@ -9817,7 +9976,7 @@
   }
   function scheduleViewportThumbs(){
     if(state.viewportThumbScheduled||!state.connected||!state.accessToken||
-       !['all','memes','photos','favorites','review','smart-results','memory-results'].includes(state.view))return;
+       !['all','memes','photos','favorites','review','smart-results','memory-results','manual-results'].includes(state.view))return;
     state.viewportThumbScheduled=true;
     const schedule=typeof window.requestAnimationFrame==='function'?
       window.requestAnimationFrame.bind(window):callback=>setTimeout(callback,16);
@@ -11223,6 +11382,25 @@ async function nativeMediaPost(route,body,signal){
       state.shortcutReturnFocus=null;
     });
     $('backSmartCollections').onclick=()=>displayPage('smart');
+    $('backManual').onclick=()=>displayPage('smart');
+    $('manualNew').onclick=albumNew;
+    $('manualForm').onsubmit=albumCreate;
+    $('manualCancel').onclick=()=>$('albumDialog').close();
+    $('manualExport').onclick=albumExport;
+    $('manualImport').onclick=()=>$('manualImportFile').click();
+    $('manualImportFile').onchange=async e=>{
+      const f=e.target.files?.[0];if(!f)return;
+      try{await albumImport(f);}catch(error){alertUser('Album import failed: '+error.message,'error');}
+      finally{e.target.value='';}
+    };
+    $('bulkToggle').onclick=()=>{state.bulkEnabled=!state.bulkEnabled;if(!state.bulkEnabled)state.bulkIds.clear();renderGallery();};
+    $('bulkDisplayed').onclick=()=>bulkSelect(false);
+    $('bulkAll').onclick=()=>bulkSelect(true);
+    $('bulkClear').onclick=()=>{state.bulkIds.clear();albumBar();};
+    $('bulkAlbum').onchange=albumBar;
+    $('bulkAdd').onclick=()=>bulkApply(false);
+    $('bulkRemove').onclick=()=>bulkApply(true);
+    $('bulkNew').onclick=albumNew;
     $('backMemoryLane').onclick=()=>displayPage('memory',{reset:false});
     $('memoryYearSelect').onchange=e=>{state.memoryYear=e.target.value;renderMemoryLane();scheduleBrowseSave();};
     $('memorySourceSelect').onchange=e=>{state.memorySource=e.target.value;renderMemoryLane();scheduleBrowseSave();};
@@ -11338,7 +11516,7 @@ async function nativeMediaPost(route,body,signal){
         window.requestAnimationFrame.bind(window):callback=>setTimeout(callback,16);
       frame(()=>{
         state.densityRenderScheduled=false;
-        if(['all','memes','photos','favorites','review','smart-results','memory-results'].includes(state.view))
+        if(['all','memes','photos','favorites','review','smart-results','memory-results','manual-results'].includes(state.view))
           renderGallery();
       });
     });
