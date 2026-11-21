@@ -1431,7 +1431,8 @@
     runningThumbJobs: 0,
     runningVideoPosterJobs: 0,
     galleryEpoch: 0,
-    maxConcurrentThumbs: 5,
+    maxConcurrentThumbs: 8,
+    viewportThumbScheduled: false,
     observer: null,
     favorites: new Set(readFavorites()),
     reviewEdits: new Map(),
@@ -9537,14 +9538,10 @@
     const previews=[...$('galleryGrid').querySelectorAll('[data-open-image]')].slice(previous);
     const hearts=[...$('galleryGrid').querySelectorAll('[data-favorite]')].slice(previous);
     bindGalleryTileEvents(previews,hearts);
-    if(state.observer){
-      for(const btn of previews)state.observer.observe(btn);
-    }else if(state.connected&&!('IntersectionObserver' in window)){
-      for(const btn of previews.slice(0,12)){
-        const item=state.filteredById.get(btn.dataset.openImage);
-        if(item)requestThumb(item);
-      }
-    }
+    // Newly appended rows can already be visible. Schedule them now rather
+    // than waiting for the next asynchronous IntersectionObserver callback.
+    enqueueViewportThumbs(previews);
+    if(state.observer)for(const btn of previews)state.observer.observe(btn);
     updateLoadMoreArea();
     updatePreviewStats();
     return true;
@@ -9562,7 +9559,7 @@
       state.view==='memory-results'?'Timeline grouped by evidence: EXIF, filename-derived, or Drive-added (not necessarily captured). No files moved.':
       state.view==='smart-results'?'Virtual collection · '+smartEngine.smartExplain(currentSmartCollection())+'. Original Drive files stay put.':
       state.view==='review'?'Only unresolved visual reviews appear here. Missing EXIF dates and duplicate decisions remain separate in your Sheet.':
-      'Search the current Drive library. Previews load as you scroll.' :
+      'Search the current Drive library. Visible previews queue immediately; nearby rows preload as you scroll.' :
       'Connect Google Drive to load your real collections and thumbnails.';
     $('galleryGrid').classList.toggle('list',state.layout==='list');
     $('galleryGrid').dataset.density=state.density;
@@ -9646,26 +9643,75 @@
     const when=state.view==='memory-results'?memorySourceLabel(item):'';
     return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(display.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Select ▶ to play · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(display.name)}">${escapeHTML(display.name)}</div>${display.suggested?`<p class="tile-proposal-note">${display.reviewed?"Suggested name":"Suggestion awaiting review"} · Drive: ${escapeHTML(display.original)}</p>`:""}<p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tile-more" data-tile-actions="${escapeHTML(item.id)}" aria-label="More actions for ${escapeHTML(item.name)}" title="Read-only file actions">⋯</button><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
+  const THUMB_PRELOAD_MARGIN=320;
+  function enqueueViewportThumbs(tiles){
+    if(!state.connected||!state.accessToken||document.visibilityState==='hidden')return;
+    const height=Number(window.innerHeight)||document.documentElement?.clientHeight||0;
+    const width=Number(window.innerWidth)||document.documentElement?.clientWidth||0;
+    if(height<=0||width<=0)return;
+    const visible=[],near=[];
+    // A fresh gallery is already laid out synchronously. Queue *every*
+    // on-screen tile now; do not wait for a scroll or an observer frame.
+    // The running worker pool is still capped at eight metadata requests,
+    // and video poster extraction remains strictly one-at-a-time.
+    for(const tile of tiles){
+      if(!tile?.isConnected||typeof tile.getBoundingClientRect!=='function')continue;
+      const rect=tile.getBoundingClientRect();
+      if(rect.width<=0||rect.height<=0||rect.right<=0||rect.left>=width)continue;
+      if(rect.bottom>0&&rect.top<height)visible.push(tile);
+      else if(rect.bottom>-THUMB_PRELOAD_MARGIN&&rect.top<height+THUMB_PRELOAD_MARGIN)
+        near.push(tile);
+    }
+    // Add near-viewport work behind on-screen work. Push visible IDs to
+    // the front in reverse DOM order so the final queue is top-to-bottom,
+    // without losing priorities when the user scrolls into a new row.
+    for(const tile of near){
+      const id=tile.dataset.openImage,item=state.filteredById.get(id);
+      if(item&&!state.thumbErrors.has(id)&&!state.thumbCache.has(id))
+        requestThumb(item,{deferPump:true});
+    }
+    for(let i=visible.length-1;i>=0;i--){
+      const id=visible[i].dataset.openImage,item=state.filteredById.get(id);
+      if(item&&!state.thumbErrors.has(id)&&!state.thumbCache.has(id))
+        requestThumb(item,{priority:true,deferPump:true});
+    }
+    pumpThumbJobs();
+  }
+  function scheduleViewportThumbs(){
+    if(state.viewportThumbScheduled||!state.connected||!state.accessToken||
+       !['all','memes','photos','favorites','review','smart-results','memory-results'].includes(state.view))return;
+    state.viewportThumbScheduled=true;
+    const schedule=typeof window.requestAnimationFrame==='function'?
+      window.requestAnimationFrame.bind(window):callback=>setTimeout(callback,16);
+    schedule(()=>{
+      state.viewportThumbScheduled=false;
+      if(!state.connected||!state.accessToken)return;
+      enqueueViewportThumbs($('galleryGrid').querySelectorAll('[data-open-image]'));
+    });
+  }
   function observeThumbs() {
     state.observer?.disconnect();
+    state.observer=null;
     if(!state.connected||!state.accessToken)return;
     const all=[...$('galleryGrid').querySelectorAll('[data-open-image]')];
-    for(const btn of all){const entry=state.thumbCache.get(btn.dataset.openImage);if(entry)paintThumb(btn.dataset.openImage,entry);}
-    if(!('IntersectionObserver' in window)){
-      for(const btn of all.slice(0,12)){const item=state.filteredById.get(btn.dataset.openImage);if(item)requestThumb(item);}
-      return;
+    for(const btn of all){
+      const entry=state.thumbCache.get(btn.dataset.openImage);
+      if(entry)paintThumb(btn.dataset.openImage,entry);
     }
-    state.observer = new IntersectionObserver(entries=>{
-      for(const entry of entries){
-        if(!entry.isIntersecting)continue;
-        const id=entry.target.dataset.openImage;
-        state.observer.unobserve(entry.target);
-        if(state.thumbErrors.has(id))continue;
-        const item=state.filteredById.get(id);
-        if(item)requestThumb(item);
-      }
-    },{rootMargin:'200px'});
-    for(const btn of all)state.observer.observe(btn);
+    enqueueViewportThumbs(all);
+    if(!('IntersectionObserver' in window))return;
+    const observer=new IntersectionObserver(entries=>{
+      const intersecting=entries.filter(entry=>entry.isIntersecting);
+      if(!intersecting.length)return;
+      for(const entry of intersecting)observer.unobserve(entry.target);
+      // Also queue any other visible tiles in the same observer batch.
+      enqueueViewportThumbs(all);
+    },{rootMargin:THUMB_PRELOAD_MARGIN+'px 0px'});
+    state.observer=observer;
+    for(const btn of all){
+      const id=btn.dataset.openImage;
+      if(!state.thumbCache.has(id)&&!state.thumbErrors.has(id))observer.observe(btn);
+    }
   }
   function evictThumb(id){
     const existing=state.thumbCache.get(id);
@@ -9674,7 +9720,7 @@
     state.thumbCacheBytes=Math.max(0,state.thumbCacheBytes-(Number(existing.bytes)||0));
     if(existing.objectUrl)URL.revokeObjectURL(existing.src);
   }
-  function requestThumb(item,{priority=false,mediaOnly=false,force=false}={}) {
+  function requestThumb(item,{priority=false,mediaOnly=false,force=false,deferPump=false}={}) {
     if(!state.connected || item.demo || !state.accessToken || mediaKind(item)==='pdf')return;
     if(force){state.thumbErrors.delete(item.id);evictThumb(item.id);}
     if(!mediaOnly&&state.thumbCache.has(item.id)){
@@ -9688,7 +9734,7 @@
     const job={id:item.id,item,token:state.accessToken,mediaOnly,controller:new AbortController()};
     state.loadingThumbs.set(item.id,job);
     if(priority)state.thumbJobs.unshift(job);else state.thumbJobs.push(job);
-    pumpThumbJobs();
+    if(!deferPump)pumpThumbJobs();
   }
   function putThumb(id,entry){
     evictThumb(id);
@@ -10946,9 +10992,11 @@ async function nativeMediaPost(route,body,signal){
       updateScrollControls();
       scheduleBrowseSave();
       scheduleTurboWindow();
+      scheduleViewportThumbs();
     },{passive:true});
     window.addEventListener('resize',()=>{
       if(state.turboEnabled)renderTurboWindow(true);
+      scheduleViewportThumbs();
     },{passive:true});
     window.addEventListener('pagehide',saveBrowsingPosition);
     window.addEventListener('keydown',event=>{
