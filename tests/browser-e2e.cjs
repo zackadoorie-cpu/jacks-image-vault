@@ -551,6 +551,35 @@ async function main(){
     await p.waitForFunction(()=>document.querySelector('#modalPlayHint')?.textContent.includes('v2.1.45 Windows executable'),null,{timeout:18000});
     assert.equal(await p.locator('#modalPlayOverlay').isEnabled(),true,
       'Old launchers must fail gently and let users retry after a native update');
+    // Fabricated full native bridge: no real Google bytes, OAuth sessions or file writes.
+    const streamingStarts=[],streamingStops=[];
+    const ticket='b'.repeat(48);
+    await connected.ctx.route('**/__vault_media/status',r=>r.fulfill(reply({
+      available:true,streaming:true,maxVideoBytes:32*1024**3,maxImageBytes:256*1024**2
+    })));
+    await connected.ctx.route('**/__vault_update/status',r=>r.fulfill(reply({nonce:'test-native-nonce',version:'fixture'})));
+    await connected.ctx.route('**/__vault_media/start',r=>{
+      const body=r.request().postDataJSON();
+      assert.equal(r.request().method(),'POST');
+      assert.equal(r.request().headers()['x-vault-nonce'],'test-native-nonce');
+      assert.equal(body.driveId,body.mode==='image'?id:vid);
+      assert.equal(body.accessToken,'fake-e2e-token');
+      streamingStarts.push({mode:body.mode,mime:body.mime,size:body.size});
+      return r.fulfill(reply({id:ticket,url:'/__vault_media/stream/'+ticket,mime:body.mime,size:body.size}));
+    });
+    await connected.ctx.route('**/__vault_media/stop',r=>{
+      streamingStops.push(r.request().postDataJSON().id);
+      return r.fulfill(reply({stopped:true}));
+    });
+    await connected.ctx.route('**/__vault_media/stream/*',r=>
+      r.fulfill({status:200,contentType:'video/mp4',body:'synthetic undecodable media'}));
+    await p.locator('#modalPlayOverlay').click();
+    await p.waitForFunction(()=>!!document.querySelector('#modalPicture video'));
+    assert.equal(await p.locator('#modalPicture video').count(),1,
+      'Large video should use the native streaming URL, not a full downloaded Blob');
+    assert.match(await p.locator('#modalPicture video').getAttribute('src'),/\/__vault_media\/stream\//);
+    assert.equal(streamingStarts[0].size,64*1024*1024);
+    assert.equal(streamingStarts[0].mode,'video');
     await p.evaluate(()=>{window.__uiBench.state.activeImage.size=5000;});
     await p.locator('#closeImage').click();
     await p.locator('#galleryGrid [data-open-image="'+id+'"]').click();
@@ -558,7 +587,15 @@ async function main(){
       'Still images must not display a video play overlay');
     assert.equal(await p.locator('#viewOriginalButton').isVisible(),true,
       'Still images should offer full-resolution viewing on demand');
+    await p.locator('#viewOriginalButton').click();
+    await p.waitForFunction(()=>!!document.querySelector('#modalPicture .original-view-controls'));
+    assert.equal(await p.locator('#modalPicture .original-view-controls button').count(),3,
+      'Original-image viewer provides fit, zoom-in and zoom-out controls');
+    assert.equal(streamingStarts[1].mode,'image');
+    assert.equal(streamingStarts[1].size,521);
     await p.locator('#closeImage').click();
+    await p.waitForFunction(()=>document.querySelector('#imageDialog')?.open===false);
+    assert.ok(streamingStops.length>=1,'Closing the viewer must revoke native playback tickets');
     // Ultra Compact must visibly increase columns, keep preview/detail actions,
     // persist its existing density preference and avoid Google writes.
     const densityBaseline=connected.requests.filter(method=>method!=='GET').length;
