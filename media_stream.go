@@ -323,6 +323,26 @@ func (v *vault) handleMediaStream(w http.ResponseWriter,r *http.Request){
     defer resp.Body.Close()
     expectedStatus:=http.StatusOK
     if partial {expectedStatus=http.StatusPartialContent}
+    if partial && resp.StatusCode==http.StatusOK && s.size<=32<<20 {
+        // Some Drive media endpoints ignore Range for smaller originals.
+        // Instead of telling the browser this file is unplayable, recover
+        // safely from a *bounded* full response. Never do this for large files.
+        if resp.ContentLength>=0 && resp.ContentLength!=s.size {
+            mediaError(w,502,"Drive changed its media size during playback")
+            return
+        }
+        full,readErr:=io.ReadAll(io.LimitReader(resp.Body,s.size+1))
+        if readErr!=nil||int64(len(full))!=s.size {
+            mediaError(w,502,"Drive did not return a complete verified small media file")
+            return
+        }
+        n:=end-start+1
+        w.Header().Set("Content-Range",fmt.Sprintf("bytes %d-%d/%d",start,end,s.size))
+        w.Header().Set("Content-Length",strconv.FormatInt(n,10))
+        w.WriteHeader(http.StatusPartialContent)
+        _,_ = w.Write(full[int(start):int(end)+1])
+        return
+    }
     if resp.StatusCode!=expectedStatus {
         mediaError(w,502,fmt.Sprintf("Google Drive did not provide the required byte stream (HTTP %d)",resp.StatusCode))
         return
