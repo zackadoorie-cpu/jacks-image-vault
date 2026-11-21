@@ -9754,7 +9754,7 @@
     }
     const style=getComputedStyle(grid);
     const columns=state.layout==='list'?1:
-      Math.max(1,String(style.gridTemplateColumns||'').split(/\\s+/).filter(Boolean).length);
+      Math.max(1,String(style.gridTemplateColumns||'').split(/\s+/).filter(Boolean).length);
     const stride=turboGallery.rowHeight(state.layout,state.density)+(Number.parseFloat(style.rowGap)||0);
     const row=Math.floor(Math.max(0,80-grid.getBoundingClientRect().top)/Math.max(1,stride));
     return Math.min(total,Math.max(1,row*columns+1));
@@ -9803,7 +9803,7 @@
     if(state.turboEnabled){
       const style=getComputedStyle(grid);
       const columns=state.layout==='list'?1:
-        Math.max(1,String(style.gridTemplateColumns||'').split(/\\s+/).filter(Boolean).length);
+        Math.max(1,String(style.gridTemplateColumns||'').split(/\s+/).filter(Boolean).length);
       const stride=turboGallery.rowHeight(state.layout,state.density)+(Number.parseFloat(style.rowGap)||0);
       const target=window.scrollY+grid.getBoundingClientRect().top+
         Math.floor((index-1)/columns)*stride-72;
