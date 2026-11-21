@@ -674,7 +674,7 @@ async function main(){
     const micro=await p.evaluate(()=>({
       cssRow:getComputedStyle(document.querySelector('#galleryGrid')).getPropertyValue('--turbo-row-height').trim(),
       row:window.__turboBench.turboGallery.rowHeight('grid','micro'),
-      cols:getComputedStyle(document.querySelector('#galleryGrid')).gridTemplateColumns.split(/\\s+/).filter(Boolean).length,
+      cols:getComputedStyle(document.querySelector('#galleryGrid')).gridTemplateColumns.split(/\s+/).filter(Boolean).length,
       mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length
     }));
     assert.equal(micro.row,146,'Micro virtualization row height must match CSS');
@@ -834,7 +834,7 @@ async function main(){
     assert.equal(await p.locator('#densityValue').innerText(),'Ultra Compact');
     await setDensity(p,'micro');
     const microCols=await p.locator('#galleryGrid').evaluate(el=>
-      getComputedStyle(el).gridTemplateColumns.split(/\\s+/).filter(Boolean).length);
+      getComputedStyle(el).gridTemplateColumns.split(/\s+/).filter(Boolean).length);
     assert.ok(microCols>ultraCols,'Micro must fit more columns than Ultra Compact');
     assert.equal(await p.locator('#densityValue').innerText(),'Micro');
     assert.equal(await p.locator('#densityRange').getAttribute('aria-valuetext'),'Micro');
