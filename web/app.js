@@ -3309,7 +3309,7 @@
     return smartEngine.smartMatch(item,collection,smartContext(item));
   }
   function loadSmartCollections(){
-    state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;state.manualAlbums=[];state.manualAlbumId='';state.albumHealthy=true;state.bulkEnabled=false;state.bulkIds.clear();
+    state.smartCollections=[];state.smartCollectionId='';state.smartStorageHealthy=true;
     const key=smartStorageKey();if(!key)return;
     try{
       const raw=localStorage.getItem(key);
