@@ -1,6 +1,6 @@
 # Jack's Image Vault — Windows image and media library
 
-## v2.2 Phase 3 — Review Center 2.0 (unreleased candidate)
+## v2.2.2 — Review Center 2.0
 
 Review Inbox now offers a guided start into pending visual reviews. The Needs
 Review page distinguishes local notes from source-verified evidence, with
@@ -10,7 +10,8 @@ a disclosure. Existing local review persistence, undo, Drive and Sheet write
 approvals are unchanged.
 
 See [Phase 3 scope and safeguards](docs/v2.2-phase3-review-center.md).
-Not published until this change is verified on Chromium, Linux and Windows.
+v2.2.2 packages the merged, green-tested feature with independent release
+checks, a versioned patch ZIP, Windows EXE, desktop bundle and SHA-256 sums.
 
 ## v2.2.1 — Phase 2 Gallery Polish
 
