@@ -1,0 +1,37 @@
+# One-shot publisher for the video-gallery poster regression repair.
+# This release changes the UI only; the native server in v2.1.46 is preserved.
+name: Publish v2.1.47 video gallery poster fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v2147-video-poster-fix.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v2.1.47 video poster repair')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify approved poster fix merged, then independently publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.47 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; will not publish it twice."
+            exit 0
+          fi
+          if ! gh pr view 102 --repo "$GITHUB_REPOSITORY" --json state,mergedAt --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .; then
+            echo "::error::Gallery poster fix PR #102 must be merged first."
+            exit 1
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.47
+          echo "Independent Chromium, Windows and checksum-verified package release dispatched."
