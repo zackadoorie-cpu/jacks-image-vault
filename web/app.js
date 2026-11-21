@@ -10206,6 +10206,9 @@ async function nativeMediaPost(route,body,signal){
     el.hidden=false;el.dataset.status=status;el.textContent=label;
   }
   function bindVideoPlaybackState(video,item){
+    // The status is supplemental. Older lightweight host/test media elements
+    // without DOM event APIs must still play through the original path.
+    if(typeof video?.addEventListener!=='function')return;
     const set=(status,label)=>{
       if(state.activeImage?.id!==item.id||state.playingMediaId!==item.id||!video.isConnected)return;
       setMediaPlaybackState(status,label,item.id);
