@@ -1,5 +1,15 @@
 # Jack's Image Vault — Windows image and media library
 
+## v2.1.46 hotfix — small videos and portable desktop upgrades
+
+The v2.1.45 streaming feature only handled MP4/WebM above 32 MiB. Files under that size still used the older Blob-only path, including an overly strict MP4 header check and an early container-only codec rejection. **v2.1.46 attempts protected native streaming for every video size**. A small (≤32 MiB) video can retry once via a bounded, authenticated in-memory download if the native host is unavailable or playback fails. Native Google Drive byte-range requests for small media also accept a verified, bounded full response if Drive ignores Range. Other commonly indexed containers (QuickTime, M4V, Ogg and Matroska) may be attempted, but codecs must still be supported by the browser.
+
+The desktop Windows launcher no longer refuses to start when older `Jacks_Image_Vault_*.exe` files remain in the same extracted folder. It selects the highest correctly formatted version without touching older files. **Install the full v2.1.46 Desktop Bundle, including its updated `Jacks_Image_Vault_Desktop.exe` and its versioned backend, not just the patch ZIP.** Close earlier running launchers before upgrading if port 8765 belongs to an older process. Your existing Google authorization and files are not deleted, renamed or moved by this update.
+
+CI now decodes a real fabricated 590-byte VP8 WebM with native video streaming **and** the legacy small-file fallback. A thumbnail marked unavailable does not prove playback failure; open the media viewer and select Play to test it. Unsupported codecs or inaccessible Google Drive originals still show an explicit error and can be opened in Drive.
+
+See [native streaming and regression safeguards](docs/phase12c-large-media.md).
+
 ## Phase 12C — Large videos and original photos (v2.1.45)
 
 Large MP4/WebM videos stream in the player through a temporary, protected Windows loopback server ticket instead of downloading an entire file into a Blob. HTML5 seeking and pause are available subject to browser codec and Google Drive Range support. Larger animated GIFs stream on demand, and JPEG/PNG/WebP photos offer **Full resolution** with Fit/±Zoom controls. Small-file playback and the existing 12 MiB storyboard cap remain unchanged. Access tokens and private contents are never persisted or sent to GitHub. The original Google files and Sheets are read-only throughout this feature.
