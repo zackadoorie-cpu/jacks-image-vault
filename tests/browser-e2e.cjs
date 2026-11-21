@@ -545,14 +545,19 @@ async function main(){
       h.state.activeImage.size=64*1024*1024;
       h.renderModalPicture();
     });
-    assert.equal(await p.locator('#modalPicture .media-play-external').isVisible(),true,
-      'Videos beyond the in-app limit must offer a visible Drive fallback');
-    assert.match(await p.locator('#modalPlayHint').innerText(),/in-app preview limit/i);
+    assert.equal(await p.locator('#modalPlayOverlay').isVisible(),true,
+      'Videos beyond the old 32 MiB limit should offer an in-app streaming action');
+    await p.locator('#modalPlayOverlay').click();
+    await p.waitForFunction(()=>document.querySelector('#modalPlayHint')?.textContent.includes('v2.1.45 Windows executable'),null,{timeout:18000});
+    assert.equal(await p.locator('#modalPlayOverlay').isEnabled(),true,
+      'Old launchers must fail gently and let users retry after a native update');
     await p.evaluate(()=>{window.__uiBench.state.activeImage.size=5000;});
     await p.locator('#closeImage').click();
     await p.locator('#galleryGrid [data-open-image="'+id+'"]').click();
     assert.equal(await p.locator('#modalPlayOverlay').count(),0,
       'Still images must not display a video play overlay');
+    assert.equal(await p.locator('#viewOriginalButton').isVisible(),true,
+      'Still images should offer full-resolution viewing on demand');
     await p.locator('#closeImage').click();
     // Ultra Compact must visibly increase columns, keep preview/detail actions,
     // persist its existing density preference and avoid Google writes.
