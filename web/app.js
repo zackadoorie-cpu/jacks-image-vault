@@ -9578,6 +9578,7 @@
     $('densityRange').setAttribute('aria-valuetext',GALLERY_DENSITY_LABELS[densityIndex]);
     $('densityValue').textContent=GALLERY_DENSITY_LABELS[densityIndex];
     $('sortSelect').value=state.sort;
+    $('mediaTypeSelect').value=state.mediaType;
     renderSavedSearches();
     const parsedSearch=searchEngine.parseSearchQuery(state.search);
     $('searchHelp').textContent=parsedSearch.errors.length?parsedSearch.errors.join(' · '):
@@ -9598,6 +9599,7 @@
       options.map(f=>`<option value="${escapeHTML(f.path)}">${escapeHTML(f.name)} (${format(f.count)})</option>`).join('');
     $('folderSelect').value=state.folder;
     $('folderPickerCount').textContent=query?`${matched.length} collections found`:`${available.length} collections`;
+    renderActiveGalleryFilters();
     state.filtered=filterImages();const items=state.filtered.slice(0,state.page*state.pageSize);
     state.filteredById=new Map(state.filtered.map(item=>[item.id,item]));
     state.renderedCount=items.length;
@@ -9624,13 +9626,63 @@
     updatePreviewStats();
     scheduleBrowseSave();
   }
+  // Phase 2: summarize active filters without exposing or mutating private
+  // data. Text nodes are used for arbitrary user-entered queries and paths.
+  function renderActiveGalleryFilters(){
+    const filters=[];
+    if(state.search.trim())filters.push(['search','Search: '+state.search.trim()]);
+    if(state.mediaType!=='all')filters.push(['type','Type: '+({image:'Images',video:'Videos',pdf:'PDFs'}[state.mediaType]||state.mediaType)]);
+    if(state.folder!=='all')filters.push(['folder','Collection: '+folderName(state.folder)]);
+    if(state.sort!=='name'&&!(state.sort==='relevance'&&state.search.trim())){
+      const labels={relevance:'Best match','date-desc':'Newest capture','date-asc':'Oldest capture',review:'Reviewed first'};
+      filters.push(['sort','Sort: '+(labels[state.sort]||'Custom')]);
+    }
+    const chips=$('activeFilterChips');chips.replaceChildren();
+    for(const [key,label] of filters){
+      const button=document.createElement('button');button.type='button';
+      button.className='active-filter-chip';button.dataset.clearFilter=key;
+      button.setAttribute('aria-label','Remove '+label+' filter');
+      button.title='Remove '+label+' filter';
+      const name=document.createElement('span');name.textContent=label;
+      const cross=document.createElement('span');cross.textContent='×';cross.setAttribute('aria-hidden','true');
+      button.append(name,cross);chips.appendChild(button);
+    }
+    $('activeFilterBar').classList.toggle('hidden',!filters.length);
+  }
+  function clearActiveGalleryFilter(key){
+    if(key==='all'){
+      state.search='';state.mediaType='all';state.folder='all';state.sort='name';
+      state.folderQuery='';$('folderSearch').value='';
+    }else if(key==='search'){
+      state.search='';if(state.sort==='relevance')state.sort='name';
+    }else if(key==='type')state.mediaType='all';
+    else if(key==='folder')state.folder='all';
+    else if(key==='sort')state.sort=state.search.trim()?'relevance':'name';
+    else return;
+    state.activeSavedSearch='';state.page=1;
+    $('searchInput').value=state.search;
+    $('mediaTypeSelect').value=state.mediaType;
+    renderGallery();
+  }
+  function updateTilePreviewState(id,mode,message){
+    for(const button of document.querySelectorAll('#galleryGrid [data-open-image]')){
+      if(button.dataset.openImage!==id)continue;
+      button.dataset.previewState=mode;
+      const small=button.querySelector('.tile-placeholder small');
+      if(small&&message!==undefined)small.textContent=message;
+      if(mode==='unavailable'&&small)small.title=String(state.thumbErrors.get(id)||'Preview unavailable');
+      else if(small)small.removeAttribute('title');
+    }
+  }
   function updatePreviewStats() {
     const visible=(state.turboEnabled?
       state.filtered.slice(state.turboStart,state.turboEnd):
       state.filtered.slice(0,state.page*state.pageSize)).filter(x=>mediaKind(x)!=='pdf');
-    const cached=visible.filter(x=>state.thumbCache.has(x.id)).length;
+    const cached=visible.filter(x=>state.thumbCache.has(x.id)&&!state.thumbErrors.has(x.id)).length;
     const failed=visible.filter(x=>state.thumbErrors.has(x.id)).length;
-    $('previewStatus').textContent=state.connected ? `${cached} of ${visible.length} previews ready${failed?` · ${failed} unavailable`:''}` : '';
+    const queued=visible.filter(x=>state.loadingThumbs.has(x.id)).length;
+    $('previewStatus').textContent=state.connected ?
+      `${cached} of ${visible.length} thumbnails available${queued?` · ${queued} loading/queued`:''}${failed?` · ${failed} unavailable`:''}` : '';
     $('retryFailedButton').classList.toggle('hidden',!state.connected||!failed);
   }
   // Sheet proposals are visible immediately after a read-only Sync, but
@@ -9650,6 +9702,8 @@
     const error=state.thumbErrors.get(item.id),description=effectiveDescription(item);
     const status=reviewStage(item),note=state.reviewEdits.get(item.id);
     const display=galleryFilenameInfo(item);
+    const previewState=item.demo?'sample':kind==='pdf'?'document':error?'unavailable':
+      state.loadingThumbs.has(item.id)?'queued':'waiting';
     const badge=item.demo?'SAMPLE':status==='reviewed'?'REVIEWED':status==='deferred'?'LATER':
       status==='pending'?'NEEDS REVIEW':kind==='video'?(item.mime==='video/webm'?'WEBM':'VIDEO'):
       kind==='pdf'?'PDF':isGIF(item)?'GIF':'DESCRIBED';
@@ -9657,7 +9711,7 @@
       status==='deferred'?'deferred':'';
     const why=state.view==='smart-results'?smartFor(item).reasons.join(' · '):'';
     const when=state.view==='memory-results'?memorySourceLabel(item):'';
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(display.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Select ▶ to play · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(display.name)}">${escapeHTML(display.name)}</div>${display.suggested?`<p class="tile-proposal-note">${display.reviewed?"Suggested name":"Suggestion awaiting review"} · Drive: ${escapeHTML(display.original)}</p>`:""}<p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tile-more" data-tile-actions="${escapeHTML(item.id)}" aria-label="More actions for ${escapeHTML(item.name)}" title="Read-only file actions">⋯</button><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-preview-state="${previewState}" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(display.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Select ▶ to play · no thumbnail':'Preview unavailable · open for retry'):state.loadingThumbs.has(item.id)?'Queued for preview…':'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(display.name)}">${escapeHTML(display.name)}</div>${display.suggested?`<p class="tile-proposal-note">${display.reviewed?"Suggested name":"Suggestion awaiting review"} · Drive: ${escapeHTML(display.original)}</p>`:""}<p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tile-more" data-tile-actions="${escapeHTML(item.id)}" aria-label="More actions for ${escapeHTML(item.name)}" title="Read-only file actions">⋯</button><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   const THUMB_PRELOAD_MARGIN=320;
   function enqueueViewportThumbs(tiles){
@@ -9750,6 +9804,7 @@
     if(!force&&state.thumbErrors.has(item.id))return;
     const job={id:item.id,item,token:state.accessToken,mediaOnly,controller:new AbortController()};
     state.loadingThumbs.set(item.id,job);
+    updateTilePreviewState(item.id,'queued','Queued for preview…');
     if(priority)state.thumbJobs.unshift(job);else state.thumbJobs.push(job);
     if(!deferPump)pumpThumbJobs();
   }
@@ -9776,6 +9831,7 @@
       const videoPoster=job.mediaOnly&&mediaKind(job.item)==='video';
       if(videoPoster)state.runningVideoPosterJobs++;
       state.runningThumbJobs++;state.activeControllers.add(job.controller);
+      updateTilePreviewState(job.id,'loading','Loading thumbnail…');
       const timeout=setTimeout(()=>job.controller.abort('timeout'),job.mediaOnly?18000:12000);
       (job.mediaOnly?loadMediaThumb(job.item,job.controller.signal):loadThumb(job.item,job.controller.signal)).then(entry=>{
         if(job.token===state.accessToken&&state.connected) {state.thumbErrors.delete(job.id);putThumb(job.id,entry);}
@@ -9883,13 +9939,32 @@
     for(const btn of document.querySelectorAll('[data-open-image]')) {
       if(btn.dataset.openImage!==id)continue;
       const small=btn.querySelector('.tile-placeholder small');
-      if(!entry){if(small)small.textContent=mediaKind(state.images.find(x=>x.id===id)||{})==='video'?
-      (state.thumbErrors.get(id)||'Select ▶ to play · no thumbnail'):'Preview unavailable · open for retry';const old=btn.querySelector('img');old?.remove();continue;}
+      if(!entry){
+        const error=state.thumbErrors.get(id);
+        btn.dataset.previewState=error?'unavailable':'waiting';
+        const kind=mediaKind(state.images.find(x=>x.id===id)||{});
+        if(small){
+          small.textContent=error?(kind==='video'?'No poster · open to play':'Preview unavailable · open to retry'):'Waiting for preview…';
+          if(error)small.title=String(error);else small.removeAttribute('title');
+        }
+        btn.querySelector('img')?.remove();
+        continue;
+      }
       let img=btn.querySelector('img');
       if(!img){img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';btn.appendChild(img);}
-      const timer=setTimeout(()=>{if(img.isConnected&&!img.classList.contains('ready')) {if(entry.kind==='signed')handleSignedImageFailure(id);else {state.thumbErrors.set(id,'Preview timed out');paintThumb(id,null);}}},12000);
-      img.onload=()=>{clearTimeout(timer);img.classList.add('ready');if(small)small.textContent='';};
-      img.onerror=()=>{clearTimeout(timer);img.classList.remove('ready');if(entry.kind==='signed')handleSignedImageFailure(id);else {state.thumbErrors.set(id,'Browser could not display image');paintThumb(id,null);}};
+      img.classList.remove('ready');
+      btn.dataset.previewState='loading';
+      const timer=setTimeout(()=>{if(img.isConnected&&!img.classList.contains('ready')) {
+        if(entry.kind==='signed')handleSignedImageFailure(id);
+        else {state.thumbErrors.set(id,'Preview timed out');paintThumb(id,null);}
+      }},12000);
+      img.onload=()=>{clearTimeout(timer);if(!img.isConnected)return;
+        img.classList.add('ready');btn.dataset.previewState='ready';if(small)small.textContent='';
+      };
+      img.onerror=()=>{clearTimeout(timer);img.classList.remove('ready');
+        if(entry.kind==='signed')handleSignedImageFailure(id);
+        else {state.thumbErrors.set(id,'Browser could not display image');paintThumb(id,null);}
+      };
       img.src=entry.src;
       if(small)small.textContent='Loading thumbnail…';
     }
@@ -10942,6 +11017,11 @@ async function nativeMediaPost(route,body,signal){
     $('saveSearchForm').onsubmit=saveNamedSearch;
     $('saveSearchCancel').onclick=()=>$('saveSearchDialog').close();
     $('mediaTypeSelect').onchange=event=>{state.mediaType=event.target.value;state.activeSavedSearch='';state.page=1;renderGallery();};
+    $('activeFilterChips').onclick=event=>{
+      const chip=event.target.closest('[data-clear-filter]');
+      if(chip)clearActiveGalleryFilter(chip.dataset.clearFilter);
+    };
+    $('clearGalleryFilters').onclick=()=>clearActiveGalleryFilter('all');
     $('folderSearch').oninput=event=>{state.folderQuery=event.target.value;renderGallery();};
     $('folderSelect').onchange=event=>{state.folder=event.target.value;state.activeSavedSearch='';state.page=1;renderGallery();};
     $('reviewQueueFilter').onchange=event=>{
