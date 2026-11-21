@@ -6837,6 +6837,12 @@
     $('memoryView').classList.toggle('hidden',view!=='memory');
     $('smartView').classList.toggle('hidden',view!=='smart');
     $('healthView').classList.toggle('hidden',view!=='health');
+    const healthNav=typeof document.querySelector==='function'?
+      document.querySelector('#navigation [data-view="health"]'):null;
+    if(healthNav){
+      const label=view==='health'?'Close Library Health and return Home':'Library Health';
+      healthNav.title=label;healthNav.setAttribute('aria-label',label);
+    }
     document.querySelectorAll('[data-view]').forEach(btn=>{const active=btn.dataset.view===(view==='smart-results'?'smart':view==='memory-results'?'memory':view); btn.classList.toggle('active',active);if(active)btn.setAttribute('aria-current','page');else btn.removeAttribute('aria-current');});
     render();
     if(scroll)window.scrollTo({top:0,behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches?'auto':'smooth'});
@@ -9575,10 +9581,23 @@
     $('mediaDiagnostics').classList.toggle('hidden',!diagnostic);
     if(diagnostic)renderMediaDiagnostic(item);
     if(state.playingMediaId===item.id && state.videoObjectUrl) return; // Preserve original playback when thumbnails refresh.
-    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · click Play video (32 MB limit). Missing thumbnails can be generated separately.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · thumbnail may be still; click Play GIF animation (20 MB limit).` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
-    $('modalPicture').innerHTML=entry?`<img src="${escapeHTML(entry.src)}" alt="${escapeHTML(item.description||item.name)}">`:`<div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${kind==='video'?'Use Play video to stream a private preview':kind==='pdf'?'Open in Drive to view the document':item.demo?'Design preview':error?'Preview unavailable; use Retry or Open in Drive':'Preview loading…'}</small></div>`;
+    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · private in-app preview up to 32 MB; larger clips open in Drive.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · select the ▶ button to play animation (20 MB limit).` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
+    const poster=entry?`<img src="${escapeHTML(entry.src)}" alt="${escapeHTML(item.description||item.name)}">`:`<div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${kind==='video'?'Video preview available on demand':kind==='pdf'?'Open in Drive to view the document':item.demo?'Design preview':error?'Preview unavailable; use Retry or Open in Drive':'Preview loading…'}</small></div>`;
+    const playable=!item.demo&&(kind==='video'||isGIF(item));
+    const oversized=kind==='video'&&item.size>MAX_VIDEO_PREVIEW || isGIF(item)&&item.size>MAX_GIF_PREVIEW;
+    const drive=oversized?linkToDrive(item):'';
+    const label=isGIF(item)?'Play GIF animation':'Play video';
+    const affordance=!playable?'':oversized&&drive?
+      `<a class="media-play-overlay media-play-external" href="${escapeHTML(drive)}" target="_blank" rel="noopener noreferrer" aria-label="Open large media in Google Drive"><span class="media-play-icon" aria-hidden="true">↗</span><span>Open in Drive</span></a>`:
+      `<button class="media-play-overlay" id="modalPlayOverlay" type="button" aria-label="${label}"><span class="media-play-icon" aria-hidden="true">▶</span><span class="media-play-label">${oversized?'Preview unavailable':label}</span></button>`;
+    const hint=!playable?'':`<p class="media-play-hint" id="modalPlayHint" role="status" aria-live="polite">${oversized?'Larger than the in-app preview limit. Open in Drive for playback.':'Select ▶ to load and play the private media preview.'}</p>`;
+    $('modalPicture').innerHTML=playable?
+      `<div class="media-preview-stage">${poster}${affordance}${hint}</div>`:poster;
+    $('modalPlayOverlay')?.addEventListener('click',()=>void playVideo());
+    const tools=['playVideoButton','retryPreview','generatePosterButton','storyboardButton','storyboardCancel'];
+    $('mediaToolstrip').classList.toggle('hidden',tools.every(id=>$(id).classList.contains('hidden')));
     const pic=$('modalPicture').querySelector('img');
-    if(pic)pic.onerror=()=>{if(entry.kind==='signed')handleSignedImageFailure(item.id);else{state.thumbErrors.set(item.id,'Image format not supported by browser');paintThumb(item.id,null);}};
+    if(pic)pic.onerror=()=>{if(entry?.kind==='signed')handleSignedImageFailure(item.id);else{state.thumbErrors.set(item.id,'Image format not supported by browser');paintThumb(item.id,null);}};
   }
   function updateFavoriteButton(){const on=state.favorites.has(state.activeImage?.id);$('favoriteImage').textContent=on?'♥ Favorited':'♡ Favorite';}
   function stopVideo(){
@@ -9685,14 +9704,27 @@
       }
     }
   }
+  function modalPlayFeedback(message,{busy=false}={}){
+    const hint=$('modalPlayHint'),button=$('modalPlayOverlay');
+    if(hint)hint.textContent=message;
+    if(button){
+      button.disabled=busy;
+      button.classList.toggle('is-loading',busy);
+      const label=button.querySelector('.media-play-label');
+      if(label)label.textContent=busy?'Loading…':'Play again';
+    }
+  }
   async function playVideo(){
     const item=state.activeImage;
+    if($('playVideoButton').disabled)return;
     if(!item)return;
     const gif=isGIF(item),clip=mediaKind(item)==='video';
     if(!gif&&!clip)return;
     const maxBytes=gif?MAX_GIF_PREVIEW:MAX_VIDEO_PREVIEW;
     if(item.size>maxBytes){
-      $('previewDetails').textContent=`${gif?'GIF':'Video'} exceeds the ${gif?'20':'32'} MB preview limit. Open in Drive instead.`;
+      const message=`${gif?'GIF':'Video'} exceeds the ${gif?'20':'32'} MB in-app preview limit. Open in Drive instead.`;
+      $('previewDetails').textContent=message;
+      modalPlayFeedback(message);
       return;
     }
     if(clip){
@@ -9700,14 +9732,18 @@
       // A .webm extension alone does not guarantee a usable video codec.
       const probe=document.createElement('video');
       if(typeof probe.canPlayType==='function' && probe.canPlayType(item.mime||'video/webm')===''){
-        $('previewDetails').textContent='This browser cannot play the video format. Open in Drive to preview it.';
+        const message='This browser cannot play the video format. Open in Drive to preview it.';
+        $('previewDetails').textContent=message;
+        modalPlayFeedback(message);
         return;
       }
     }
     stopVideo();
     const controller=new AbortController();state.videoController=controller;
     const button=$('playVideoButton');button.disabled=true;
-    $('previewDetails').textContent=gif?'Loading animated GIF…':'Loading private video preview…';
+    const loading=gif?'Loading animated GIF…':'Loading private video preview…';
+    $('previewDetails').textContent=loading;
+    modalPlayFeedback(loading,{busy:true});
     try{
       const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
       const source=await googleGet(url,{blob:true,maxBytes,signal:controller.signal});
@@ -9751,10 +9787,21 @@
       }
     }catch(error){
       if(!controller.signal.aborted && state.activeImage?.id===item.id){
-        $('previewDetails').textContent=`Cannot preview ${gif?'GIF':'video'}: ${error.message}. Open in Drive instead.`;
+        const message=`Cannot preview ${gif?'GIF':'video'}: ${error.message}. Open in Drive or retry.`;
+        $('previewDetails').textContent=message;
+        modalPlayFeedback(message);
       }
     }finally{
-      if(state.videoController===controller)button.disabled=false;
+      if(state.videoController===controller){
+        button.disabled=false;
+        if(!state.videoObjectUrl){
+          const overlay=$('modalPlayOverlay');
+          if(overlay){
+            overlay.disabled=false;
+            overlay.classList.remove('is-loading');
+          }
+        }
+      }
     }
   }
   function stepImage(direction) {
@@ -9971,7 +10018,12 @@
     $('integritySearch').oninput=e=>{state.integrityQuery=e.target.value.slice(0,120);state.integrityPage=1;integrityRender();};
     $('integrityPrev').onclick=()=>{state.integrityPage=Math.max(1,state.integrityPage-1);integrityRender();};
     $('integrityNext').onclick=()=>{state.integrityPage++;integrityRender();};
-    document.querySelectorAll('[data-view]').forEach(btn=>btn.onclick=()=>displayPage(btn.dataset.view));
+    document.querySelectorAll('[data-view]').forEach(btn=>btn.onclick=()=>{
+      // Library Health is a standalone workspace, not an accordion. A second
+      // click on its selected sidebar icon closes it and returns Home.
+      const target=btn.dataset.view;
+      displayPage(target==='health'&&state.view==='health'?'home':target);
+    });
     $('managerDeskSearch').oninput=event=>{
       state.managerQuery=event.target.value.slice(0,120);
       state.managerPage=1;renderManagerDesk();

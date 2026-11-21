@@ -31,7 +31,7 @@ async function server(){
  await new Promise(done=>s.listen(0,'127.0.0.1',done));
  return {server:s,url:'http://127.0.0.1:'+s.address().port+'/'};
 }
-async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,turbo=false}={}){
+async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,turbo=false,uiBench=false}={}){
  const ctx=await browser.newContext({viewport:mobile?{width:narrow?320:375,height:812}:{width:1366,height:860},reducedMotion:mobile?'reduce':'no-preference'});
  let fail=false;const requests=[];let activeAccount='fixture_permission_123456789';
  let sheetRow={fileId:id,description:'Fabricated orange cat',tags:'orange cat, reaction meme',review:'Original Drive still image visually verified, fixture only'};
@@ -44,12 +44,14 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,t
      revoke(_,fn){fn();}
    }}};
  },native);
- if(turbo){
+ if(turbo||uiBench){
    await ctx.route('**/app.js',route=>{
      const source=fs.readFileSync(path.join(root,'app.js'),'utf8');
      const suffix='  init();\n})();';
-     if(!source.includes(suffix))throw new Error('Turbo E2E app bootstrap changed');
-     const patched=source.replace(suffix,'  globalThis.__turboBench={state,renderGallery,appendGalleryBatch,turboGallery};\n'+suffix);
+     if(!source.includes(suffix))throw new Error('E2E app bootstrap changed');
+     const instrumentation=(turbo?'  globalThis.__turboBench={state,renderGallery,appendGalleryBatch,turboGallery};\n':'')+
+       (uiBench?'  globalThis.__uiBench={state,renderModalPicture};\n':'');
+     const patched=source.replace(suffix,instrumentation+suffix);
      return route.fulfill({status:200,contentType:'text/javascript',body:patched});
    });
  }
@@ -228,6 +230,15 @@ async function main(){
     assert.equal(await p.locator('#healthTabCatalog').getAttribute('aria-selected'),'true');
     await p.keyboard.press('Home');
     assert.equal(await p.locator('#healthTabOverview').getAttribute('aria-selected'),'true');
+    const healthNav=p.locator('#navigation [data-view="health"]');
+    assert.equal(await healthNav.getAttribute('aria-label'),'Close Library Health and return Home');
+    await healthNav.click();
+    assert.equal(await p.locator('#homeView').isVisible(),true,
+      'Clicking the selected Health icon must close Health and return Home');
+    assert.equal(await healthNav.getAttribute('aria-label'),'Library Health');
+    await healthNav.click();
+    assert.equal(await p.locator('#healthView').isVisible(),true,
+      'Health icon must reopen the workspace after closing it');
     await p.locator('#experienceSidebarToggle').click();
     assert.equal(await p.locator('#app').getAttribute('data-sidebar-mode'),'compact');
     assert.equal(await p.locator('#experienceSidebarToggle').getAttribute('aria-pressed'),'true');
@@ -237,6 +248,11 @@ async function main(){
     await p.locator('#navigation [data-view="similarity"]').click();
     assert.equal(await p.locator('#similarityView').isVisible(),true);
     assert.equal(await p.locator('#experienceBreadcrumb').innerText(),'TOOLS');
+    await p.locator('#navigation [data-view="health"]').click();
+    assert.equal(await p.locator('#healthView').isVisible(),true);
+    await p.locator('#navigation [data-view="health"]').click();
+    assert.equal(await p.locator('#homeView').isVisible(),true,
+      'Icon-only Health button must also close the active workspace');
     await p.reload({waitUntil:'domcontentloaded'});
     assert.equal(await p.locator('#app').getAttribute('data-sidebar-mode'),'compact');
     await p.locator('#experienceSidebarToggle').click();
@@ -477,7 +493,7 @@ async function main(){
     assert.match(changed.label,/009999/);
     console.log('PASS: Turbo Gallery 10,000 synthetic files, bounded DOM, deep reverse scroll, cache and filter reset.');
   }finally{await turbo.ctx.close();}
-  const connected=await fixturePage(browser,url);
+  const connected=await fixturePage(browser,url,{uiBench:true});
   try{
     const p=connected.page;
     await p.locator('#connectButton').click();
@@ -487,6 +503,54 @@ async function main(){
     const browserErrors=[];
     p.on('pageerror',err=>browserErrors.push(err.message));
     await p.locator('[data-view="all"]').click();
+    // In-app playback should start at the visible stage, regardless of poster state.
+    const videoButton=p.locator('#galleryGrid [data-open-image="'+vid+'"]');
+    await videoButton.click();
+    assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),true);
+    assert.equal(await p.locator('#modalPlayOverlay').isVisible(),true,
+      'Unthumbnailed video needs a real, visible play button in the preview');
+    assert.equal(await p.locator('#modalPlayOverlay').getAttribute('aria-label'),'Play video');
+    assert.equal(await p.locator('#mediaToolstrip').isVisible(),true);
+    assert.equal(await p.locator('#playVideoButton').isVisible(),true);
+    assert.equal(await p.locator('#mediaToolstrip').evaluate(el=>
+      !!(el.compareDocumentPosition(document.querySelector('#reviewForm'))&Node.DOCUMENT_POSITION_FOLLOWING)),true,
+      'Video tools should precede the long review editor.');
+    await p.evaluate(()=>{
+      const h=window.__uiBench;
+      h.state.thumbCache.set('fixture_video_123456789',{
+        src:'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=',
+        kind:'generated',bytes:40
+      });
+      h.renderModalPicture();
+    });
+    assert.equal(await p.locator('#modalPicture .media-preview-stage img').count(),1);
+    assert.equal(await p.locator('#modalPlayOverlay').isVisible(),true,
+      'Video with a cached poster must still expose the central Play action');
+    await p.evaluate(()=>{
+      // The synthetic preview exercises the fetch failure even on Chromium
+      // distributions without proprietary MP4 decode capability.
+      HTMLMediaElement.prototype.canPlayType=()=> 'probably';
+    });
+    const playbackWrites=connected.requests.filter(m=>m!=='GET').length;
+    await p.locator('#modalPlayOverlay').click();
+    await p.waitForFunction(()=>document.querySelector('#modalPlayHint')?.textContent.includes('Cannot preview video:'),null,{timeout:18000});
+    assert.equal(await p.locator('#modalPlayOverlay').isEnabled(),true);
+    assert.equal(connected.requests.filter(m=>m!=='GET').length,playbackWrites,
+      'Preview playback must use read-only Drive requests');
+    await p.evaluate(()=>{
+      const h=window.__uiBench;
+      h.state.activeImage.size=64*1024*1024;
+      h.renderModalPicture();
+    });
+    assert.equal(await p.locator('#modalPicture .media-play-external').isVisible(),true,
+      'Videos beyond the in-app limit must offer a visible Drive fallback');
+    assert.match(await p.locator('#modalPlayHint').innerText(),/in-app preview limit/i);
+    await p.evaluate(()=>{window.__uiBench.state.activeImage.size=5000;});
+    await p.locator('#closeImage').click();
+    await p.locator('#galleryGrid [data-open-image="'+id+'"]').click();
+    assert.equal(await p.locator('#modalPlayOverlay').count(),0,
+      'Still images must not display a video play overlay');
+    await p.locator('#closeImage').click();
     // Ultra Compact must visibly increase columns, keep preview/detail actions,
     // persist its existing density preference and avoid Google writes.
     const densityBaseline=connected.requests.filter(method=>method!=='GET').length;
