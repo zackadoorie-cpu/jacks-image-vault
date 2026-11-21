@@ -1,5 +1,24 @@
 # Jack's Image Vault — Windows image and media library
 
+## v2.2.4 — Manual Albums + Bulk Selection
+
+Organize selected gallery images, videos and PDFs into your own private
+manual albums without moving or renaming anything in Google Drive.
+Select individual files, currently displayed tiles or all results of a
+filtered search. Browse an album, remove members, and back up or import
+the private album definitions as validated JSON (file IDs and album names,
+never the media itself). Albums are scoped to the verified Drive account and
+configured spreadsheet.
+
+This release also hardens the gallery More actions menu so programmatic
+scroll and focus do not prematurely close it. Existing Quick Peek, Compare,
+video streaming, Google sign-in, rename approval and Sheet safety rules
+remain unchanged.
+
+See [Phase 5 design, privacy and limits](docs/v2.2-phase5-manual-albums.md).
+v2.2.4 includes a versioned UI patch ZIP, Windows EXE, and desktop bundle
+only after independent Chromium, Windows, updater and artifact checks.
+
 ## v2.2.3 — Quick Peek + Compare Mode
 
 Space on any focused gallery preview opens a keyboard-navigable Quick Peek
