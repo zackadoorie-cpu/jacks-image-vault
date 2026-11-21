@@ -50,7 +50,7 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,t
      const suffix='  init();\n})();';
      if(!source.includes(suffix))throw new Error('E2E app bootstrap changed');
      const instrumentation=(turbo?'  globalThis.__turboBench={state,renderGallery,appendGalleryBatch,turboGallery};\n':'')+
-       (uiBench?'  globalThis.__uiBench={state,renderModalPicture,requestThumb};\n':'');
+       (uiBench?'  globalThis.__uiBench={state,renderModalPicture,requestThumb,renderGallery};\n':'');
      const patched=source.replace(suffix,instrumentation+suffix);
      return route.fulfill({status:200,contentType:'text/javascript',body:patched});
    });
@@ -215,6 +215,89 @@ async function main(){
     assert.equal(downloads.length,1,'oversized posters must not fetch another full original');
     console.log('PASS: valid WebM gets a visible generated poster; oversized posters remain read-only and bounded.');
   }finally{await posterPage.ctx.close();}
+
+
+  // Viewport-first loading regression. Even with IntersectionObserver
+  // callbacks suppressed, ALL already-visible cards must be queued in the
+  // same render, without initiating work for the entire 90-file library.
+  // Scrolling should enqueue the next row before an observer fires.
+  const viewport=await fixturePage(browser,url,{uiBench:true});
+  try{
+    const p=viewport.page;
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    await p.locator('[data-view="all"]').click();
+    const first=await p.evaluate(()=>{
+      // An intentionally silent observer reproduces the delayed-callback
+      // condition that previously left the visible top rows unloaded.
+      window.IntersectionObserver=class{
+        observe(){}unobserve(){}disconnect(){}
+      };
+      const fetchOriginal=window.fetch.bind(window);
+      window.fetch=(url,options)=>{
+        if(/^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/viewport_[0-9]{12}/.test(String(url)))
+          return new Promise(()=>{}); // hold metadata GET to inspect the queue
+        return fetchOriginal(url,options);
+      };
+      const h=window.__uiBench,s=h.state;
+      const base=s.images.find(x=>x.mime==='image/jpeg')||s.images[0];
+      s.images=Array.from({length:90},(_,i)=>({
+        ...base,
+        id:'viewport_'+String(i).padStart(12,'0'),
+        name:'Viewport cat '+String(i).padStart(3,'0')+'.jpg',
+        mime:'image/jpeg',size:521,collection:'Memes',folder:'Memes/Cats',demo:false
+      }));
+      s.view='all';s.search='';s.folder='all';s.mediaType='all';
+      s.sort='name';s.page=1;s.pageSize=90;s.density='ultra-compact';
+      s.thumbJobs=[];s.loadingThumbs.clear();s.thumbErrors.clear();
+      window.scrollTo(0,0);
+      h.renderGallery();
+      const tiles=[...document.querySelectorAll('#galleryGrid [data-open-image]')];
+      const visible=tiles.filter(tile=>{
+        const box=tile.getBoundingClientRect();
+        return box.width>0&&box.height>0&&box.bottom>0&&box.top<window.innerHeight&&
+          box.right>0&&box.left<window.innerWidth;
+      }).map(x=>x.dataset.openImage);
+      const far=tiles.filter(tile=>tile.getBoundingClientRect().top>window.innerHeight+450)
+        .map(x=>x.dataset.openImage);
+      const queued=[...s.loadingThumbs.keys()];
+      return {count:tiles.length,visible,far,queued,
+        running:s.runningThumbJobs,limit:s.maxConcurrentThumbs,
+        waiting:s.thumbJobs.length};
+    });
+    assert.equal(first.count,90);
+    assert.ok(first.visible.length>=8,'a wide ultra-compact viewport should display an entire row');
+    assert.ok(first.visible.every(id=>first.queued.includes(id)),
+      'ALL visible images must be queued before any observer callback or scroll');
+    assert.ok(first.far.length>0&&first.far.every(id=>!first.queued.includes(id)),
+      'distant rows must stay unrequested until scrolling nearer');
+    assert.ok(first.running<=8&&first.running<=first.limit,
+      'queuing visible tiles must preserve a bounded eight-request concurrency limit');
+    assert.ok(first.waiting>0,'visible and nearby rows must queue beyond the active network slots');
+    await p.evaluate(()=>{
+      window.scrollTo({top:850,behavior:'instant'});
+      window.dispatchEvent(new Event('scroll'));
+    });
+    await p.waitForTimeout(130);
+    const second=await p.evaluate(()=>({
+      queued:[...window.__uiBench.state.loadingThumbs.keys()],
+      visible:[...document.querySelectorAll('#galleryGrid [data-open-image]')]
+        .filter(tile=>{
+          const box=tile.getBoundingClientRect();
+          return box.width>0&&box.height>0&&box.bottom>0&&box.top<window.innerHeight;
+        }).map(tile=>tile.dataset.openImage),
+      running:window.__uiBench.state.runningThumbJobs
+    }));
+    assert.ok(second.visible.length>0,'scroll should expose another gallery row');
+    assert.ok(second.visible.every(id=>second.queued.includes(id)),
+      'scroll should queue the entire newly visible row promptly');
+    assert.ok(second.queued.length>first.queued.length,
+      'scroll should add new nearby items, not request the whole collection upfront');
+    assert.ok(second.running<=8,'scroll cannot exceed active-request limit');
+    assert.equal(viewport.requests.filter(method=>method!=='GET').length,0,
+      'viewport prefetch must never perform Google Drive or Sheet writes');
+    console.log('PASS: initial viewport batch loads without scrolling, near rows prefetch, distant rows wait, scrolling queues all visible, concurrency <=8.');
+  }finally{await viewport.ctx.close();}
 
   // Phase 11D real-Chromium recovery triage uses synthetic Google metadata.
   // The fixture denies individual file metadata: classify as inaccessible,
