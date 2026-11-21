@@ -1,5 +1,11 @@
 # Jack's Image Vault — Windows image and media library
 
+## v2.1.47 — Blank video gallery preview repair
+
+The earlier streaming releases did not fix blank **gallery cards**: the gallery tried Drive's `thumbnailLink` first and, unlike images, treated a missing or rejected **video** thumbnail as final. In this release, visible MP4/WebM cards with indexed originals up to **5 MiB** attempt a single bounded authenticated download and generate a JPEG of the first decodable frame **locally**. Auto poster decoders are limited to **one at a time**, respect logout/cancellation, and use the existing temporary, evictable thumbnail cache. Files over 5 MiB are not downloaded automatically. Open details → **Generate thumbnail** (12 MiB existing limit), or **Play**, for larger files.
+
+The new Chromium regression fixture verifies an actual synthetic WebM produces a visible thumbnail on the video tile, and that a 6 MiB file is not downloaded in the background. No private user video bytes, thumbnails, changes to Drive metadata or Sheets edits are published. This fixes missing posters, **not evidence that every codec and upstream Drive stream will play**. If playback still fails after selecting Play, use the explicit media error in the opened viewer to report the separate issue. The change is UI-only and does not modify the native server, encrypted saved sign-in, or rename approval workflows.
+
 ## v2.1.46 hotfix — small videos and portable desktop upgrades
 
 The v2.1.45 streaming feature only handled MP4/WebM above 32 MiB. Files under that size still used the older Blob-only path, including an overly strict MP4 header check and an early container-only codec rejection. **v2.1.46 attempts protected native streaming for every video size**. A small (≤32 MiB) video can retry once via a bounded, authenticated in-memory download if the native host is unavailable or playback fails. Native Google Drive byte-range requests for small media also accept a verified, bounded full response if Drive ignores Range. Other commonly indexed containers (QuickTime, M4V, Ogg and Matroska) may be attempted, but codecs must still be supported by the browser.

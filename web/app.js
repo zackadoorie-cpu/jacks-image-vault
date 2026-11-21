@@ -1429,6 +1429,7 @@
     thumbErrors: new Map(),
     activeControllers: new Set(),
     runningThumbJobs: 0,
+    runningVideoPosterJobs: 0,
     galleryEpoch: 0,
     maxConcurrentThumbs: 5,
     observer: null,
@@ -2701,6 +2702,9 @@
   const MAX_VIDEO_PREVIEW = 32 * 1024 * 1024;
   const MAX_GIF_PREVIEW = 20 * 1024 * 1024;
   const MAX_POSTER_VIDEO = 12 * 1024 * 1024;
+  // Gallery poster auto-generation is lazy, bounded, and never written back.
+  // Small video originals can provide a still when Drive has no thumbnail.
+  const MAX_AUTO_VIDEO_POSTER = 5 * 1024 * 1024;
   const isGIF = item => (item?.mime||'').toLowerCase()==='image/gif';
   const linkToDrive = item => safeId(item?.id) ? `https://drive.google.com/file/d/${encodeURIComponent(item.id)}/view` : '';
   function readSettings() {
@@ -9700,7 +9704,14 @@
   }
   function pumpThumbJobs() {
     while(state.runningThumbJobs<state.maxConcurrentThumbs && state.thumbJobs.length){
-      const job=state.thumbJobs.shift();if(job.token!==state.accessToken){state.loadingThumbs.delete(job.id);continue;}
+      // Only decode one auto-generated video poster at a time. Let ordinary
+      // still-image thumbnail work proceed while a video frame is decoding.
+      const idx=state.thumbJobs.findIndex(j=>!j.mediaOnly||mediaKind(j.item)!=='video'||state.runningVideoPosterJobs<1);
+      if(idx<0)break;
+      const job=state.thumbJobs.splice(idx,1)[0];
+      if(job.token!==state.accessToken){state.loadingThumbs.delete(job.id);continue;}
+      const videoPoster=job.mediaOnly&&mediaKind(job.item)==='video';
+      if(videoPoster)state.runningVideoPosterJobs++;
       state.runningThumbJobs++;state.activeControllers.add(job.controller);
       const timeout=setTimeout(()=>job.controller.abort('timeout'),job.mediaOnly?18000:12000);
       (job.mediaOnly?loadMediaThumb(job.item,job.controller.signal):loadThumb(job.item,job.controller.signal)).then(entry=>{
@@ -9713,6 +9724,7 @@
       }).finally(()=>{
         clearTimeout(timeout);
         state.runningThumbJobs=Math.max(0,state.runningThumbJobs-1);
+        if(videoPoster)state.runningVideoPosterJobs=Math.max(0,state.runningVideoPosterJobs-1);
         state.activeControllers.delete(job.controller);
         if(state.loadingThumbs.get(job.id)===job)state.loadingThumbs.delete(job.id);
         pumpThumbJobs();
@@ -9722,9 +9734,24 @@
   function requestFallbackAfterJob(job,error){
     // Queue fallback only after this job completes; it must not download all originals at once.
     state.loadingThumbs.delete(job.id);
-    if(mediaKind(job.item)!=='image') {
-      state.thumbErrors.set(job.id,`Google video thumbnail unavailable (${error?.message||'unknown reason'}). Playback may still work.`);
-      paintThumb(job.id,null);return;
+    if(mediaKind(job.item)==='video') {
+      // Drive often omits thumbnailLink for small native MP4/WebM files.
+      // Try decoding one first frame from the verified original instead of
+      // permanently leaving a blank tile. The main gallery observer already
+      // scopes this work to visible cards; budget is 5 MiB and one video
+      // decoder at a time, with a cancelable 18-second job timeout.
+      if(['video/mp4','video/webm'].includes(job.item.mime) &&
+         Number.isSafeInteger(job.item.size) && job.item.size>0 &&
+         job.item.size<=MAX_AUTO_VIDEO_POSTER && job.token===state.accessToken &&
+         (!job.controller.signal.aborted||job.controller.signal.reason==='timeout')) {
+        queueMicrotask(()=>requestThumb(job.item,{priority:state.activeImage?.id===job.id,mediaOnly:true}));
+      }else {
+        state.thumbErrors.set(job.id,job.item.size>MAX_AUTO_VIDEO_POSTER?
+          'Video is too large for an automatic poster (5 MiB limit). Play it or choose Generate thumbnail in details.':
+          `Drive provided no video poster (${error?.message||'unknown reason'}). Open the video to play.`);
+        paintThumb(job.id,null);
+      }
+      return;
     }
     if(job.token===state.accessToken&&(!job.controller.signal.aborted||job.controller.signal.reason==='timeout')) {
       queueMicrotask(()=>requestThumb(job.item,{priority:!!state.activeImage&&state.activeImage.id===job.id,mediaOnly:true}));
@@ -9745,9 +9772,23 @@
     return {src,objectUrl:false,kind:'signed'};
   }
   async function loadMediaThumb(item,signal) {
-    if(item.size>7*1024*1024)throw new Error('Original exceeds 7 MB thumbnail fallback limit; open in Drive');
+    const video=mediaKind(item)==='video';
+    const limit=video?MAX_AUTO_VIDEO_POSTER:7*1024*1024;
+    if(!Number.isSafeInteger(item.size)||item.size<=0||item.size>limit)
+      throw new Error(video?'Video exceeds the 5 MiB safe automatic poster limit':'Image exceeds the 7 MiB preview fallback limit');
+    if(video&&!['video/mp4','video/webm'].includes(item.mime))
+      throw new Error('Automatic video posters are currently supported for MP4/WebM');
     const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
-    const blob=await googleGet(url,{blob:true,maxBytes:7*1024*1024,signal});
+    const blob=await googleGet(url,{blob:true,maxBytes:limit,signal});
+    if(video){
+      if(signal?.aborted)throw new Error('Poster generation was cancelled');
+      // Uses the browser's actual decoder, not an unreliable file-header
+      // heuristic. Generates one JPEG and immediately revokes the temporary
+      // full-video URL after extraction (videoFrameBlob finally block).
+      const jpeg=await videoFrameBlob(blob,item.mime,signal);
+      if(signal?.aborted)throw new Error('Poster generation was cancelled');
+      return {src:URL.createObjectURL(jpeg),objectUrl:true,kind:'generated',bytes:jpeg.size};
+    }
     if(!blob.type.startsWith('image/')&&!item.mime.startsWith('image/'))throw new Error('Not an image');
     if(item.mime==='image/gif')return {src:URL.createObjectURL(blob),objectUrl:true,kind:'media',bytes:blob.size};
     try {
@@ -9767,13 +9808,20 @@
     const text='Google thumbnail unavailable. Trying a small authenticated preview…';
     for(const btn of document.querySelectorAll('[data-open-image]'))if(btn.dataset.openImage===id){const small=btn.querySelector('.tile-placeholder small');if(small)small.textContent=text;}
     if(mediaKind(item)==='image')requestThumb(item,{priority:state.activeImage?.id===id,mediaOnly:true});
-    else {state.thumbErrors.set(id,'Google video thumbnail could not be displayed. Playback may still work.');paintThumb(id,null);}
+    else if(mediaKind(item)==='video'&&['video/mp4','video/webm'].includes(item.mime)&&
+      Number.isSafeInteger(item.size)&&item.size>0&&item.size<=MAX_AUTO_VIDEO_POSTER){
+      requestThumb(item,{priority:state.activeImage?.id===id,mediaOnly:true});
+    } else {
+      state.thumbErrors.set(id,'Google video poster unavailable. Open the media details to play or generate a poster.');
+      paintThumb(id,null);
+    }
   }
   function paintThumb(id,entry) {
     for(const btn of document.querySelectorAll('[data-open-image]')) {
       if(btn.dataset.openImage!==id)continue;
       const small=btn.querySelector('.tile-placeholder small');
-      if(!entry){if(small)small.textContent=mediaKind(state.images.find(x=>x.id===id)||{})==='video'?'Select ▶ to play · no thumbnail':'Preview unavailable · open for retry';const old=btn.querySelector('img');old?.remove();continue;}
+      if(!entry){if(small)small.textContent=mediaKind(state.images.find(x=>x.id===id)||{})==='video'?
+      (state.thumbErrors.get(id)||'Select ▶ to play · no thumbnail'):'Preview unavailable · open for retry';const old=btn.querySelector('img');old?.remove();continue;}
       let img=btn.querySelector('img');
       if(!img){img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';btn.appendChild(img);}
       const timer=setTimeout(()=>{if(img.isConnected&&!img.classList.contains('ready')) {if(entry.kind==='signed')handleSignedImageFailure(id);else {state.thumbErrors.set(id,'Preview timed out');paintThumb(id,null);}}},12000);
