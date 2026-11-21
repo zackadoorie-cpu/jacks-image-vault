@@ -70,7 +70,9 @@ func (b *mediaSessionBroker) stop(id string) {
 func mediaMIME(mode,mime string) (int64,bool) {
     switch mode {
     case "video":
-        return mediaVideoMax, mime=="video/mp4" || mime=="video/webm"
+        return mediaVideoMax, mime=="video/mp4" || mime=="video/webm" ||
+            mime=="video/quicktime" || mime=="video/x-m4v" ||
+            mime=="video/ogg" || mime=="video/x-matroska"
     case "image":
         return mediaImageMax, mime=="image/jpeg" || mime=="image/png" || mime=="image/webp" || mime=="image/gif"
     default:
