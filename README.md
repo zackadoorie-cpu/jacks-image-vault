@@ -1,6 +1,6 @@
 # Jack's Image Vault — Windows image and media library
 
-## v2.2 Phase 1 UI Makeover — unreleased candidate
+## v2.2.0 — Phase 1 UI Makeover
 
 A focused visual update reorganizes the sidebar while retaining all 17
 destinations, standardizes local SVG icons, consolidates optional account
@@ -12,8 +12,10 @@ require separate explicit consent. This work does not change thumbnail
 prefetch, streaming, OAuth scopes, remote data, or the native updater.
 
 See [Phase 1 UI scope and test plan](docs/v2.2-phase1-ui-makeover.md).
-Not released: continue using v2.1.49 until this PR is verified and a
-separate release is approved.
+For the versioned patch ZIP, Windows EXE, desktop bundle and public SHA-256
+checksums, see the GitHub Releases page (v2.2.0). Existing Windows
+installations with the v2.1.46+ native host can apply the UI patch ZIP;
+the full bundle is also available for a clean Windows install.
 
 ## v2.1.49 — Five-step gallery density slider and Micro tiles
 
