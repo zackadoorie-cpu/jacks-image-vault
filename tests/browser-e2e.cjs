@@ -373,7 +373,11 @@ async function main(){
     await p.keyboard.press('Space');
     await p.locator('#quickPeekAlbumAction').click();
     assert.equal(await p.locator('#quickPeekDialog').evaluate(d=>d.open),true);
-    await p.keyboard.press('Escape');
+    await p.locator('#quickPeekDetails').click();
+    assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),true);
+    assert.match(await p.locator('#resultCount').innerText(),/2 files/,
+      'Filtered collection remains stable while the full details viewer is open');
+    await p.locator('#closeImage').click();
     assert.match(await p.locator('#resultCount').innerText(),/1 file/);
     assert.ok(phase6.requests.every(m=>m==='GET'),'Album quick actions must be read-only remotely');
     assert.equal(phase6.getSheetWrites().length,0);
