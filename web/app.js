@@ -9588,7 +9588,7 @@
     const label=isGIF(item)?'Play GIF animation':'Play video';
     const affordance=!playable?'':oversized&&drive?
       `<a class="media-play-overlay media-play-external" href="${escapeHTML(drive)}" target="_blank" rel="noopener noreferrer" aria-label="Open large media in Google Drive"><span class="media-play-icon" aria-hidden="true">↗</span><span>Open in Drive</span></a>`:
-      `<button class="media-play-overlay" id="modalPlayOverlay" type="button" aria-label="${label}"><span class="media-play-icon" aria-hidden="true">▶</span><span>${oversized?'Preview unavailable':label}</span></button>`;
+      `<button class="media-play-overlay" id="modalPlayOverlay" type="button" aria-label="${label}"><span class="media-play-icon" aria-hidden="true">▶</span><span class="media-play-label">${oversized?'Preview unavailable':label}</span></button>`;
     const hint=!playable?'':`<p class="media-play-hint" id="modalPlayHint" role="status" aria-live="polite">${oversized?'Larger than the in-app preview limit. Open in Drive for playback.':'Select ▶ to load and play the private media preview.'}</p>`;
     $('modalPicture').innerHTML=playable?
       `<div class="media-preview-stage">${poster}${affordance}${hint}</div>`:poster;
@@ -9703,14 +9703,27 @@
       }
     }
   }
+  function modalPlayFeedback(message,{busy=false}={}){
+    const hint=$('modalPlayHint'),button=$('modalPlayOverlay');
+    if(hint)hint.textContent=message;
+    if(button){
+      button.disabled=busy;
+      button.classList.toggle('is-loading',busy);
+      const label=button.querySelector('.media-play-label');
+      if(label)label.textContent=busy?'Loading…':'Play again';
+    }
+  }
   async function playVideo(){
     const item=state.activeImage;
+    if($('playVideoButton').disabled)return;
     if(!item)return;
     const gif=isGIF(item),clip=mediaKind(item)==='video';
     if(!gif&&!clip)return;
     const maxBytes=gif?MAX_GIF_PREVIEW:MAX_VIDEO_PREVIEW;
     if(item.size>maxBytes){
-      $('previewDetails').textContent=`${gif?'GIF':'Video'} exceeds the ${gif?'20':'32'} MB preview limit. Open in Drive instead.`;
+      const message=`${gif?'GIF':'Video'} exceeds the ${gif?'20':'32'} MB in-app preview limit. Open in Drive instead.`;
+      $('previewDetails').textContent=message;
+      modalPlayFeedback(message);
       return;
     }
     if(clip){
@@ -9718,14 +9731,18 @@
       // A .webm extension alone does not guarantee a usable video codec.
       const probe=document.createElement('video');
       if(typeof probe.canPlayType==='function' && probe.canPlayType(item.mime||'video/webm')===''){
-        $('previewDetails').textContent='This browser cannot play the video format. Open in Drive to preview it.';
+        const message='This browser cannot play the video format. Open in Drive to preview it.';
+        $('previewDetails').textContent=message;
+        modalPlayFeedback(message);
         return;
       }
     }
     stopVideo();
     const controller=new AbortController();state.videoController=controller;
     const button=$('playVideoButton');button.disabled=true;
-    $('previewDetails').textContent=gif?'Loading animated GIF…':'Loading private video preview…';
+    const loading=gif?'Loading animated GIF…':'Loading private video preview…';
+    $('previewDetails').textContent=loading;
+    modalPlayFeedback(loading,{busy:true});
     try{
       const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
       const source=await googleGet(url,{blob:true,maxBytes,signal:controller.signal});
@@ -9769,10 +9786,21 @@
       }
     }catch(error){
       if(!controller.signal.aborted && state.activeImage?.id===item.id){
-        $('previewDetails').textContent=`Cannot preview ${gif?'GIF':'video'}: ${error.message}. Open in Drive instead.`;
+        const message=`Cannot preview ${gif?'GIF':'video'}: ${error.message}. Open in Drive or retry.`;
+        $('previewDetails').textContent=message;
+        modalPlayFeedback(message);
       }
     }finally{
-      if(state.videoController===controller)button.disabled=false;
+      if(state.videoController===controller){
+        button.disabled=false;
+        if(!state.videoObjectUrl){
+          const overlay=$('modalPlayOverlay');
+          if(overlay){
+            overlay.disabled=false;
+            overlay.classList.remove('is-loading');
+          }
+        }
+      }
     }
   }
   function stepImage(direction) {
