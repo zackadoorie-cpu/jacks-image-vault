@@ -1,5 +1,13 @@
 # Jack's Image Vault — Windows image and media library
 
+## v2.1.48 — Instant visible gallery preview queue
+
+The gallery now **queues every tile already visible on the screen as soon as it is rendered**, without depending on IntersectionObserver notifications or the first scroll. Tiles within roughly 320 pixels of the viewport are queued next to make downward scrolling smoother, while distant rows remain lazy and the 10,000-item virtual gallery keeps its small DOM window. New rows appended by auto-load also enter the viewport queue immediately. A frame-throttled scroll/resize check prioritizes newly visible rows before preloading nearby items.
+
+All on-screen thumbnails are *scheduled* together in top-to-bottom order, not fetched without limits: at most **eight authenticated Drive metadata requests** run simultaneously, and the v2.1.47 small MP4/WebM poster fallback still decodes **one video at a time** with a strict **5 MiB** automatic original limit. This change does not download the entire collection, disable cancellation or size limits, persist raw media, or write to Google Drive/Sheets.
+
+The new real Chromium regression creates 90 synthetic records, intentionally suppresses IntersectionObserver callbacks, confirms that every visible tile is queued immediately before any scroll, distant tiles remain untouched, scrolling queues the next visible region, and no more than eight network requests are active. Linux stress/Go safety tests and Windows WebView2/updater tests remain required. **UI-only update**: v2.1.46+ desktop hosts may use the standard v2.1.48 patch ZIP, with no new native installer required.
+
 ## v2.1.47 — Blank video gallery preview repair
 
 The earlier streaming releases did not fix blank **gallery cards**: the gallery tried Drive's `thumbnailLink` first and, unlike images, treated a missing or rejected **video** thumbnail as final. In this release, visible MP4/WebM cards with indexed originals up to **5 MiB** attempt a single bounded authenticated download and generate a JPEG of the first decodable frame **locally**. Auto poster decoders are limited to **one at a time**, respect logout/cancellation, and use the existing temporary, evictable thumbnail cache. Files over 5 MiB are not downloaded automatically. Open details → **Generate thumbnail** (12 MiB existing limit), or **Play**, for larger files.
