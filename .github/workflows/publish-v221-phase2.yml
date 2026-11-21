@@ -41,5 +41,7 @@ jobs:
             echo "::error::Release source does not include the verified Phase 2 merge."
             exit 1
           fi
-          gh workflow run release.yml --repo "$REPO" --ref main -f version=2.2.0
+          # Keep the dispatched release input derived from the same checked tag.
+          RELEASE_VERSION=2.2.1
+          gh workflow run release.yml --repo "$REPO" --ref main -f version="$RELEASE_VERSION"
           echo "Dispatched versioned v2.2.1 patch, EXE and desktop bundle with independent tests."
