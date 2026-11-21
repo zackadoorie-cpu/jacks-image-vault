@@ -10951,6 +10951,9 @@ async function nativeMediaPost(route,body,signal){
     state.reviewDirty=false;stopVideo();
     if($('imageDialog').open)$('imageDialog').close();
     state.activeImage=null;
+    // Run synchronously on the explicit Close action so album counts are
+    // correct before the queued native dialog close event is dispatched.
+    albumRefreshOnClose();
     if(state.returnFocus?.isConnected)state.returnFocus.focus();
   }
   async function installApp(){
