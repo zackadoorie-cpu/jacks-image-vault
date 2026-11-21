@@ -282,6 +282,11 @@
             <select class="select" id="sortSelect" aria-label="Sort images"><option value="name">Name A–Z</option><option value="relevance">Best match</option><option value="date-desc">Newest capture</option><option value="date-asc">Oldest capture</option><option value="review">Reviewed first</option></select>
             <button class="btn square" id="layoutButton" type="button" aria-label="Toggle list view" title="Toggle grid / list view">☷</button>
           </div>
+          <div class="active-filters hidden" id="activeFilterBar" role="group" aria-label="Active gallery filters">
+            <span class="active-filters-label">Active filters</span>
+            <div id="activeFilterChips" class="active-filter-chips"></div>
+            <button type="button" class="active-filters-clear" id="clearGalleryFilters">Clear all</button>
+          </div>
           <details class="gallery-advanced" id="galleryAdvanced">
             <summary><svg class="vault-icon" aria-hidden="true"><use href="#vicon-library"></use></svg> Collections &amp; saved searches <span aria-hidden="true">⌄</span></summary>
             <div class="gallery-advanced-body">
@@ -1121,7 +1126,7 @@
         <button class="btn outline hidden" id="storyboardButton" type="button">▤ 3-frame storyboard</button>
         <button class="btn quiet hidden" id="storyboardCancel" type="button">Cancel sampling</button>
       </div>
-      <p id="modalDescription"></p><dl id="modalMeta"></dl><p class="preview-details" id="previewDetails"></p><div class="media-diagnostics hidden" id="mediaDiagnostics" role="status" aria-live="polite"></div>
+      <p id="modalDescription"></p><dl id="modalMeta"></dl><p class="media-playback-state" id="mediaPlaybackState" role="status" aria-live="polite" hidden></p><p class="preview-details" id="previewDetails"></p><div class="media-diagnostics hidden" id="mediaDiagnostics" role="status" aria-live="polite"></div>
             <p id="videoEvidenceStatus" class="video-evidence-status hidden" role="status"></p>
             <div id="storyboardPanel" class="video-storyboard hidden" aria-live="polite">
               <p id="storyboardStatus" class="video-storyboard-note" role="status"></p>

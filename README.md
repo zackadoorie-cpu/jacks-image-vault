@@ -1,5 +1,17 @@
 # Jack's Image Vault — Windows image and media library
 
+## v2.2 Phase 2 Gallery Polish — unreleased candidate
+
+Phase 2 refines the gallery without expanding Google Drive access: visible
+active-filter chips, clearer queued/loading/ready/unavailable thumbnail states,
+lightweight reduced-motion-aware loading affordances, and playback feedback for
+video buffering, seeking and errors. Private-media loading remains bounded,
+all established Drive and Sheet approval controls are unchanged, and existing
+video streaming and native Windows host paths remain intact.
+
+See [Phase 2 changes and safety plan](docs/v2.2-phase2-gallery-polish.md).
+Release version will be chosen only after green Chromium, Linux and Windows CI.
+
 ## v2.2.0 — Phase 1 UI Makeover
 
 A focused visual update reorganizes the sidebar while retaining all 17
