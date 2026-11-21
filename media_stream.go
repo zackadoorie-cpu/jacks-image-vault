@@ -2,7 +2,6 @@ package main
 
 import (
     "context"
-    "crypto/subtle"
     "encoding/json"
     "errors"
     "fmt"
@@ -268,6 +267,7 @@ func mediaRange(value string,size int64)(start,end int64,partial bool,err error)
         n,parseErr:=strconv.ParseInt(parts[1],10,64)
         if parseErr!=nil||n<=0{return 0,0,false,errMediaRange}
         if n>size{n=size}
+        if n>mediaChunkSize{n=mediaChunkSize}
         return size-n,size-1,true,nil
     }
     start,err=strconv.ParseInt(parts[0],10,64)
