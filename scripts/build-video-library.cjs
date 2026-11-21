@@ -18,7 +18,8 @@ const payload=[
  '    return {VIDEO_LIBRARY_SCHEMA,VIDEO_STORYBOARD_MAX,VIDEO_PLAYBACK_MAX,',
  '      VIDEO_STORYBOARD_FRAMES,VIDEO_MAX_DIMENSION,VIDEO_MAX_PIXELS,VIDEO_CATALOG_PAGE,',
  '      VIDEO_EVIDENCE,videoMime,videoFormat,videoEligibility,videoValidateSignature,',
- '      videoStoryboardTimes,videoEvidence,videoList};',
+ '      videoStoryboardTimes,videoEvidence,videoList,',
+  '      VIDEO_STREAM_MAX,videoStreamEligibility};',
  '  })();',end
 ].join('\n');
 const result=app.slice(0,dst.i)+payload+app.slice(dst.j+end.length);
