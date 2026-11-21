@@ -9637,7 +9637,11 @@
       const labels={relevance:'Best match','date-desc':'Newest capture','date-asc':'Oldest capture',review:'Reviewed first'};
       filters.push(['sort','Sort: '+(labels[state.sort]||'Custom')]);
     }
-    const chips=$('activeFilterChips');chips.replaceChildren();
+    const chips=$('activeFilterChips');
+    // Older embedded/test document shims may not implement full DOM mutation
+    // methods. Filter chips are supplemental; never block gallery rendering.
+    if(!chips||typeof chips.replaceChildren!=='function')return;
+    chips.replaceChildren();
     for(const [key,label] of filters){
       const button=document.createElement('button');button.type='button';
       button.className='active-filter-chip';button.dataset.clearFilter=key;
