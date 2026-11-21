@@ -545,6 +545,7 @@ async function main(){
     assert.equal(await p.locator('#modalPicture .media-play-external').isVisible(),true,
       'Videos beyond the in-app limit must offer a visible Drive fallback');
     assert.match(await p.locator('#modalPlayHint').innerText(),/in-app preview limit/i);
+    await p.evaluate(()=>{window.__uiBench.state.activeImage.size=5000;});
     await p.locator('#closeImage').click();
     await p.locator('#galleryGrid [data-open-image="'+id+'"]').click();
     assert.equal(await p.locator('#modalPlayOverlay').count(),0,
