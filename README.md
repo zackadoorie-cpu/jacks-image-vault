@@ -1,5 +1,9 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 12B — Fingerprint evidence audit (v2.1.44)
+
+Similarity Lab now reads existing `Manifest!V:W` SHA-256 and first-frame pHash values into a **read-only, account-bound** audit, rather than relying only on matching filenames and sizes. It shows recorded versus live-session evidence, missing fingerprints, malformed values, byte-equality leads, and separate perceptual candidates. User-approved batches of up to 25 original JPEG/PNG/WebP images (8 MiB each, 48 MiB per batch) compute SHA-256 in memory after a live ID/name/MIME/size/version preflight and readback. Cancel, clear, disconnect, and Sheet refresh protect session isolation; the process never writes hashes, media, metadata, or filenames to Google. Unsupported and unscanned files remain explicitly incomplete. See [Phase 12B safeguards and test plan](docs/phase12b-fingerprint-audit.md).
+
 ## Phase 10H — Smart Rename Queue (planned v2.1.35)
 
 **Filename Review → Smart Rename Queue** now reads reviewed `Manifest!R` proposals
