@@ -18,7 +18,9 @@ const replacement=[open,'  const similarityEngine=(()=>{',
  '    return {SIMILARITY_MAX_SCAN,SIMILARITY_MAX_GROUPS,SIMILARITY_MAX_LOCAL_FILES,',
  '      SIMILARITY_MAX_FILE_BYTES,SIMILARITY_MAX_TOTAL_BYTES,SIMILARITY_MAX_PIXELS,',
  '      SIMILARITY_NEAR_DISTANCE,similarityCandidates,similarityHamming,similarityDHash,',
- '      similarityLocalPairs,similarityValidateFiles};',
+ '      similarityLocalPairs,similarityValidateFiles,SIMILARITY_DRIVE_BATCH,',
+ '      SIMILARITY_DRIVE_MAX_FILE_BYTES,SIMILARITY_DRIVE_MAX_BATCH_BYTES,',
+ '      similarityHashValid,similarityFingerprintAudit,similarityDriveBatchCandidates};',
  '  })();',close].join('\n');
 const next=app.slice(0,dst.a)+replacement+app.slice(dst.b+close.length);
 if(process.argv.includes('--check')){
