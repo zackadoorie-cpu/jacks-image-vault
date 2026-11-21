@@ -397,6 +397,7 @@ async function main(){
   const preview=await fixturePage(browser,url);
   try{
     const p=preview.page;
+    await openDisclosure(p,'#homeInsights');
     await p.locator('#commandCenter').waitFor({state:'visible'});
     assert.equal((await p.locator('#commandSnapshot').innerText()).trim(),'—');
     assert.match(await p.locator('#commandConnection').innerText(),/Connect Drive/);
@@ -1709,7 +1710,8 @@ async function main(){
   }finally{await auto.ctx.close();}
   const mobile=await fixturePage(browser,url,{mobile:true});
   try{
-    const p=mobile.page;await p.locator('#commandCenter').waitFor({state:'visible'});
+    const p=mobile.page;await openDisclosure(p,'#homeInsights');
+    await p.locator('#commandCenter').waitFor({state:'visible'});
     const overflow=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
     assert.ok(overflow<=1,'Unexpected horizontal overflow: '+overflow);
     assert.equal(await p.evaluate(()=>getComputedStyle(document.documentElement).scrollBehavior),'auto');
@@ -1721,6 +1723,7 @@ async function main(){
   const narrow=await fixturePage(browser,url,{mobile:true,narrow:true});
   try{
     const p=narrow.page;
+    await openDisclosure(p,'#homeInsights');
     await p.locator('#commandCenter').waitFor({state:'visible'});
     for(const view of ['home','all','video-library','review-inbox']) {
       if(view==='home')await p.keyboard.press('Alt+1');
