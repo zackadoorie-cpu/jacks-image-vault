@@ -2595,17 +2595,7 @@
     const SIMILARITY_DRIVE_MAX_FILE_BYTES=8*1024*1024;
     const SIMILARITY_DRIVE_MAX_BATCH_BYTES=48*1024*1024;
     function similarityHashValid(value,length){
-      return typeof value==='string'&&new RegExp('^[0-9a-f]{'+length+'}
-    
-    if(typeof module!=='undefined')module.exports={
-      SIMILARITY_MAX_SCAN,SIMILARITY_MAX_GROUPS,SIMILARITY_MAX_LOCAL_FILES,
-      SIMILARITY_MAX_FILE_BYTES,SIMILARITY_MAX_TOTAL_BYTES,SIMILARITY_MAX_PIXELS,
-      SIMILARITY_NEAR_DISTANCE,similarityCandidates,similarityHamming,similarityDHash,
-      similarityLocalPairs,similarityValidateFiles,
-      SIMILARITY_DRIVE_BATCH,SIMILARITY_DRIVE_MAX_FILE_BYTES,SIMILARITY_DRIVE_MAX_BATCH_BYTES,
-      similarityHashValid,similarityFingerprintAudit,similarityDriveBatchCandidates
-    };
-    ,'i').test(value);
+      return typeof value==='string'&&new RegExp('^[0-9a-f]{'+length+'}$','i').test(value);
     }
     function similarityFingerprintAudit(records,{maxScan=SIMILARITY_MAX_SCAN,maxGroups=SIMILARITY_MAX_GROUPS}={}){
       const input=Array.isArray(records)?records:[];
