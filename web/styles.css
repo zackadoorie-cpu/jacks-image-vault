@@ -1447,3 +1447,88 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .original-view-viewport{width:100%;min-height:220px;max-height:70vh;display:flex;align-items:center;justify-content:center;overflow:auto;border-radius:12px;background:var(--surface,#151923)}
 .original-view-viewport img{display:block;max-width:100%;max-height:70vh;width:auto;height:auto;object-fit:contain;flex-shrink:0}
 @media(max-width:650px){.original-view-viewport{max-height:55vh}.original-view-viewport img{max-height:55vh}}
+
+
+/* v2.1.49 — Five-step gallery density control.
+   Large is the leftmost step; Micro is the rightmost. Unlike a long native
+   dropdown, the current selection is never clipped by the toolbar width. */
+.filters{flex-wrap:wrap;row-gap:10px}
+.filters .searchbox{flex:1 1 280px}
+.filters #mediaTypeSelect{flex:0 0 132px}
+.filters #sortSelect{flex:0 0 152px}
+.density-control{
+  flex:0 0 230px;min-width:185px;min-height:50px;padding:6px 12px 7px;
+  border:1px solid var(--line);border-radius:10px;
+  background:var(--surface2);color:var(--text);
+}
+.density-control:focus-within{border-color:var(--purple);box-shadow:0 0 0 2px color-mix(in srgb,var(--purple) 22%,transparent)}
+.density-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px;line-height:1.05}
+.density-heading label{font-size:10px;color:var(--muted);font-weight:700}
+.density-heading output{font-size:11px;color:var(--text);font-weight:800;white-space:nowrap}
+.density-track{display:flex;align-items:center;gap:6px;min-height:21px;margin-top:3px}
+.density-track span{font-size:9px;color:var(--muted);line-height:1;white-space:nowrap}
+.density-track input[type="range"]{
+  min-width:0;width:100%;flex:1;margin:0;cursor:pointer;
+  height:16px;accent-color:var(--purple);background:transparent;touch-action:pan-y;
+}
+.density-track input[type="range"]:focus-visible{outline:2px solid var(--purple);outline-offset:3px;border-radius:5px}
+@media(max-width:920px){
+  .filters .searchbox{flex:1 1 100%}
+  .density-control{flex:1 1 210px}
+}
+@media(max-width:540px){
+  .filters{gap:8px}
+  .filters #mediaTypeSelect{flex:1 1 110px}
+  .filters #sortSelect{flex:1 1 120px}
+  .density-control{flex:1 1 100%;width:100%;min-width:0}
+  .filters #layoutButton{flex:0 0 42px}
+}
+
+/* Extra-small optional Micro tiles. Keep accessible original tile buttons,
+   favorite and more-actions available, with complete filenames on hover and
+   in file details. List view remains intentionally unchanged. */
+.image-grid[data-density="micro"]:not(.list){
+  grid-template-columns:repeat(auto-fill,minmax(82px,1fr));gap:5px;
+}
+.image-grid[data-density="micro"]:not(.list) .image-tile{border-radius:8px;min-width:0}
+.image-grid[data-density="micro"]:not(.list) .tile-preview{height:82px}
+.image-grid[data-density="micro"]:not(.list) .tile-placeholder{gap:2px}
+.image-grid[data-density="micro"]:not(.list) .placeholder-symbol{font-size:22px}
+.image-grid[data-density="micro"]:not(.list) .tile-placeholder small{font-size:8px;padding:0 2px}
+.image-grid[data-density="micro"]:not(.list) .tile-badge{
+  font-size:7px;letter-spacing:0;top:3px;left:3px;
+  padding:2px 4px;border-radius:4px;max-width:calc(100% - 6px);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.image-grid[data-density="micro"]:not(.list) .tile-info{padding:3px 4px 4px;min-width:0}
+.image-grid[data-density="micro"]:not(.list) .tile-title{
+  font-size:9px;line-height:1.35;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;
+}
+.image-grid[data-density="micro"]:not(.list) .tile-description,
+.image-grid[data-density="micro"]:not(.list) .tile-proposal-note,
+.image-grid[data-density="micro"]:not(.list) .smart-why,
+.image-grid[data-density="micro"]:not(.list) .memory-provenance,
+.image-grid[data-density="micro"]:not(.list) .tile-footer .folder-label{display:none}
+.image-grid[data-density="micro"]:not(.list) .tile-footer{
+  margin-top:3px;justify-content:flex-end;gap:2px;
+}
+.image-grid[data-density="micro"]:not(.list) .tile-more,
+.image-grid[data-density="micro"]:not(.list) .tiny-heart{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:24px;min-height:24px;padding:1px;font-size:14px;
+  border-radius:4px;
+}
+.image-grid.turbo[data-density="micro"]:not(.list){--turbo-row-height:146px}
+@media(max-width:680px){
+  .image-grid[data-density="micro"]:not(.list){
+    grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:4px;
+  }
+  .image-grid[data-density="micro"]:not(.list) .tile-preview{height:74px}
+}
+@media(max-width:390px){
+  .image-grid[data-density="micro"]:not(.list){
+    grid-template-columns:repeat(auto-fill,minmax(70px,1fr));
+  }
+  .image-grid[data-density="micro"]:not(.list) .tile-preview{height:70px}
+}
