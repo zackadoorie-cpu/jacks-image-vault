@@ -25,6 +25,17 @@ function videoEligibility(item,{operation='storyboard',canPlay=true}={}){
   if(!canPlay)return {allowed:false,reason:'This browser does not support the reported video codec. Open in Drive.',limit};
   return {allowed:true,reason:'',limit};
 }
+const VIDEO_STREAM_MAX=32*1024*1024*1024;
+function videoStreamEligibility(item,{canPlay=true}={}){
+  const size=Number(item?.size),format=videoFormat(item);
+  if(format==='Unsupported')return {allowed:false,reason:'This format is not supported by the in-app video stream. Open in Drive.',limit:VIDEO_STREAM_MAX};
+  if(!Number.isSafeInteger(size)||size<=0||size>VIDEO_STREAM_MAX)return {allowed:false,
+    reason:'The video has an unknown size or exceeds the 32 GiB streaming limit. Open in Drive.',
+    limit:VIDEO_STREAM_MAX};
+  if(!canPlay)return {allowed:false,
+    reason:'The player cannot decode the reported video codec. Open in Drive.',limit:VIDEO_STREAM_MAX};
+  return {allowed:true,reason:'',limit:VIDEO_STREAM_MAX};
+}
 function videoValidateSignature(bytes,item){
   const data=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes||[]);
   const format=videoFormat(item);
@@ -88,4 +99,5 @@ function videoList(records,{filter='all',page=1}={}){
 if(typeof module!=='undefined')module.exports={VIDEO_LIBRARY_SCHEMA,VIDEO_STORYBOARD_MAX,
   VIDEO_PLAYBACK_MAX,VIDEO_STORYBOARD_FRAMES,VIDEO_MAX_DIMENSION,VIDEO_MAX_PIXELS,
   VIDEO_CATALOG_PAGE,VIDEO_EVIDENCE,videoMime,videoFormat,videoEligibility,
-  videoValidateSignature,videoStoryboardTimes,videoEvidence,videoList};
+  videoValidateSignature,videoStoryboardTimes,videoEvidence,videoList,
+  VIDEO_STREAM_MAX,videoStreamEligibility};
