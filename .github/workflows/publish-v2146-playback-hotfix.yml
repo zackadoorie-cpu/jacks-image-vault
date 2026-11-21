@@ -1,0 +1,37 @@
+# Publish only after the verified small-video playback and mixed-version
+# desktop bundle fix is merged. A native EXE and Desktop Bundle are mandatory.
+name: Publish v2.1.46 small-video and desktop compatibility hotfix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v2146-playback-hotfix.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v2.1.46 small-video and desktop hotfix')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish only after reviewed tested PR 100 has merged
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.46 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.46 exists; do not republish."
+            exit 0
+          fi
+          if ! gh pr view 100 --repo "$GITHUB_REPOSITORY" --json state,mergedAt --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .; then
+            echo "::error::Playback fix PR 100 must merge before release."
+            exit 1
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.46
+          echo "Triggered independent native EXE, Windows host, Chromium and checksummed release gates."
