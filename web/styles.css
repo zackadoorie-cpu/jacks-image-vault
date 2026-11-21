@@ -1532,3 +1532,108 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
   }
   .image-grid[data-density="micro"]:not(.list) .tile-preview{height:70px}
 }
+
+
+/* v2.2 Phase 1 — calm, consistent desktop navigation. Inline icon sprite has
+   no external dependency, no user media and no injected markup. */
+.vault-symbol-sprite{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none}
+.vault-icon{width:1.08em;height:1.08em;display:inline-block;vertical-align:-.16em;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sidebar .nav-icon{display:inline-flex;align-items:center;justify-content:center}
+.sidebar .nav-icon .vault-icon{width:19px;height:19px}
+.experience-quick-icon .vault-icon{width:22px;height:22px}
+.home-shortcut-icon .vault-icon{width:21px;height:21px}
+.sidebar .nav-group-items{gap:3px}
+.sidebar .nav-item{transition:background-color .14s ease,color .14s ease}
+.nav-subgroup{min-width:0;margin:6px 0 2px;border-top:1px solid var(--line);padding-top:6px}
+.nav-subgroup-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:34px;
+  padding:7px 11px;border-radius:8px;cursor:pointer;color:var(--muted);font-size:11px;font-weight:700;list-style:none}
+.nav-subgroup-toggle::-webkit-details-marker{display:none}
+.nav-subgroup-toggle:hover,.nav-subgroup-toggle:focus-visible{color:var(--text);background:var(--surface2)}
+.nav-subgroup[open] .nav-subgroup-toggle>span{transform:rotate(180deg)}
+.nav-subgroup-items{display:flex;flex-direction:column;gap:3px;padding:3px 0 0 8px;border-left:1px solid var(--line);margin-left:11px}
+.nav-subgroup .nav-item{width:100%;min-height:36px}
+.sidebar-safety{font-size:10px;letter-spacing:.06em}
+.sidebar-caption{font-size:11px;line-height:1.5}
+.sidebar-app-menu{position:relative;min-width:0;margin-top:5px}
+.sidebar-app-menu>summary{display:flex;align-items:center;gap:9px;cursor:pointer;
+  padding:12px 10px;background:var(--surface2);border:1px solid var(--line);
+  border-radius:11px;color:var(--text);font-size:12px;font-weight:750;list-style:none}
+.sidebar-app-menu>summary::-webkit-details-marker{display:none}
+.sidebar-app-menu>summary>span{margin-left:auto;color:var(--muted)}
+.sidebar-app-menu[open]>summary>span{transform:rotate(180deg)}
+.sidebar-app-menu>summary:hover,.sidebar-app-menu>summary:focus-visible{border-color:var(--purple);outline-offset:2px}
+.sidebar-app-items{display:flex;flex-direction:column;gap:2px;padding:7px 0}
+.sidebar-app-items .side-settings{display:flex;align-items:center;gap:10px;min-height:37px;text-align:left;width:100%;white-space:nowrap}
+.sidebar-app-items .side-settings .vault-icon{width:15px;height:15px;flex:none}
+@media(min-width:941px){
+  .app[data-sidebar-mode="compact"] .sidebar-app-menu{margin-top:6px}
+  .app[data-sidebar-mode="compact"] .sidebar-app-menu>summary{width:56px;min-height:48px;justify-content:center;padding:10px 0;font-size:0}
+  .app[data-sidebar-mode="compact"] .sidebar-app-menu>summary>.vault-icon{width:20px;height:20px}
+  .app[data-sidebar-mode="compact"] .sidebar-app-menu>summary>span{display:none}
+  .app[data-sidebar-mode="compact"] .sidebar-app-items{position:absolute;left:calc(100% + 11px);bottom:0;
+    width:220px;z-index:42;background:var(--sidebar);border:1px solid var(--line);
+    border-radius:12px;padding:10px;box-shadow:0 24px 60px #0006}
+  .app[data-sidebar-mode="compact"] .sidebar-app-items .side-settings{font-size:12px;min-height:40px;padding:9px 10px}
+  .app[data-sidebar-mode="compact"] .sidebar-app-items .side-settings::before{display:none}
+  .app[data-sidebar-mode="compact"] .nav-subgroup-items{margin-left:4px}
+}
+@media(max-width:940px){
+  .sidebar-app-menu{margin:4px 0}
+  .sidebar-app-items{padding:5px}
+  .nav-subgroup{min-width:165px}
+}
+@media(prefers-reduced-motion:reduce){.sidebar .nav-item{transition:none}}
+
+/* Home is a working dashboard first; deeper diagnostics remain available
+   in a keyboard-accessible disclosure rather than disappearing. */
+#homeView .vault-home-hero .hero-copy{padding:clamp(22px,2.7vw,36px)}
+#homeView .vault-home-hero h1{font-size:clamp(30px,3vw,43px)}
+#homeView .vault-home-art{min-height:215px}
+#homeView .vault-home-art .vault-art-core{width:96px;height:96px;font-size:42px}
+#homeView .experience-quick-links{gap:10px;margin:16px 0}
+#homeView .stats{margin:8px 0 20px;gap:9px}
+#homeView .stat{min-height:85px;padding:12px 15px}
+#homeView .stat strong{font-size:23px}
+#homeView .home-shortcuts{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+#homeView .home-shortcut{min-height:91px;padding:12px}
+#homeView .home-dashboard{margin-bottom:17px}
+.home-insights{margin:16px 0 25px;border:1px solid var(--line);border-radius:14px;
+ background:var(--surface);overflow:hidden}
+.home-insights>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;
+ padding:15px 17px;list-style:none}
+.home-insights>summary::-webkit-details-marker{display:none}
+.home-insights>summary:hover,.home-insights>summary:focus-visible{background:var(--surface2)}
+.home-insights>summary strong{display:block;font-size:13px;color:var(--text)}
+.home-insights>summary small{display:block;margin-top:4px;font-size:11px;color:var(--muted)}
+.home-insights-chevron{font-size:18px;color:var(--muted);transition:transform .15s ease}
+.home-insights[open] .home-insights-chevron{transform:rotate(180deg)}
+.home-insights-content{padding:0 16px 16px}
+.home-insights-content .vault-pulse{margin:6px 0 16px}
+.home-insights-content .command-center{margin:0}
+@media(max-width:850px){#homeView .home-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:540px){#homeView .home-shortcuts{grid-template-columns:1fr 1fr}
+  #homeView .home-shortcut{min-height:84px}
+  .home-insights>summary{padding:13px}
+  .home-insights-content{padding:0 9px 12px}
+}
+
+/* Secondary library controls are still full-featured, just progressively
+   disclosed. Search, type, sorting, layout, and density remain visible. */
+#galleryView .filters{gap:9px;margin-bottom:9px}
+#galleryView .filters .searchbox{min-width:190px}
+#galleryView .density-control{flex:0 1 225px}
+.gallery-advanced{margin:0 0 14px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
+.gallery-advanced>summary{display:flex;align-items:center;gap:9px;cursor:pointer;list-style:none;
+ padding:10px 13px;font-size:12px;font-weight:750;color:var(--text)}
+.gallery-advanced>summary::-webkit-details-marker{display:none}
+.gallery-advanced>summary:hover,.gallery-advanced>summary:focus-visible{background:var(--surface2)}
+.gallery-advanced>summary>span{margin-left:auto;color:var(--muted)}
+.gallery-advanced[open]>summary>span{transform:rotate(180deg)}
+.gallery-advanced-body{padding:0 13px 10px;border-top:1px solid var(--line)}
+.gallery-advanced-body .search-extras{margin:9px 0}
+.gallery-advanced-body .collection-picker{margin:8px 0 0}
+@media(max-width:700px){#galleryView .density-control{flex:1 1 100%}
+  #galleryView .filters .searchbox{flex:1 1 100%}
+  .gallery-advanced-body{padding:0 9px 10px}
+}
+@media(prefers-reduced-motion:reduce){.home-insights-chevron{transition:none}}
