@@ -9704,8 +9704,9 @@
       const intersecting=entries.filter(entry=>entry.isIntersecting);
       if(!intersecting.length)return;
       for(const entry of intersecting)observer.unobserve(entry.target);
-      // Also queue any other visible tiles in the same observer batch.
-      enqueueViewportThumbs(all);
+      // Query the *current* mounted cards: autoload can append new tiles
+      // after the observer was created, without rebuilding the gallery.
+      enqueueViewportThumbs($('galleryGrid').querySelectorAll('[data-open-image]'));
     },{rootMargin:THUMB_PRELOAD_MARGIN+'px 0px'});
     state.observer=observer;
     for(const btn of all){
