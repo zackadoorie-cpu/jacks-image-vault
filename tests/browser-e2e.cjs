@@ -1003,7 +1003,7 @@ async function main(){
       }));
       h.state.folders=[{path:'Memes/Synthetic',name:'Synthetic',kind:'memes',count:10000}];
       h.state.pageSize=48;
-      h.state.page=Math.ceil(10000/48);
+      h.state.page=1;
       h.state.connected=false;
       h.state.view='all';h.state.search='';
       document.querySelector('#homeView').classList.add('hidden');
