@@ -1,0 +1,47 @@
+# One-time publisher for the merged Phase 3 review center.
+# Release build has independent Chromium, Windows, update security and checksums gates.
+name: Publish v2.2.2 Phase 3 Review Center 2.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v222-phase3.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v2.2.2 Phase 3 review center')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify merged UI, source ancestry, and unused tag before dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          if gh release view v2.2.2 --repo "$REPO" >/dev/null 2>&1; then
+            echo "::notice::v2.2.2 already published; no duplicate dispatch."
+            exit 0
+          fi
+          if ! gh pr view 115 --repo "$REPO" --json state,mergedAt \
+            --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .; then
+            echo "::error::UI Phase 3 PR #115 must be merged before v2.2.2 publication."
+            exit 1
+          fi
+          STATUS="$(gh api "repos/$REPO/compare/5a646f4a92609891eda3820b3ee699cf2046ec31...$GITHUB_SHA" --jq '.status')"
+          if [[ "$STATUS" != "ahead" && "$STATUS" != "identical" ]]; then
+            echo "::error::Release source does not include the verified Phase 3 merge."
+            exit 1
+          fi
+          # Keep the dispatched release input derived from the same checked tag.
+          RELEASE_VERSION=2.2.2
+          gh workflow run release.yml --repo "$REPO" --ref main -f version="$RELEASE_VERSION"
+          echo "Dispatched versioned v2.2.2 patch, EXE and desktop bundle with independent tests."
