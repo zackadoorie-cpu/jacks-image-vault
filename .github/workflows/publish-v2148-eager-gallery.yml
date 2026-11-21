@@ -1,0 +1,36 @@
+# This publisher only runs when the user-authorized viewport thumbnail
+# optimization is merged with green Linux/Chromium/Windows checks.
+name: Publish v2.1.48 eager gallery thumbnail loading
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v2148-eager-gallery.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v2.1.48 eager visible gallery thumbnails')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require merged and tested PR 104, then run independent publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.48 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.48 release already exists. Duplicate publication blocked."
+            exit 0
+          fi
+          if ! gh pr view 104 --repo "$GITHUB_REPOSITORY" --json state,mergedAt --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .; then
+            echo "::error::Viewport scheduling PR #104 must merge before release."
+            exit 1
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.48
+          echo "Independent Windows, browser, stress and release artifact gates dispatched."
