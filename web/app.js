@@ -2044,7 +2044,10 @@
     const VIDEO_STREAM_MAX=32*1024*1024*1024;
     function videoStreamEligibility(item,{canPlay=true}={}){
       const size=Number(item?.size),format=videoFormat(item);
-      if(format==='Unsupported')return {allowed:false,reason:'This format is not supported by the in-app video stream. Open in Drive.',limit:VIDEO_STREAM_MAX};
+      // Container types are only an eligibility check, not a guarantee that
+      // the embedded browser can decode the actual codec inside the file.
+      if(format==='Unsupported'&&!['video/quicktime','video/x-m4v','video/ogg','video/x-matroska'].includes(videoMime(item)))
+        return {allowed:false,reason:'This format is not supported by the in-app video stream. Open in Drive.',limit:VIDEO_STREAM_MAX};
       if(!Number.isSafeInteger(size)||size<=0||size>VIDEO_STREAM_MAX)return {allowed:false,
         reason:'The video has an unknown size or exceeds the 32 GiB streaming limit. Open in Drive.',
         limit:VIDEO_STREAM_MAX};
