@@ -1,0 +1,36 @@
+# One-time publisher for the gallery density-slider UI upgrade.
+name: Publish v2.1.49 gallery density slider
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v2149-density-slider.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v2.1.49 gallery density slider')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish only after all five-density UI tests and feature merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.49 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.49 already exists; no duplicate dispatch."
+            exit 0
+          fi
+          if ! gh pr view 106 --repo "$GITHUB_REPOSITORY" --json state,mergedAt --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .; then
+            echo "::error::Density slider PR #106 must merge before publication."
+            exit 1
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.49
+          echo "Independent Chromium, Windows, updater security and checksummed release dispatched."
