@@ -287,6 +287,13 @@
             <div id="activeFilterChips" class="active-filter-chips"></div>
             <button type="button" class="active-filters-clear" id="clearGalleryFilters">Clear all</button>
           </div>
+          <div class="gallery-compare-bar hidden" id="galleryCompareBar" role="group" aria-label="Side-by-side comparison">
+            <div><strong id="galleryCompareCount">0 of 2 selected</strong><small id="galleryCompareHint">Select two files using Compare on the gallery tiles.</small></div>
+            <div class="gallery-compare-actions">
+              <button class="btn primary" id="galleryCompareOpen" type="button" disabled>Compare selected</button>
+              <button class="btn quiet" id="galleryCompareClear" type="button">Clear</button>
+            </div>
+          </div>
           <details class="gallery-advanced" id="galleryAdvanced">
             <summary><svg class="vault-icon" aria-hidden="true"><use href="#vicon-library"></use></svg> Collections &amp; saved searches <span aria-hidden="true">⌄</span></summary>
             <div class="gallery-advanced-body">
@@ -1040,7 +1047,9 @@
       <div><dt><kbd>Alt</kbd> + <kbd>5</kbd></dt><dd>Video Rename Desk</dd></div>
       <div><dt><kbd>/</kbd></dt><dd>Focus gallery search</dd></div>
       <div><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
-      <div><dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd>Previous / next image in the media viewer</dd></div>
+      <div><dt><kbd>Space</kbd></dt><dd>Quick Peek the focused gallery tile</dd></div>
+      <div><dt><kbd>Compare</kbd></dt><dd>Choose two gallery tiles to view side by side (cached previews)</dd></div>
+      <div><dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd>Previous / next item in a media viewer or Quick Peek</dd></div>
       <div><dt><kbd>Esc</kbd></dt><dd>Close the active dialog</dd></div>
     </dl>
     <p class="dialog-copy">No shortcut deletes, renames, downloads, or uploads media.</p>
@@ -1131,6 +1140,37 @@
       </div>
       <p class="field-help" id="desktopAuthMessage" role="status" aria-live="polite">This uses a new authorization separate from your browser-based connection.</p>
     </section>
+  </dialog>
+
+  <dialog id="quickPeekDialog" class="dialog quick-peek-dialog" aria-labelledby="quickPeekTitle">
+    <div class="quick-peek-header">
+      <div><span class="eyebrow">QUICK PEEK · CACHED PREVIEW</span><h2 id="quickPeekTitle">Preview</h2></div>
+      <div class="quick-peek-nav">
+        <button type="button" class="icon-button" id="quickPeekPrev" aria-label="Previous file">←</button>
+        <button type="button" class="icon-button" id="quickPeekNext" aria-label="Next file">→</button>
+        <button type="button" class="icon-button" id="quickPeekClose" aria-label="Close Quick Peek">×</button>
+      </div>
+    </div>
+    <div class="quick-peek-stage" id="quickPeekStage" aria-label="Cached media preview"></div>
+    <div class="quick-peek-footer">
+      <div><p id="quickPeekMeta"></p><p id="quickPeekStatus" role="status">Quick Peek uses existing thumbnails.</p></div>
+      <div class="quick-peek-actions">
+        <button class="btn outline" type="button" id="quickPeekCompare">Add to compare</button>
+        <button class="btn primary" type="button" id="quickPeekDetails">Open full details</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="compareDialog" class="dialog compare-dialog" aria-labelledby="compareDialogTitle">
+    <div class="quick-peek-header">
+      <div><span class="eyebrow">LOCAL PREVIEW COMPARISON</span><h2 id="compareDialogTitle">Compare two files</h2></div>
+      <button type="button" class="icon-button" id="compareClose" aria-label="Close comparison">×</button>
+    </div>
+    <p class="compare-caption" id="compareCaption">Side-by-side cached previews only. Videos do not autoplay and originals are not downloaded.</p>
+    <div class="compare-visuals" id="compareVisuals"></div>
+    <div class="compare-footer">
+      <span id="compareStatus" role="status" aria-live="polite">Original files are unchanged.</span>
+      <button class="btn outline" id="compareClear" type="button">Clear selection</button>
+    </div>
   </dialog>
 
   <dialog id="imageDialog" class="dialog image-dialog" aria-label="Media details">

@@ -281,6 +281,76 @@ async function main(){
     console.log('PASS: Review Center 2.0 guided queue, honest coverage, source/local separation, and zero remote writes.');
   }finally{await reviewCenter.ctx.close();}
 
+  // Phase 4: keyboard-only cached Quick Peek and bounded two-file
+  // comparison. UI interactions must not add write permissions or issue any
+  // Drive/Sheet mutation; the normal viewport thumbnail queue is unchanged.
+  const quickCompare=await fixturePage(browser,url,{uiBench:true});
+  try{
+    const p=quickCompare.page,errors=[];
+    p.on('pageerror',e=>errors.push(e.message));
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    await p.locator('[data-view="all"]').click();
+    const tiles=p.locator('#galleryGrid [data-open-image]');
+    assert.equal(await tiles.count(),2,'Synthetic media fixture must include two items');
+    const firstId=await tiles.nth(0).getAttribute('data-open-image');
+    const secondId=await tiles.nth(1).getAttribute('data-open-image');
+    assert.notEqual(firstId,secondId);
+    await tiles.nth(0).focus();
+    await p.keyboard.press('Space');
+    assert.equal(await p.locator('#quickPeekDialog').evaluate(d=>d.open),true);
+    assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),false,
+      'Space opens the lightweight peek, not the full review editor');
+    assert.match(await p.locator('#quickPeekMeta').innerText(),/1 of 2/);
+    assert.equal(await p.locator('#quickPeekStage video').count(),0,
+      'Quick Peek must not autoplay video or decode originals');
+    await p.keyboard.press('ArrowRight');
+    assert.match(await p.locator('#quickPeekMeta').innerText(),/2 of 2/);
+    await p.keyboard.press('ArrowLeft');
+    assert.match(await p.locator('#quickPeekMeta').innerText(),/1 of 2/);
+    await p.keyboard.press('Escape');
+    assert.equal(await p.locator('#quickPeekDialog').evaluate(d=>d.open),false);
+    await p.waitForFunction(id=>document.activeElement?.dataset?.openImage===id,firstId);
+
+    const first=p.locator('#galleryGrid [data-compare-image="'+firstId+'"]');
+    const second=p.locator('#galleryGrid [data-compare-image="'+secondId+'"]');
+    await first.click();
+    assert.equal(await p.locator('#galleryCompareBar').isVisible(),true);
+    assert.equal(await p.locator('#galleryCompareOpen').isEnabled(),false);
+    assert.equal(await first.getAttribute('aria-pressed'),'true');
+    await second.click();
+    assert.equal(await p.locator('#galleryCompareOpen').isEnabled(),true);
+    assert.match(await p.locator('#galleryCompareCount').innerText(),/2 of 2/);
+    await p.locator('#galleryCompareOpen').click();
+    assert.equal(await p.locator('#compareDialog').evaluate(d=>d.open),true);
+    assert.equal(await p.locator('#compareVisuals .compare-pane').count(),2);
+    assert.equal(await p.locator('#compareVisuals video').count(),0,
+      'Compare only shows existing cached previews, never a video player');
+    assert.equal(await p.locator('#compareVisuals input').count(),0);
+    await p.keyboard.press('Escape');
+    assert.equal(await p.locator('#compareDialog').evaluate(d=>d.open),false);
+
+    // Selection stays after closing comparison, until explicitly cleared.
+    assert.equal(await first.getAttribute('aria-pressed'),'true');
+    assert.equal(await second.getAttribute('aria-pressed'),'true');
+    await p.locator('#galleryCompareClear').click();
+    assert.equal(await p.locator('#galleryCompareBar').isVisible(),false);
+    assert.equal(await first.getAttribute('aria-pressed'),'false');
+    assert.equal(await second.getAttribute('aria-pressed'),'false');
+    await tiles.nth(0).focus();
+    await p.keyboard.press('Space');
+    await p.locator('#quickPeekDetails').click();
+    assert.equal(await p.locator('#quickPeekDialog').evaluate(d=>d.open),false);
+    assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),true,
+      'Open full details uses the existing secure viewer and review editor');
+    await p.locator('#closeImage').click();
+    assert.equal(quickCompare.getSheetWrites().length,0);
+    assert.ok(quickCompare.requests.every(method=>method==='GET'),
+      'Quick Peek and comparison never issue Google writes');
+    assert.deepEqual(errors,[],'No browser JavaScript errors in Phase 4');
+    console.log('PASS: Phase 4 Space Quick Peek, arrow navigation, comparison, keyboard close, no writes.');
+  }finally{await quickCompare.ctx.close();}
+
   // Real fabricated VP8 WebM playback regression. Earlier smoke only
   // checked for a <video> node, not whether a single frame could decode.
   const syntheticWebM=Buffer.from('GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAIeEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggII7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDNXQYxMYXZmNjEuNy4xMDNEiYhAj0AAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WI3AW3vf09S0GcgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QdzWUA4JCwgUC6gUCagQJVsIRVuYEBElTDZ/tzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYxLjcuMTAzc3PWY8CLY8WI3AW3vf09S0FnyKFFo4dFTkNPREVSRIeUTGF2YzYxLjE5LjEwMSBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z14OeBAKPDgQAAgJADAJ0BKkAAQAAARwiFhYiFhIgCAgJ1qgP4AgboQVwx0hMAVVgA/v9NEv/8WFfxYV/FhX/xYV/8/M7txfzmAKOWgQH0ANEBAAEQEAAYABhYL/QACI6AABxTu2uRu4+zgQC3iveBAfGCAaPwgQM=','base64');
