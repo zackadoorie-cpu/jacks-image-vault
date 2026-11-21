@@ -1,5 +1,13 @@
 # Jack's Image Vault — Windows image and media library
 
+## v2.2.5 — Manual Album Quick Actions
+
+Rename manual albums without losing membership, add or remove individual files
+in Quick Peek or full media details, and open album management from the gallery.
+Removing the current album item keeps the viewer open and refreshes after close.
+All actions are private, account-scoped local changes, without Google writes or
+new media downloads. See [Phase 6](docs/v2.2-phase6-album-quick-actions.md).
+
 ## v2.2.4 — Manual Albums + Bulk Selection
 
 Organize selected gallery images, videos and PDFs into your own private

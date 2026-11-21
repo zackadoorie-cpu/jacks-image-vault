@@ -331,6 +331,56 @@ async function main(){
     console.log('PASS: Phase 5 manual albums, bulk select, remove, disconnect isolation and zero remote writes.');
   }finally{await manual.ctx.close();}
 
+  // Phase 6: album rename, single-file quick actions, stable album viewer.
+  const phase6=await fixturePage(browser,url,{uiBench:true});
+  try{
+    const p=phase6.page,errors=[];
+    p.on('pageerror',e=>errors.push(e.message));
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    await p.locator('[data-view="all"]').click();
+    await p.locator('#manualHeadingLink').click();
+    await p.locator('#manualNew').click();
+    await p.locator('#albumName').fill('Review Later');
+    await p.locator('#albumSaveButton').click();
+    await p.locator('[data-album-rename]').click();
+    assert.match(await p.locator('#albumTitle').innerText(),/Rename manual album/);
+    await p.locator('#albumName').fill('My Highlights');
+    await p.locator('#albumSaveButton').click();
+    assert.match(await p.locator('#manualCards').innerText(),/My Highlights/);
+    await p.locator('[data-view="all"]').click();
+    await p.locator('#galleryGrid [data-open-image]').first().focus();
+    await p.keyboard.press('Space');
+    assert.equal(await p.locator('#quickPeekAlbumRow').isVisible(),true);
+    await p.locator('#quickPeekAlbumAction').click();
+    assert.match(await p.locator('#quickPeekAlbumStatus').innerText(),/Added to "My Highlights"/);
+    await p.keyboard.press('ArrowRight');
+    await p.locator('#quickPeekAlbumAction').click();
+    assert.match(await p.locator('#quickPeekAlbumStatus').innerText(),/Added to "My Highlights"/);
+    assert.equal(await p.locator('#quickPeekStage video').count(),0);
+    await p.locator('#quickPeekDetails').click();
+    assert.equal(await p.locator('#detailAlbumRow').isVisible(),true);
+    await p.locator('#detailAlbumAction').click();
+    assert.match(await p.locator('#detailAlbumStatus').innerText(),/Removed from "My Highlights"/);
+    await p.locator('#detailAlbumAction').click();
+    assert.match(await p.locator('#detailAlbumStatus').innerText(),/Added to "My Highlights"/);
+    await p.locator('#closeImage').click();
+    await p.locator('[data-view="smart"]').click();
+    assert.match(await p.locator('#manualCards').innerText(),/2 loaded/);
+    await p.locator('[data-album-open]').click();
+    assert.match(await p.locator('#resultCount').innerText(),/2 files/);
+    await p.locator('#galleryGrid [data-open-image]').first().focus();
+    await p.keyboard.press('Space');
+    await p.locator('#quickPeekAlbumAction').click();
+    assert.equal(await p.locator('#quickPeekDialog').evaluate(d=>d.open),true);
+    await p.keyboard.press('Escape');
+    assert.match(await p.locator('#resultCount').innerText(),/1 file/);
+    assert.ok(phase6.requests.every(m=>m==='GET'),'Album quick actions must be read-only remotely');
+    assert.equal(phase6.getSheetWrites().length,0);
+    assert.deepEqual(errors,[]);
+    console.log('PASS: Phase 6 rename, Quick Peek/detail album actions and stable filtering without Google writes.');
+  }finally{await phase6.ctx.close();}
+
   // Phase 4: keyboard-only cached Quick Peek and bounded two-file
   // comparison. UI interactions must not add write permissions or issue any
   // Drive/Sheet mutation; the normal viewport thumbnail queue is unchanged.
