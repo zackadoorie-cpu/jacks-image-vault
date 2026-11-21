@@ -1,5 +1,20 @@
 # Jack's Image Vault — Windows image and media library
 
+## v2.2 Phase 1 UI Makeover — unreleased candidate
+
+A focused visual update reorganizes the sidebar while retaining all 17
+destinations, standardizes local SVG icons, consolidates optional account
+controls, simplifies Home with expandable diagnostics, and moves secondary
+collection and saved-search tools into a gallery disclosure. Search, sort,
+media type, grid/list and the existing five-step density slider remain visible.
+Browsing is read-only by default; approved renames and Sheet writes still
+require separate explicit consent. This work does not change thumbnail
+prefetch, streaming, OAuth scopes, remote data, or the native updater.
+
+See [Phase 1 UI scope and test plan](docs/v2.2-phase1-ui-makeover.md).
+Not released: continue using v2.1.49 until this PR is verified and a
+separate release is approved.
+
 ## v2.1.49 — Five-step gallery density slider and Micro tiles
 
 The gallery's truncated size dropdown has been replaced with an accessible **five-step slider**, ordered **Large → Comfortable → Compact → Ultra Compact → Micro**. The active density label is always visible, keyboard Home/End and arrow keys work, the layout updates smoothly, and the existing local preference key keeps older settings intact. Preferences now lists Large first and adds Micro last. The surrounding filter toolbar wraps cleanly on narrow screens instead of cutting off the selected label.
