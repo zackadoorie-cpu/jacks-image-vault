@@ -9552,6 +9552,49 @@
     updatePreviewStats();
     return true;
   }
+  // Keep the same media item in view when the user drags the density slider.
+  // A virtual gallery has no offscreen DOM nodes, so remember its logical
+  // index before the column count changes rather than a now-stale row number.
+  function captureGalleryDensityAnchor(){
+    if(state.layout!=='grid'||!state.filtered?.length)return null;
+    const grid=$('galleryGrid'),viewportHeight=Number(window.innerHeight)||0;
+    if(!grid?.isConnected||viewportHeight<=0)return null;
+    const bounds=grid.getBoundingClientRect();
+    if(bounds.bottom<=0||bounds.top>=viewportHeight)return null;
+    const visibleTop=Math.max(0,bounds.top);
+    for(const btn of grid.querySelectorAll('[data-open-image]')){
+      const rect=btn.getBoundingClientRect();
+      if(rect.bottom<=visibleTop||rect.top>=viewportHeight)continue;
+      const id=btn.dataset.openImage;
+      const index=state.filtered.findIndex(item=>item.id===id);
+      if(index>=0)return {id,index,top:rect.top};
+    }
+    return null;
+  }
+  function restoreGalleryDensityAnchor(anchor){
+    if(!anchor||state.layout!=='grid')return;
+    const grid=$('galleryGrid');
+    if(!grid?.isConnected)return;
+    if(state.turboEnabled){
+      const layout=getComputedStyle(grid);
+      const columns=Math.max(1,String(layout.gridTemplateColumns||'').split(/\s+/).filter(Boolean).length);
+      const gap=Number.parseFloat(layout.rowGap)||0;
+      const row=Math.floor(anchor.index/columns);
+      const gridTop=grid.getBoundingClientRect().top+window.scrollY;
+      const stride=turboGallery.rowHeight(state.layout,state.density)+gap;
+      // Reposition by logical item, then rebuild the virtual DOM at the
+      // new offset. Keeping window scroll stationary would show other files.
+      window.scrollTo({top:Math.max(0,gridTop+row*stride-anchor.top),behavior:'instant'});
+      renderTurboWindow(true);
+    }
+    const target=[...grid.querySelectorAll('[data-open-image]')].find(btn=>btn.dataset.openImage===anchor.id);
+    if(target){
+      // Nonvirtual tiles may have variable heights; use actual DOM geometry.
+      const difference=target.getBoundingClientRect().top-anchor.top;
+      if(Math.abs(difference)>1)window.scrollBy({top:difference,behavior:'instant'});
+    }
+    scheduleViewportThumbs();
+  }
   function renderGallery() {
     state.galleryRevision++;
     state.autoLoadObserver?.disconnect();state.autoLoadObserver=null;
@@ -10978,15 +11021,19 @@ async function nativeMediaPost(route,body,signal){
       event.target.setAttribute('aria-valuetext',GALLERY_DENSITY_LABELS[position]);
       try{localStorage.setItem(DENSITY_STORAGE,density);}catch{}
       // Dragging across steps can trigger several inputs within a frame.
-      // Schedule one gallery reflow without replacing the slider itself.
+      // Capture the currently visible file before density changes the
+      // number of columns. Reuse one anchor during rapid slider dragging.
       if(state.densityRenderScheduled)return;
+      const anchor=captureGalleryDensityAnchor();
       state.densityRenderScheduled=true;
       const frame=typeof window.requestAnimationFrame==='function'?
         window.requestAnimationFrame.bind(window):callback=>setTimeout(callback,16);
       frame(()=>{
         state.densityRenderScheduled=false;
-        if(['all','memes','photos','favorites','review','smart-results','memory-results'].includes(state.view))
+        if(['all','memes','photos','favorites','review','smart-results','memory-results'].includes(state.view)){
           renderGallery();
+          restoreGalleryDensityAnchor(anchor);
+        }
       });
     });
     $('syncButton').onclick=()=>refreshSheetAndDrive();
