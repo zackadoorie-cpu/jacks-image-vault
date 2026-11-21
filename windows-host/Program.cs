@@ -105,7 +105,7 @@ internal sealed class BackendConnection : IDisposable
 
         if (matches.Length == 0)
             throw new InvalidOperationException(
-                "No versioned Jacks_Image_Vault_*.exe was found beside the Desktop launcher. Extract both executable files from the same Desktop Bundle ZIP.");
+                "No versioned Jacks_Image_Vault_*.exe was found beside Jacks_Image_Vault_Desktop.exe. Extract both executable files from the same Desktop Bundle ZIP.");
 
         // Windows users often extract a new portable bundle over their previous
         // folder. Never refuse to start because an older EXE remains there.
