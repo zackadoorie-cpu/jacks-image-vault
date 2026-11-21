@@ -103,12 +103,21 @@ internal sealed class BackendConnection : IDisposable
             .Where(x => x.Match.Success)
             .ToArray();
 
-        if (matches.Length != 1)
+        if (matches.Length == 0)
             throw new InvalidOperationException(
-                "Extract the complete Desktop Bundle ZIP into one folder. It must contain exactly one versioned Jacks_Image_Vault_*.exe beside Jacks_Image_Vault_Desktop.exe.");
+                "No versioned Jacks_Image_Vault_*.exe was found beside Jacks_Image_Vault_Desktop.exe. Extract both executable files from the same Desktop Bundle ZIP.");
 
-        string backendPath = matches[0].Path;
-        string expectedVersion = matches[0].Match.Groups[1].Value;
+        // Windows users often extract a new portable bundle over their previous
+        // folder. Never refuse to start because an older EXE remains there.
+        // Choose the newest *valid three-component semantic version* without
+        // deleting, running, or otherwise modifying the older executables.
+        var selected = matches
+            .OrderByDescending(x => Version.Parse(x.Match.Groups[1].Value))
+            .ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
+            .First();
+
+        string backendPath = selected.Path;
+        string expectedVersion = selected.Match.Groups[1].Value;
 
         string? current = await ProbeAsync();
         if (current != null)

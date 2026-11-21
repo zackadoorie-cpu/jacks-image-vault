@@ -35,3 +35,13 @@ This phase adds a **native Windows loopback server upgrade**, with UI fallback f
 ## Important limitation
 
 Google Drive's native download APIs may deny Range requests, disallow downloads, return a changed version, impose quotas or deliver codecs the installed Edge/WebView2 cannot decode. This feature offers a secure in-app streaming attempt with actionable fallback, not universal transcoding or guaranteed playback for every file type. Movie metadata inside MP4 may affect seeking; no audio analysis or transcoding is performed.
+
+## v2.1.46 regression correction
+
+The v2.1.45 release passed an insufficient browser test: it only verified that an HTML `video` element existed, using intentionally undecodable bytes. This **did not prove playback**. The small-video path still used the old 32 MiB Blob downloader and a brittle `ftyp` header test. v2.1.46 now attempts native streaming for small files too and performs a single bounded legacy fallback for small clips if no native support is available or the stream errors. It relies on the actual browser decoder rather than `canPlayType` as a hard gate. Drive file sizes can drift from Sheet metadata; authenticated Blob fallback remains size-capped without rejecting benign metadata drift.
+
+The previous desktop host explicitly required exactly one versioned Go EXE in its directory. This wrongly rejected an otherwise functional upgrade extracted over an earlier bundle. It now selects the highest semantic version, leaving older EXEs untouched. The Windows host stress script creates an older side-by-side EXE and verifies the desktop launcher still starts.
+
+For Google Drive original media that ignores an HTTP byte-range request, the native host can recover by reading the entire response **only if the verified source file is ≤32 MiB**, checking the complete byte count before serving the requested partial range. Large files still fail closed if Range is not honored. Three-frame storyboard size/security limits remain unchanged.
+
+The browser E2E fixture decodes a genuine 64×64, one-second, 590-byte VP8 WebM from an entirely fabricated source using both the native HTTP video element and legacy bounded Blob path. It verifies decoded dimensions/metadata, not just element creation. This is strong synthetic regression coverage but **not a live playback test against the user's private Google Drive account**. Actual codec and quota behavior still depends on the installed Windows WebView2 runtime and Drive permissions.

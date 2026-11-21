@@ -345,14 +345,19 @@ test('animated GIF opens its original on demand and cleans up when closed',async
   assert.equal(h.state.playingMediaId,null);
 });
 
-test('unsupported WebM codec provides Drive fallback without a full file download',async()=>{
+test('an unknown WebM codec is attempted safely instead of rejected by the container-only probe',async()=>{
   const item={...inv(file(13,'video/webm'),'Memes/Webms'),size:400};
   const {h,ctx,calls,els}=harness(async()=>ok({}));
-  ctx.document.createElement=tag=>({canPlayType:()=>'',setAttribute(){},play(){return Promise.resolve();}});
+  ctx.document.createElement=tag=>({tagName:tag.toUpperCase(),canPlayType:()=>'',setAttribute(){},
+    play(){return Promise.resolve();},pause(){}});
   h.state.activeImage=item;
   await h.playVideo();
-  assert.equal(calls.length,0);
-  assert.match(els.get('previewDetails').textContent,/cannot play|Open in Drive/);
+  assert.ok(calls.length>=2,'attempt native, then a bounded fallback on an old host');
+  assert.equal(els.get('modalPicture').lastChild.tagName,'VIDEO');
+  assert.equal(h.state.playingMediaId,item.id);
+  assert.ok(calls.every(x=>x.options?.method!=='POST'&&x.options?.method!=='PATCH'),
+    'no private Drive write');
+  h.stopVideo();
 });
 
 

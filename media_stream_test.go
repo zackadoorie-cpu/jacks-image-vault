@@ -170,7 +170,17 @@ func TestMediaNativeUpstreamCannotBypassRange(t *testing.T){
     _=json.Unmarshal(start.Body.Bytes(),&p)
     h:=make(http.Header);h.Set("Range","bytes=0-9")
     got:=mediaCall(t,v,"GET",p.URL,nil,"","",h)
-    if got.Code!=502{t.Fatalf("upstream ignored Range but local host returned %d",got.Code)}
+    if got.Code!=206 || got.Body.String()!="abcdefghij" ||
+        got.Header().Get("Content-Range")!="bytes 0-9/26" {
+        t.Fatalf("bounded full-response Range recovery failed: %d %q",got.Code,got.Body.String())
+    }
+    // A full response of the *wrong size* is never accepted.
+    v.mediaClient=&http.Client{Transport:mediaFixtureRoundTrip(func(r *http.Request)(*http.Response,error){
+        if r.URL.Query().Get("alt")=="media"{return mediaFixtureResponse(200,b[:len(b)-1],nil),nil}
+        return upstream(r)
+    })}
+    got=mediaCall(t,v,"GET",p.URL,nil,"","",h)
+    if got.Code!=502 {t.Fatalf("truncated full-body recovery not rejected: %d",got.Code)}
     h.Set("Range","bytes=3-10,12-14")
     got=mediaCall(t,v,"GET",p.URL,nil,"","",h)
     if got.Code!=416{t.Fatalf("multi-range must fail closed, got %d",got.Code)}
