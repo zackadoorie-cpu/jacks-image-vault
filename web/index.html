@@ -288,6 +288,23 @@
             <button type="button" class="active-filters-clear" id="clearGalleryFilters">Clear all</button>
           </div>
 
+          <div class="gallery-jump hidden" id="galleryJump" aria-label="Jump between gallery results">
+            <div class="gallery-jump-heading"><strong>Jump Navigator</strong><span id="galleryJumpCurrent" role="status">At file 1 of 0</span></div>
+            <label class="visually-hidden" for="galleryJumpSlider">Result position slider</label>
+            <input id="galleryJumpSlider" class="gallery-jump-slider" type="range" min="1" max="2" step="1" value="1" aria-label="Move to result position" aria-valuetext="Result 1 of 2">
+            <div class="gallery-jump-actions">
+              <button class="btn quiet" id="galleryJumpFirst" type="button">First</button>
+              <form id="galleryJumpForm" class="gallery-jump-form" novalidate>
+                <label for="galleryJumpInput">Result #</label>
+                <input id="galleryJumpInput" class="field" type="number" min="1" max="2" step="1" value="1" inputmode="numeric" aria-label="Go to result number">
+                <button class="btn outline" type="submit">Go</button>
+              </form>
+              <button class="btn quiet" id="galleryJumpMiddle" type="button">Middle</button>
+              <button class="btn quiet" id="galleryJumpLast" type="button">Last</button>
+            </div>
+            <small id="galleryJumpHelp" role="status">Move directly through this filtered collection. No originals are downloaded in bulk.</small>
+          </div>
+
           <div class="album-start"><button type="button" class="btn outline hidden" id="bulkToggle" aria-pressed="false">Select files</button><button type="button" class="btn quiet" id="manualHeadingLink">Manage albums</button><small>Hand-picked local albums. No Google file changes.</small></div>
           <div class="gallery-bulk-bar hidden" id="bulkBar" role="group" aria-label="Manual album selection"><strong id="bulkCount" role="status">0 selected</strong>
             <div class="gallery-bulk-actions">

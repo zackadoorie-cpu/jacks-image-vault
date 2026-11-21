@@ -1,5 +1,15 @@
 # Jack's Image Vault — Windows image and media library
 
+## v2.2.6 — Phase 7: Jump Navigator for Large Galleries
+
+Browse extensive filtered collections without manually loading every batch.
+A compact navigator appears only for galleries with over 96 matching results.
+Use a result number, slider, or First/Middle/Last shortcuts. Turbo Gallery
+keeps a bounded number of mounted tiles and lazy thumbnail fetches while
+navigating a synthetic 10,000-file collection. Existing sort, filters,
+read-only Drive access, video playback and account controls are unchanged.
+See [Phase 7](docs/v2.2-phase7-gallery-jump-navigator.md).
+
 ## v2.2.5 — Manual Album Quick Actions
 
 Rename manual albums without losing membership, add or remove individual files

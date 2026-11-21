@@ -175,6 +175,8 @@ async function main(){
     await p.locator('#connectButton').click();
     await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
     await p.locator('[data-view="all"]').click();
+    assert.equal(await p.locator('#galleryJump').isVisible(),false,
+      'Small galleries must not gain a bulky navigator');
     assert.equal(await p.locator('#activeFilterBar').isVisible(),false);
     await p.locator('#searchInput').fill('orange');
     assert.match(await p.locator('[data-clear-filter="search"]').innerText(),/Search: orange/);
@@ -1001,7 +1003,7 @@ async function main(){
       }));
       h.state.folders=[{path:'Memes/Synthetic',name:'Synthetic',kind:'memes',count:10000}];
       h.state.pageSize=48;
-      h.state.page=Math.ceil(10000/48);
+      h.state.page=1;
       h.state.connected=false;
       h.state.view='all';h.state.search='';
       document.querySelector('#homeView').classList.add('hidden');
@@ -1042,6 +1044,50 @@ async function main(){
     assert.ok(micro.cols>dense.cols,'Micro tiles must fit more per row than Ultra Compact');
     assert.ok(micro.mounted<=260,'Micro virtualization must remain bounded for 10,000 files');
     await setDensity(p,'comfortable');
+    // Phase 7: direct 10,000-result jumps stay virtualized and read-only.
+    assert.equal(await p.locator('#galleryJump').isVisible(),true);
+    assert.equal(await p.locator('#galleryJumpSlider').getAttribute('max'),'10000');
+    await p.locator('#galleryJumpInput').fill('5000');
+    await p.locator('#galleryJumpForm button[type="submit"]').click();
+    await p.waitForFunction(()=>window.__turboBench.state.turboStart>3500);
+    const halfway=await p.evaluate(()=>({
+      start:window.__turboBench.state.turboStart,
+      loaded:window.__turboBench.state.renderedCount,
+      mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length,
+      top:window.scrollY,
+      filtered:window.__turboBench.state.filtered.length
+    }));
+    assert.equal(halfway.filtered,10000);
+    assert.ok(halfway.loaded>=5000&&halfway.loaded<6000,
+      'Jump to 5000 must extend only the logical window plus buffer');
+    assert.ok(halfway.mounted<=180,'Jump to the middle must keep DOM bounded');
+    assert.ok(halfway.start<5000&&halfway.start>3500,'Window must cover requested result');
+    await p.locator('#galleryJumpLast').click();
+    await p.waitForFunction(()=>window.__turboBench.state.turboStart>9000);
+    const atEnd=await p.evaluate(()=>({
+      start:window.__turboBench.state.turboStart,
+      loaded:window.__turboBench.state.renderedCount,
+      mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length
+    }));
+    assert.equal(atEnd.loaded,10000);
+    assert.ok(atEnd.mounted<=180,'Last result must not mount 10,000 tiles');
+    await p.locator('#galleryJumpFirst').click();
+    await p.waitForFunction(()=>window.__turboBench.state.turboStart===0);
+    await p.locator('#galleryJumpInput').fill('10001');
+    await p.locator('#galleryJumpForm button[type="submit"]').click();
+    assert.match(await p.locator('#galleryJumpHelp').innerText(),/Enter a whole result number/);
+    assert.equal(await p.evaluate(()=>window.__turboBench.state.turboStart),0,
+      'Invalid jump must not alter the gallery');
+    // Slider changes are committed only after interaction completes.
+    await p.locator('#galleryJumpSlider').evaluate(el=>{
+      el.value='7500';
+      el.dispatchEvent(new Event('input',{bubbles:true}));
+      el.dispatchEvent(new Event('change',{bubbles:true}));
+    });
+    await p.waitForFunction(()=>window.__turboBench.state.turboStart>6500);
+    assert.ok(await p.locator('#galleryGrid [data-open-image]').count()<=180);
+    await p.locator('#galleryJumpFirst').click();
+    await p.waitForFunction(()=>window.__turboBench.state.turboStart===0);
     await p.evaluate(()=>{
       const grid=document.querySelector('#galleryGrid');
       window.scrollTo({top:grid.getBoundingClientRect().top+window.scrollY+grid.scrollHeight,behavior:'instant'});
