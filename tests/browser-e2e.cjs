@@ -682,6 +682,49 @@ async function main(){
     assert.ok(micro.cols>dense.cols,'Micro tiles must fit more per row than Ultra Compact');
     assert.ok(micro.mounted<=260,'Micro virtualization must remain bounded for 10,000 files');
     await setDensity(p,'comfortable');
+    // Changing density while deep in a 10,000-file collection must keep
+    // the *same media file* near the same viewport position. Scrolling to
+    // the old pixel offset would silently switch to unrelated media.
+    await p.evaluate(()=>{
+      const grid=document.querySelector('#galleryGrid');
+      const top=grid.getBoundingClientRect().top+window.scrollY;
+      window.scrollTo({top:top+Math.round(grid.scrollHeight*0.36),behavior:'instant'});
+    });
+    await p.waitForTimeout(250);
+    const anchor=await p.evaluate(()=>{
+      const buttons=[...document.querySelectorAll('#galleryGrid [data-open-image]')];
+      const item=buttons.find(btn=>{
+        const rect=btn.getBoundingClientRect();
+        return rect.bottom>0&&rect.top<innerHeight;
+      });
+      return item?{id:item.dataset.openImage,top:item.getBoundingClientRect().top}:null;
+    });
+    assert.ok(anchor?.id,'deep virtual gallery must expose a visible anchor');
+    const originalScroll=await p.evaluate(()=>window.scrollY);
+    await setDensity(p,'micro');
+    const microAnchor=await p.evaluate(id=>{
+      const tile=[...document.querySelectorAll('#galleryGrid [data-open-image]')]
+        .find(btn=>btn.dataset.openImage===id);
+      return {top:tile?.getBoundingClientRect().top??null,
+        scroll:window.scrollY,
+        mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length};
+    },anchor.id);
+    assert.ok(microAnchor.top!==null,'resizing to Micro must keep original media mounted');
+    assert.ok(Math.abs(microAnchor.top-anchor.top)<=6,
+      'Micro size must retain anchored media position, delta '+(microAnchor.top-anchor.top));
+    assert.ok(microAnchor.mounted<=260,'anchored Micro virtual DOM must remain bounded');
+    assert.notEqual(microAnchor.scroll,originalScroll,'density anchor should recompute physical scroll');
+    await setDensity(p,'comfortable');
+    const comfortableAnchor=await p.evaluate(id=>{
+      const tile=[...document.querySelectorAll('#galleryGrid [data-open-image]')]
+        .find(btn=>btn.dataset.openImage===id);
+      return {top:tile?.getBoundingClientRect().top??null,
+        mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length};
+    },anchor.id);
+    assert.ok(comfortableAnchor.top!==null,'returning to Comfortable keeps the same media');
+    assert.ok(Math.abs(comfortableAnchor.top-anchor.top)<=6,
+      'Comfortable size must restore media position, delta '+(comfortableAnchor.top-anchor.top));
+    assert.ok(comfortableAnchor.mounted<=180,'restored virtual DOM remains bounded');
     await p.evaluate(()=>{
       const grid=document.querySelector('#galleryGrid');
       window.scrollTo({top:grid.getBoundingClientRect().top+window.scrollY+grid.scrollHeight,behavior:'instant'});
