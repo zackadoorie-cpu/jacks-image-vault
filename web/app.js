@@ -7,6 +7,10 @@
   const REPO_STORAGE = 'jack-vault-public-update-repo-v2';
   const UPDATE_CHECK_STORAGE = 'jack-vault-last-update-check-v2';
   const DENSITY_STORAGE = 'jack-vault-gallery-density-v1';
+  // Preserve all existing stored density names and add an optional fifth step.
+  // Slider order deliberately runs from biggest tiles to smallest tiles.
+  const GALLERY_DENSITIES=Object.freeze(['large','comfortable','compact','ultra-compact','micro']);
+  const GALLERY_DENSITY_LABELS=Object.freeze(['Large','Comfortable','Compact','Ultra Compact','Micro']);
   const APP_PREFS_STORAGE = 'jack-vault-app-preferences-v1';
   const AUTO_CONNECT_STORAGE = 'jack-vault-autoconnect-binding-v1';
   const VAULT_THEMES = Object.freeze(['midnight','ocean','ember','forest','daylight']);
@@ -41,6 +45,7 @@
     maxRows:32,
     rowHeight(layout,density){
       if(layout==='list')return 112;
+      if(density==='micro')return 146;
       if(density==='ultra-compact')return 182;
       if(density==='compact')return 260;
       if(density==='large')return 405;
@@ -1397,6 +1402,7 @@
     similarityError: '',
     layout: 'grid',
     density: readDensity(),
+    densityRenderScheduled: false,
     folderQuery: '',
     page: 1,
     pageSize: startingPrefs.batchSize,
@@ -2714,7 +2720,7 @@
   }
   function readUpdateRepo() {try {return localStorage.getItem(REPO_STORAGE) || '';} catch {return '';}}
   function readDensity() {
-    try{const value=localStorage.getItem(DENSITY_STORAGE);return ['comfortable','compact','ultra-compact','large'].includes(value)?value:'comfortable';}
+    try{const value=localStorage.getItem(DENSITY_STORAGE);return GALLERY_DENSITIES.includes(value)?value:'comfortable';}
     catch{return 'comfortable';}
   }
   function readPreferences() {
@@ -2822,7 +2828,7 @@
     const rememberBrowsing=$('prefRememberBrowsing').checked;
     const autoReconnect=!IN_NATIVE_DESKTOP&&$('prefAutoReconnect').checked;
     const theme=$('prefTheme').value;
-    if(![16,32,48].includes(batchSize)||!['compact','ultra-compact','comfortable','large'].includes(density)||
+    if(![16,32,48].includes(batchSize)||!GALLERY_DENSITIES.includes(density)||
       !VAULT_THEMES.includes(theme))return;
     const shown=state.renderedCount;
     state.autoLoad=autoLoad;
@@ -9563,7 +9569,10 @@
       'Connect Google Drive to load your real collections and thumbnails.';
     $('galleryGrid').classList.toggle('list',state.layout==='list');
     $('galleryGrid').dataset.density=state.density;
-    $('densitySelect').value=state.density;
+    const densityIndex=Math.max(0,GALLERY_DENSITIES.indexOf(state.density));
+    $('densityRange').value=String(densityIndex);
+    $('densityRange').setAttribute('aria-valuetext',GALLERY_DENSITY_LABELS[densityIndex]);
+    $('densityValue').textContent=GALLERY_DENSITY_LABELS[densityIndex];
     $('sortSelect').value=state.sort;
     renderSavedSearches();
     const parsedSearch=searchEngine.parseSearchQuery(state.search);
@@ -10961,12 +10970,25 @@ async function nativeMediaPost(route,body,signal){
       catch(error){alertUser('Review import failed: '+error.message,'error');}
       finally{event.target.value='';}
     };
-    $('densitySelect').onchange=event=>{
-      if(!['comfortable','compact','ultra-compact','large'].includes(event.target.value))return;
-      state.density=event.target.value;
-      try{localStorage.setItem(DENSITY_STORAGE,state.density);}catch{}
-      renderGallery();
-    };
+    $('densityRange').addEventListener('input',event=>{
+      const position=Number(event.target.value),density=GALLERY_DENSITIES[position];
+      if(!density||density===state.density)return;
+      state.density=density;
+      $('densityValue').textContent=GALLERY_DENSITY_LABELS[position];
+      event.target.setAttribute('aria-valuetext',GALLERY_DENSITY_LABELS[position]);
+      try{localStorage.setItem(DENSITY_STORAGE,density);}catch{}
+      // Dragging across steps can trigger several inputs within a frame.
+      // Schedule one gallery reflow without replacing the slider itself.
+      if(state.densityRenderScheduled)return;
+      state.densityRenderScheduled=true;
+      const frame=typeof window.requestAnimationFrame==='function'?
+        window.requestAnimationFrame.bind(window):callback=>setTimeout(callback,16);
+      frame(()=>{
+        state.densityRenderScheduled=false;
+        if(['all','memes','photos','favorites','review','smart-results','memory-results'].includes(state.view))
+          renderGallery();
+      });
+    });
     $('syncButton').onclick=()=>refreshSheetAndDrive();
     $('healthScanButton').onclick=()=>syncWithDrive({full:true});
     catalogInitEvents();
