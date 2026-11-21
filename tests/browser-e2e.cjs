@@ -50,7 +50,7 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,t
      const suffix='  init();\n})();';
      if(!source.includes(suffix))throw new Error('E2E app bootstrap changed');
      const instrumentation=(turbo?'  globalThis.__turboBench={state,renderGallery,appendGalleryBatch,turboGallery};\n':'')+
-       (uiBench?'  globalThis.__uiBench={state,renderModalPicture,requestThumb,renderGallery};\n':'');
+       (uiBench?'  globalThis.__uiBench={state,renderModalPicture,requestThumb,renderGallery,paintThumb};\n':'');
      const patched=source.replace(suffix,instrumentation+suffix);
      return route.fulfill({status:200,contentType:'text/javascript',body:patched});
    });
@@ -167,6 +167,56 @@ async function main(){
   }finally{await makeover.ctx.close();}
   console.log('PASS: v2.2 Phase 1 navigation, menus, diagnostics, gallery controls, and no remote writes.');
 
+  // Phase 2: filters summarize real state and each chip clears only its own
+  // dimension, without hidden Drive writes or unsafe HTML from queries.
+  const polish=await fixturePage(browser,url,{uiBench:true});
+  try{
+    const p=polish.page;
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    await p.locator('[data-view="all"]').click();
+    assert.equal(await p.locator('#activeFilterBar').isVisible(),false);
+    await p.locator('#searchInput').fill('orange');
+    assert.match(await p.locator('[data-clear-filter="search"]').innerText(),/Search: orange/);
+    await p.locator('#mediaTypeSelect').selectOption('video');
+    assert.match(await p.locator('[data-clear-filter="type"]').innerText(),/Type: Videos/);
+    await p.locator('#sortSelect').selectOption('date-desc');
+    assert.match(await p.locator('[data-clear-filter="sort"]').innerText(),/Newest capture/);
+    await openDisclosure(p,'#galleryAdvanced');
+    await p.locator('#folderSelect').selectOption('Memes/Cats');
+    assert.match(await p.locator('[data-clear-filter="folder"]').innerText(),/Collection: Cats/);
+    assert.equal(await p.locator('#activeFilterChips button').count(),4);
+    await p.locator('[data-clear-filter="type"]').click();
+    assert.equal(await p.locator('#mediaTypeSelect').inputValue(),'all');
+    assert.equal(await p.locator('[data-clear-filter="search"]').count(),1,
+      'Removing media type must preserve the search');
+    const malicious='<img src=x onerror="window.__polishXss=1">';
+    await p.locator('#searchInput').fill(malicious);
+    assert.equal(await p.locator('#activeFilterChips img').count(),0,'Query chips must be text-only');
+    assert.equal(await p.evaluate(()=>window.__polishXss||0),0);
+    await p.locator('#clearGalleryFilters').click();
+    assert.equal(await p.locator('#activeFilterBar').isVisible(),false);
+    assert.equal(await p.locator('#searchInput').inputValue(),'');
+    assert.equal(await p.locator('#mediaTypeSelect').inputValue(),'all');
+    assert.equal(await p.locator('#folderSelect').inputValue(),'all');
+    assert.equal(await p.locator('#sortSelect').inputValue(),'name');
+    await p.evaluate(id=>{
+      const h=window.__uiBench;
+      h.state.thumbErrors.set(id,'Fabricated thumbnail failure (read-only)');
+      h.paintThumb(id,null);
+    },id);
+    await p.waitForFunction(id=>document.querySelector('#galleryGrid [data-open-image="'+id+'"]')?.dataset.previewState==='unavailable',id);
+    assert.match(await p.locator('#galleryGrid [data-open-image="'+id+'"] .tile-placeholder small').innerText(),/Preview unavailable/);
+    assert.match(await p.locator('#galleryGrid [data-open-image="'+id+'"] .tile-placeholder small').getAttribute('title'),/Fabricated thumbnail failure/);
+    await p.locator('#galleryGrid [data-open-image="'+id+'"]').click();
+    assert.equal(await p.locator('#retryPreview').isVisible(),true,
+      'Failed still preview must retain a user-triggered retry');
+    await p.locator('#closeImage').click();
+    assert.equal(polish.requests.every(method=>method==='GET'),true);
+    assert.equal(polish.getSheetWrites().length,0);
+    console.log('PASS: Phase 2 removable filter chips, safe query text, preview failures and zero remote writes.');
+  }finally{await polish.ctx.close();}
+
   // Real fabricated VP8 WebM playback regression. Earlier smoke only
   // checked for a <video> node, not whether a single frame could decode.
   const syntheticWebM=Buffer.from('GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAIeEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggII7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDNXQYxMYXZmNjEuNy4xMDNEiYhAj0AAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WI3AW3vf09S0GcgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QdzWUA4JCwgUC6gUCagQJVsIRVuYEBElTDZ/tzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYxLjcuMTAzc3PWY8CLY8WI3AW3vf09S0FnyKFFo4dFTkNPREVSRIeUTGF2YzYxLjE5LjEwMSBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z14OeBAKPDgQAAgJADAJ0BKkAAQAAARwiFhYiFhIgCAgJ1qgP4AgboQVwx0hMAVVgA/v9NEv/8WFfxYV/FhX/xYV/8/M7txfzmAKOWgQH0ANEBAAEQEAAYABhYL/QACI6AABxTu2uRu4+zgQC3iveBAfGCAaPwgQM=','base64');
@@ -218,6 +268,15 @@ async function main(){
       },null,{timeout:18000});
     };
     await open();
+    assert.equal(await p.locator('#mediaPlaybackState').isVisible(),true);
+    const statusBefore=await p.locator('#mediaPlaybackState').getAttribute('data-status');
+    assert.ok(['ready','playing','paused','buffering'].includes(statusBefore),statusBefore);
+    await p.locator('#modalPicture video').evaluate(video=>video.dispatchEvent(new Event('waiting')));
+    assert.equal(await p.locator('#mediaPlaybackState').getAttribute('data-status'),'buffering');
+    await p.locator('#modalPicture video').evaluate(video=>video.dispatchEvent(new Event('seeking')));
+    assert.equal(await p.locator('#mediaPlaybackState').getAttribute('data-status'),'seeking');
+    await p.locator('#modalPicture video').evaluate(video=>video.dispatchEvent(new Event('playing')));
+    assert.equal(await p.locator('#mediaPlaybackState').getAttribute('data-status'),'playing');
     assert.equal(issued.length,1,'A small WebM must use native streaming.');
     await p.locator('#closeImage').click();
     await p.waitForTimeout(90);
@@ -266,6 +325,7 @@ async function main(){
       const image=document.querySelector('#galleryGrid [data-open-image="'+id+'"] img');
       return !!image&&image.complete&&image.naturalWidth>0;
     },vid,{timeout:12000});
+    assert.equal(await p.locator('#galleryGrid [data-open-image="'+vid+'"]').getAttribute('data-preview-state'),'ready');
     assert.equal(downloads.length,1,'auto poster downloads one bounded video after missing Drive thumbnail');
     assert.equal(posterPage.requests.filter(method=>method!=='GET').length,0,
       'poster generation never changes files or Google Sheets');
@@ -278,6 +338,7 @@ async function main(){
       h.requestThumb(item,{priority:true,force:true});
     },{id:vid,size:6*1024*1024});
     await p.waitForFunction(id=>window.__uiBench.state.thumbErrors.get(id)?.includes('5 MiB'),vid,{timeout:15000});
+    await p.waitForFunction(id=>document.querySelector('#galleryGrid [data-open-image="'+id+'"]')?.dataset.previewState==='unavailable',vid);
     assert.equal(downloads.length,1,'oversized posters must not fetch another full original');
     console.log('PASS: valid WebM gets a visible generated poster; oversized posters remain read-only and bounded.');
   }finally{await posterPage.ctx.close();}
