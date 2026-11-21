@@ -49,4 +49,17 @@ $process = Start-Process -FilePath $hostPath -ArgumentList '--self-test' -Wait -
 if ($process.ExitCode -ne 0) {
   throw "Desktop backend handshake smoke test failed with exit code $($process.ExitCode)"
 }
+# Regression: extracting a new bundle over an older install must NOT prevent
+# startup. The host selects the newest semver EXE; it never removes old files.
+$oldServer = Join-Path $OutputDirectory 'Jacks_Image_Vault_2.1.1.exe'
+try {
+  Copy-Item -LiteralPath $server -Destination $oldServer -Force
+  $mixed = Start-Process -FilePath $hostPath -ArgumentList '--self-test' -Wait -PassThru
+  if ($mixed.ExitCode -ne 0) {
+    throw "Mixed-version desktop folder rejected the newer server: $($mixed.ExitCode)"
+  }
+} finally {
+  Remove-Item -LiteralPath $oldServer -Force -ErrorAction SilentlyContinue
+}
+Write-Host "PASS: reusing existing desktop folder with older backend files."
 Write-Host "PASS: native desktop host, branded icon, and verified local Go server handshake."
