@@ -36,6 +36,18 @@ test('unsupported codecs, browser refusal, unknown size and oversized media fail
  assert.match(video.videoEligibility(r,{canPlay:false}).reason,/browser/);
  assert.equal(video.videoEligibility({...r,size:13*1048576},{operation:'playback'}).allowed,true);
 });
+test('native streaming supports multi-gigabyte MP4/WebM with explicit size and codec limits',()=>{
+  const videoItem=record(1);
+  assert.equal(video.videoStreamEligibility({...videoItem,size:500*1048576}).allowed,true);
+  assert.equal(video.videoStreamEligibility({...videoItem,size:16*1024**3,mime:'video/webm'}).allowed,true);
+  assert.equal(video.videoStreamEligibility({...videoItem,size:33*1024**3}).allowed,false);
+  assert.equal(video.videoStreamEligibility({...videoItem,size:0}).allowed,false);
+  assert.equal(video.videoStreamEligibility({...videoItem,mime:'video/x-msvideo'}).allowed,false);
+  assert.equal(video.videoStreamEligibility({...videoItem,size:500*1048576},{canPlay:false}).allowed,false);
+  // Storyboard keeps its historical 12 MiB bound.
+  assert.equal(video.videoEligibility({...videoItem,size:500*1048576}).allowed,false);
+});
+
 test('storyboard samples are bounded, distinct and reject malformed duration',()=>{
  assert.deepEqual(video.videoStoryboardTimes(100),[15,50,85]);
  assert.deepEqual(video.videoStoryboardTimes(4),[0.6,2,3.4]);
