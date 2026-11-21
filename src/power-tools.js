@@ -194,7 +194,7 @@ function powerContextOpen(id,x,y,origin){
   const rect=menu.getBoundingClientRect();
   menu.style.left=Math.max(6,Math.min(x,window.innerWidth-rect.width-8))+'px';
   menu.style.top=Math.max(6,Math.min(y,window.innerHeight-rect.height-8))+'px';
-  menu.querySelector('[data-context-action="open"]').focus();
+  menu.querySelector('[data-context-action="open"]').focus({preventScroll:true});
 }
 async function powerContextAction(action){
   const id=powerContextId;
