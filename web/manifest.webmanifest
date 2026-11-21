@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Jack's Image Vault",
   "short_name": "Image Vault",
-  "description": "A private, read-only gallery for your Google Drive image library.",
+  "description": "A private Google Drive media library for read-only browsing with optional, explicitly approved file renames and Sheet updates.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
