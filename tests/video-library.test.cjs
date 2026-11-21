@@ -36,6 +36,14 @@ test('unsupported codecs, browser refusal, unknown size and oversized media fail
  assert.match(video.videoEligibility(r,{canPlay:false}).reason,/browser/);
  assert.equal(video.videoEligibility({...r,size:13*1048576},{operation:'playback'}).allowed,true);
 });
+test('streaming can attempt common containers and report unsupported codecs without touching originals',()=>{
+  const original=record(1);
+  for(const mime of ['video/mp4','video/webm','video/quicktime','video/x-m4v','video/ogg','video/x-matroska'])
+    assert.equal(video.videoStreamEligibility({...original,mime}).allowed,true,mime);
+  assert.equal(video.videoStreamEligibility({...original,mime:'video/x-msvideo'}).allowed,false);
+  assert.equal(video.videoEligibility({...original,mime:'video/quicktime'}).allowed,false,
+    '12 MiB storyboard signature checks remain MP4/WebM-only');
+});
 test('native streaming supports multi-gigabyte MP4/WebM with explicit size and codec limits',()=>{
   const videoItem=record(1);
   assert.equal(video.videoStreamEligibility({...videoItem,size:500*1048576}).allowed,true);
