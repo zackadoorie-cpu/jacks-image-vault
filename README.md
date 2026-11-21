@@ -1,6 +1,6 @@
 # Jack's Image Vault — Windows image and media library
 
-## v2.2 Phase 4 — Quick Peek + Compare Mode (unreleased candidate)
+## v2.2.3 — Quick Peek + Compare Mode
 
 Space on any focused gallery preview opens a keyboard-navigable Quick Peek
 of its existing thumbnail. Side-by-side Compare Mode uses two explicitly
@@ -9,7 +9,8 @@ The existing full viewer stays available for video playback, image details
 and local review. Account disconnect clears transient comparison selections.
 
 See [Phase 4 scope, privacy and test plan](docs/v2.2-phase4-quick-peek-compare.md).
-No patch is published until the browser, Linux and Windows CI gates pass.
+v2.2.3 ships with a versioned UI patch ZIP, Windows EXE and desktop bundle,
+all subject to the independent release browser, Windows and integrity gates.
 
 ## v2.2.2 — Review Center 2.0
 
