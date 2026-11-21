@@ -281,6 +281,56 @@ async function main(){
     console.log('PASS: Review Center 2.0 guided queue, honest coverage, source/local separation, and zero remote writes.');
   }finally{await reviewCenter.ctx.close();}
 
+
+  // v2.2 Phase 5: manual albums are local-only, include both images and
+  // videos, and never mutate Google Drive or the indexed spreadsheet.
+  const manual=await fixturePage(browser,url,{uiBench:true});
+  try{
+    const p=manual.page,errors=[];
+    p.on('pageerror',error=>errors.push(error.message));
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    await openDisclosure(p,'#navigation [data-nav-group="tools"]');
+    await p.locator('[data-view="smart"]').click();
+    assert.equal(await p.locator('#manualNew').isEnabled(),true);
+    await p.locator('#manualNew').click();
+    await p.locator('#albumName').fill('Important finds');
+    await p.locator('#manualForm button[type="submit"]').click();
+    assert.match(await p.locator('#manualCards').innerText(),/Important finds/);
+    await p.locator('[data-view="all"]').click();
+    await p.locator('#bulkToggle').click();
+    assert.equal(await p.locator('#bulkBar').isVisible(),true);
+    await p.locator('#bulkAll').click();
+    assert.match(await p.locator('#bulkCount').innerText(),/2 selected/);
+    await p.locator('#bulkAlbum').selectOption({label:'Important finds'});
+    assert.equal(await p.locator('#bulkAdd').isEnabled(),true);
+    await p.locator('#bulkAdd').click();
+    assert.match(await p.locator('#bulkCount').innerText(),/0 selected/);
+    await openDisclosure(p,'#navigation [data-nav-group="tools"]');
+    await p.locator('[data-view="smart"]').click();
+    assert.match(await p.locator('#manualCards').innerText(),/2 loaded/);
+    await p.locator('[data-album-open]').click();
+    assert.match(await p.locator('#galleryTitle').innerText(),/Important finds/);
+    assert.match(await p.locator('#resultCount').innerText(),/2 files/);
+    await p.locator('#mediaTypeSelect').selectOption('video');
+    assert.match(await p.locator('#resultCount').innerText(),/1 file/);
+    await p.locator('#bulkAll').click();
+    assert.match(await p.locator('#bulkCount').innerText(),/1 selected/);
+    await p.locator('#bulkRemove').click();
+    assert.match(await p.locator('#resultCount').innerText(),/0 files/);
+    await p.locator('#backManual').click();
+    assert.match(await p.locator('#manualCards').innerText(),/1 loaded/);
+    // A disconnected account must not display the previous account's IDs.
+    await p.locator('#disconnectButton').click();
+    await p.locator('[data-view="smart"]').click();
+    assert.equal(await p.locator('[data-album-open]').count(),0);
+    assert.equal(await p.locator('#manualNew').isEnabled(),false);
+    assert.equal(manual.getSheetWrites().length,0);
+    assert.ok(manual.requests.every(method=>method==='GET'),'Manual albums must never issue Google writes');
+    assert.deepEqual(errors,[],'Manual album interactions produced browser errors');
+    console.log('PASS: Phase 5 manual albums, bulk select, remove, disconnect isolation and zero remote writes.');
+  }finally{await manual.ctx.close();}
+
   // Phase 4: keyboard-only cached Quick Peek and bounded two-file
   // comparison. UI interactions must not add write permissions or issue any
   // Drive/Sheet mutation; the normal viewport thumbnail queue is unchanged.
