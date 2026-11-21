@@ -75,6 +75,8 @@ type vault struct {
 	client         *http.Client
     windows        *windowSessions
     desktopAuth    *desktopAuthBroker
+    mediaClient    *http.Client
+    mediaStreams   *mediaSessionBroker
 }
 
 func randNonce() string {
@@ -109,7 +111,7 @@ func newVault(dir string) (*vault, error) {
 		}
 		return nil
 	}}
-	v := &vault{root: dir, nonce: randNonce(), currentVersion: builtinVersion, client: c, windows: newWindowSessions(),desktopAuth:newDesktopAuthBroker()}
+	v := &vault{root: dir, nonce: randNonce(), currentVersion: builtinVersion, client: c, windows: newWindowSessions(),desktopAuth:newDesktopAuthBroker(),mediaClient:newMediaHTTPClient(),mediaStreams:newMediaSessionBroker()}
 	var choice selectedPatch
 	if b, err := os.ReadFile(filepath.Join(dir, "current.json")); err == nil && json.Unmarshal(b, &choice) == nil {
 		v.choice = choice
@@ -887,6 +889,11 @@ func (v *vault) handler() http.Handler {
     mux.HandleFunc("/__vault_desktop_auth/forget",v.handleDesktopAuth)
     mux.HandleFunc("/__vault_desktop_auth/write-start",v.handleDesktopAuth)
     mux.HandleFunc("/__vault_desktop_auth/rename-start",v.handleDesktopAuth)
+    mux.HandleFunc("/__vault_media/status", v.handleMediaStatus)
+    mux.HandleFunc("/__vault_media/start", v.handleMediaStart)
+    mux.HandleFunc("/__vault_media/stop", v.handleMediaStop)
+    mux.HandleFunc("/__vault_media/renew", v.handleMediaRenew)
+    mux.HandleFunc("/__vault_media/stream/", v.handleMediaStream)
     mux.HandleFunc("/__vault_window/heartbeat", v.handleWindowHeartbeat)
     mux.HandleFunc("/__vault_window/leave", v.handleWindowLeave)
 	mux.HandleFunc("/", v.handleFile)
