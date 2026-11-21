@@ -26,6 +26,7 @@ function reviewInboxRender(){
   $('reviewInboxNamingCount').textContent=connected?fmt(snapshot.counts.naming):'—';
   $('reviewInboxFilter').value=p.filter;
   $('reviewInboxFilter').disabled=!connected;
+  $('reviewInboxStart').disabled=!connected||reviewCounts().pending===0;
   $('reviewInboxSummary').textContent=!connected?
     'Connect Drive to view your private review inbox. No data is public.':
     fmt(snapshot.counts.all)+' actionable records in current gallery · '+fmt(p.total)+
