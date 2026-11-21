@@ -10118,7 +10118,9 @@ async function nativeMediaPost(route,body,signal){
   }
   async function playVideo(blobOnly=false){
     const item=state.activeImage;
-    if($('playVideoButton').disabled)return;
+    // A media error can race the original Play click's finally block.
+    // Only a deliberate one-time fallback may bypass the busy button.
+    if($('playVideoButton').disabled&&blobOnly!==true)return;
     if(!item)return;
     const gif=isGIF(item),clip=mediaKind(item)==='video';
     if(!gif&&!clip)return;
