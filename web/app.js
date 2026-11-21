@@ -9831,10 +9831,10 @@
     $('mediaDiagnostics').classList.toggle('hidden',!diagnostic);
     if(diagnostic)renderMediaDiagnostic(item);
     if(state.playingMediaId===item.id && (state.videoObjectUrl||state.videoStreamId)) return; // Preserve live playback and original-image zoom.
-    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · private in-app preview up to 32 MB; larger clips open in Drive.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · select the ▶ button to play animation (20 MB limit).` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
+    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · larger clips stream securely using the updated Windows launcher.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · select ▶ to play; larger animations stream on demand.` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
     const poster=entry?`<img src="${escapeHTML(entry.src)}" alt="${escapeHTML(item.description||item.name)}">`:`<div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${kind==='video'?'Video preview available on demand':kind==='pdf'?'Open in Drive to view the document':item.demo?'Design preview':error?'Preview unavailable; use Retry or Open in Drive':'Preview loading…'}</small></div>`;
     const playable=!item.demo&&(kind==='video'||isGIF(item));
-    const oversized=kind==='video'&&item.size>MAX_VIDEO_PREVIEW || isGIF(item)&&item.size>MAX_GIF_PREVIEW;
+    const oversized=kind==='video'&&item.size>videoLibrary.VIDEO_STREAM_MAX || isGIF(item)&&item.size>256*1024*1024;
     const drive=oversized?linkToDrive(item):'';
     const label=isGIF(item)?'Play GIF animation':'Play video';
     const affordance=!playable?'':oversized&&drive?
@@ -10116,11 +10116,14 @@ async function nativeMediaPost(route,body,signal){
     const gif=isGIF(item),clip=mediaKind(item)==='video';
     if(!gif&&!clip)return;
     const maxBytes=gif?MAX_GIF_PREVIEW:MAX_VIDEO_PREVIEW;
-    if(item.size>maxBytes){
-      const message=`${gif?'GIF':'Video'} exceeds the ${gif?'20':'32'} MB in-app preview limit. Open in Drive instead.`;
-      $('previewDetails').textContent=message;
-      modalPlayFeedback(message);
-      return;
+    const large=item.size>maxBytes;
+    if(clip&&!videoLibrary.videoStreamEligibility(item).allowed){
+      const message=videoLibrary.videoStreamEligibility(item).reason;
+      $('previewDetails').textContent=message;modalPlayFeedback(message);return;
+    }
+    if(gif&&(!Number.isSafeInteger(item.size)||item.size<=0||item.size>256*1024*1024)){
+      const message='GIF exceeds the 256 MiB safe streaming limit. Open in Drive.';
+      $('previewDetails').textContent=message;modalPlayFeedback(message);return;
     }
     if(clip){
       // WebM/MP4 support is determined by the embedded browser's actual codecs.
@@ -10140,6 +10143,14 @@ async function nativeMediaPost(route,body,signal){
     $('previewDetails').textContent=loading;
     modalPlayFeedback(loading,{busy:true});
     try{
+      if(large){
+        const ticket=await nativeMediaStart(item,gif?'image':'video',controller.signal);
+        if(state.videoController!==controller||controller.signal.aborted||state.activeImage?.id!==item.id){
+          void nativeMediaStop(ticket.id);return;
+        }
+        nativeMediaShowPlayer(item,ticket,clip);
+        return;
+      }
       const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
       const source=await googleGet(url,{blob:true,maxBytes,signal:controller.signal});
       if(clip)await videoCheckSignature(source,item);
@@ -10189,7 +10200,7 @@ async function nativeMediaPost(route,body,signal){
     }finally{
       if(state.videoController===controller){
         button.disabled=false;
-        if(!state.videoObjectUrl){
+        if(!state.videoObjectUrl&&!state.videoStreamId){
           const overlay=$('modalPlayOverlay');
           if(overlay){
             overlay.disabled=false;
