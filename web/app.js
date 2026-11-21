@@ -3718,6 +3718,9 @@
   }
   function albumRefreshOnClose(){
     if(!state.albumRefreshPending)return;
+    // Quick Peek may open full details for this same file. Keep its filtered
+    // context intact until the details dialog closes, including review drafts.
+    if($('imageDialog')?.open)return;
     state.albumRefreshPending=false;
     if(state.view==='manual-results')renderGallery();
   }
