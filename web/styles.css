@@ -1836,3 +1836,23 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .album-quick-controls small{width:100%;font-size:11px;line-height:1.4;color:var(--muted)}
 .quick-peek-footer>div:first-child{flex:1 1 285px}
 @media(max-width:570px){.album-quick-controls .select{max-width:none;flex-basis:100%}.album-quick-controls .btn{flex:1 1 100%}}
+
+/* Phase 7: a compact large-library navigator; deliberate jumps only. */
+.gallery-jump{border:1px solid var(--line);background:var(--surface2);border-radius:14px;
+  padding:11px 14px;margin:9px 0 13px;display:grid;gap:8px}
+.gallery-jump.hidden{display:none!important}
+.gallery-jump-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  flex-wrap:wrap;font-size:12px}
+.gallery-jump-heading strong{color:var(--text)}
+.gallery-jump-heading span{color:var(--muted);font-variant-numeric:tabular-nums}
+.gallery-jump-slider{width:100%;height:21px;cursor:pointer;accent-color:var(--purple)}
+.gallery-jump-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.gallery-jump-actions .btn{min-height:34px}
+.gallery-jump-form{display:flex;align-items:center;gap:8px;flex:1 1 190px;justify-content:center}
+.gallery-jump-form label{font-size:11px;color:var(--muted);white-space:nowrap;font-weight:700}
+.gallery-jump-form .field{width:100px;min-width:75px;max-width:120px;
+  min-height:35px;padding:5px 8px;font-size:12px;font-variant-numeric:tabular-nums}
+.gallery-jump>small{color:var(--muted);font-size:11px;line-height:1.45}
+@media(max-width:540px){.gallery-jump-form{order:-1;flex-basis:100%;justify-content:flex-start}
+.gallery-jump-actions .btn{flex:1 1 68px}}
+@media(prefers-reduced-motion:reduce){.gallery-jump-slider{scroll-behavior:auto}}

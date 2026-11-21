@@ -9735,6 +9735,91 @@
       typeof window.innerHeight==='number' &&
       typeof getComputedStyle==='function';
   }
+  // Phase 7: logical result navigation. Only currently visible thumbnail
+  // rows mount or request media, even for ten-thousand-file libraries.
+  function galleryJumpVisible(){
+    return ['all','memes','photos','favorites','review','smart-results',
+      'memory-results','manual-results'].includes(state.view)&&state.filtered.length>96;
+  }
+  function galleryJumpPosition(){
+    const total=state.filtered.length;
+    if(!total)return 0;
+    const grid=$('galleryGrid');
+    if(!grid||!state.turboEnabled){
+      const first=grid?.querySelector('[data-open-image]');
+      if(!first)return 1;
+      const tiles=[...grid.querySelectorAll('[data-open-image]')];
+      const candidate=tiles.findIndex(x=>x.getBoundingClientRect().bottom>80);
+      return Math.min(total,Math.max(1,(candidate<0?tiles.length-1:candidate)+1));
+    }
+    const style=getComputedStyle(grid);
+    const columns=state.layout==='list'?1:
+      Math.max(1,String(style.gridTemplateColumns||'').split(/\\s+/).filter(Boolean).length);
+    const stride=turboGallery.rowHeight(state.layout,state.density)+(Number.parseFloat(style.rowGap)||0);
+    const row=Math.floor(Math.max(0,80-grid.getBoundingClientRect().top)/Math.max(1,stride));
+    return Math.min(total,Math.max(1,row*columns+1));
+  }
+  function galleryJumpPaintPosition(value){
+    if(!galleryJumpVisible())return;
+    const total=state.filtered.length,pos=Math.min(total,Math.max(1,Math.round(value)||1));
+    $('galleryJumpCurrent').textContent='At approximately '+format(pos)+' of '+format(total);
+    $('galleryJumpSlider').value=String(pos);
+    $('galleryJumpSlider').setAttribute('aria-valuetext','Result '+format(pos)+' of '+format(total));
+    if(document.activeElement!==$('galleryJumpInput'))$('galleryJumpInput').value=String(pos);
+  }
+  function galleryJumpUpdate(){
+    const visible=galleryJumpVisible(),root=$('galleryJump'),total=state.filtered.length;
+    root.classList.toggle('hidden',!visible);
+    if(!visible)return;
+    $('galleryJumpSlider').max=String(total);
+    $('galleryJumpInput').max=String(total);
+    galleryJumpPaintPosition(galleryJumpPosition());
+  }
+  function galleryJumpGo(value){
+    const total=state.filtered.length,index=Number(value);
+    if(!galleryJumpVisible()||!Number.isSafeInteger(index)||index<1||index>total){
+      if(galleryJumpVisible())$('galleryJumpHelp').textContent='Enter a whole result number between 1 and '+format(total)+'.';
+      return false;
+    }
+    const grid=$('galleryGrid');
+    // Extend the logical loaded range, not the number of mounted tiles.
+    // Leave several rows below the destination so the browser can position
+    // it near the top without hitting the end-of-document clamp.
+    const buffer=Math.max(160,state.pageSize*4);
+    const loaded=Math.min(total,Math.max(state.renderedCount,index+buffer));
+    if(loaded!==state.renderedCount){
+      state.renderedCount=loaded;
+      state.page=Math.max(1,Math.ceil(loaded/state.pageSize));
+      if(state.turboEnabled)renderTurboWindow(true);
+      else{
+        grid.innerHTML=state.filtered.slice(0,loaded).map(tileHTML).join('');
+        bindGalleryTileEvents(grid.querySelectorAll('[data-open-image]'),
+          grid.querySelectorAll('[data-favorite]'));
+        observeThumbs();
+      }
+      $('browseProgress').textContent='Showing '+format(loaded)+' of '+format(total);
+      updateLoadMoreArea();updatePreviewStats();
+    }
+    if(state.turboEnabled){
+      const style=getComputedStyle(grid);
+      const columns=state.layout==='list'?1:
+        Math.max(1,String(style.gridTemplateColumns||'').split(/\\s+/).filter(Boolean).length);
+      const stride=turboGallery.rowHeight(state.layout,state.density)+(Number.parseFloat(style.rowGap)||0);
+      const target=window.scrollY+grid.getBoundingClientRect().top+
+        Math.floor((index-1)/columns)*stride-72;
+      window.scrollTo({top:Math.max(0,target),behavior:'instant'});
+      renderTurboWindow(true);
+    }else{
+      // Bounded non-virtual libraries never exceed the 320-tile threshold.
+      const tile=grid.querySelectorAll('[data-open-image]')[index-1];
+      tile?.scrollIntoView({block:'start',behavior:'instant'});
+    }
+    $('galleryJumpHelp').textContent='Jumped to result '+format(index)+' of '+format(total)+'. Current filter and sorting remain unchanged.';
+    galleryJumpPaintPosition(index);
+    scheduleBrowseSave();
+    return true;
+  }
+
   function pruneThumbnailQueue(items){
     const ids=new Set(items.map(item=>item.id));
     if(state.activeImage)ids.add(state.activeImage.id);
@@ -9842,12 +9927,14 @@
     if(state.turboEnabled){
       renderTurboWindow(true);
       $('browseProgress').textContent=`Showing ${format(next)} of ${format(state.filtered.length)}`;
+      galleryJumpUpdate();
       scheduleBrowseSave();
       updateLoadMoreArea();
       return true;
     }
     $('galleryGrid').insertAdjacentHTML('beforeend',added.map(tileHTML).join(''));
     $('browseProgress').textContent=`Showing ${format(next)} of ${format(state.filtered.length)}`;
+    galleryJumpUpdate();
     scheduleBrowseSave();
     const previews=[...$('galleryGrid').querySelectorAll('[data-open-image]')].slice(previous);
     const hearts=[...$('galleryGrid').querySelectorAll('[data-favorite]')].slice(previous);
@@ -9932,6 +10019,7 @@
     }
     updateLoadMoreArea();
     updatePreviewStats();
+    galleryJumpUpdate();
     renderCompareBar();
     albumBar();
     scheduleBrowseSave();
@@ -11476,6 +11564,20 @@ async function nativeMediaPost(route,body,signal){
     $('backSmartCollections').onclick=()=>displayPage('smart');
     $('backManual').onclick=()=>displayPage('smart');
     $('manualNew').onclick=albumNew;
+    $('galleryJumpForm').onsubmit=event=>{
+      event.preventDefault();galleryJumpGo($('galleryJumpInput').value);
+    };
+    $('galleryJumpFirst').onclick=()=>galleryJumpGo(1);
+    $('galleryJumpMiddle').onclick=()=>galleryJumpGo(Math.ceil(state.filtered.length/2));
+    $('galleryJumpLast').onclick=()=>galleryJumpGo(state.filtered.length);
+    $('galleryJumpSlider').oninput=event=>{
+      const index=Number(event.target.value);
+      $('galleryJumpCurrent').textContent='Jump to '+format(index)+' of '+format(state.filtered.length);
+      event.target.setAttribute('aria-valuetext','Jump to result '+format(index)+' of '+format(state.filtered.length));
+      $('galleryJumpInput').value=String(index);
+    };
+    // Range control commits on release or keyboard change, not every drag frame.
+    $('galleryJumpSlider').onchange=event=>galleryJumpGo(Number(event.target.value));
     $('manualHeadingLink').onclick=()=>{
       displayPage('smart');
       $('manualAlbumsHeading').scrollIntoView({block:'start',behavior:'instant'});
@@ -11668,6 +11770,7 @@ async function nativeMediaPost(route,body,signal){
       updateScrollControls();
       scheduleBrowseSave();
       scheduleTurboWindow();
+      if(galleryJumpVisible())galleryJumpPaintPosition(galleryJumpPosition());
       scheduleViewportThumbs();
     },{passive:true});
     window.addEventListener('resize',()=>{
