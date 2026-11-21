@@ -50,7 +50,7 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,t
      const suffix='  init();\n})();';
      if(!source.includes(suffix))throw new Error('E2E app bootstrap changed');
      const instrumentation=(turbo?'  globalThis.__turboBench={state,renderGallery,appendGalleryBatch,turboGallery};\n':'')+
-       (uiBench?'  globalThis.__uiBench={state,renderModalPicture};\n':'');
+       (uiBench?'  globalThis.__uiBench={state,renderModalPicture,requestThumb};\n':'');
      const patched=source.replace(suffix,instrumentation+suffix);
      return route.fulfill({status:200,contentType:'text/javascript',body:patched});
    });
@@ -167,6 +167,55 @@ async function main(){
     assert.equal(playback.requests.filter(x=>x!=='GET').length,0);
     console.log('PASS: 590-byte real VP8 WebM decodes from native streaming and legacy fallback.');
   }finally{await playback.ctx.close();}
+
+  // A real, decodable synthetic WebM produces a tile poster when Google
+  // returns no thumbnailLink. This tests the *actual gallery result*, not
+  // just an HTML video element or a generated filename.
+  const posterPage=await fixturePage(browser,url,{uiBench:true});
+  try{
+    const p=posterPage.page, downloads=[];
+    await posterPage.ctx.route('https://www.googleapis.com/drive/v3/files/'+vid+'*',route=>{
+      const uri=new URL(route.request().url());
+      if(uri.searchParams.get('alt')==='media'){
+        downloads.push(route.request().url());
+        return route.fulfill({status:200,body:syntheticWebM,contentType:'video/webm'});
+      }
+      return route.fulfill(reply({id:vid,name:'generated.webm',mimeType:'video/webm',
+        size:String(syntheticWebM.length),capabilities:{canDownload:true}}));
+    });
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    await p.locator('[data-view="all"]').click();
+    await p.locator('#galleryGrid [data-open-image="'+vid+'"]').waitFor({state:'visible'});
+    await p.evaluate(({id,size})=>{
+      const h=window.__uiBench;
+      for(const item of [h.state.images.find(x=>x.id===id),h.state.filteredById.get(id)]){
+        if(item){item.mime='video/webm';item.size=size;}
+      }
+      const item=h.state.filteredById.get(id);
+      h.requestThumb(item,{priority:true,force:true});
+    },{id:vid,size:syntheticWebM.length});
+    await p.waitForFunction(id=>window.__uiBench.state.thumbCache.get(id)?.kind==='generated',vid,{timeout:20000});
+    await p.waitForFunction(id=>{
+      const image=document.querySelector('#galleryGrid [data-open-image="'+id+'"] img');
+      return !!image&&image.complete&&image.naturalWidth>0;
+    },vid,{timeout:12000});
+    assert.equal(downloads.length,1,'auto poster downloads one bounded video after missing Drive thumbnail');
+    assert.equal(posterPage.requests.filter(method=>method!=='GET').length,0,
+      'poster generation never changes files or Google Sheets');
+
+    // A >5 MiB file must not be automatically downloaded merely because
+    // its tile is visible: gallery work remains memory/bandwidth bounded.
+    await p.evaluate(({id,size})=>{
+      const h=window.__uiBench,item=h.state.filteredById.get(id);
+      item.size=size;h.state.thumbErrors.delete(id);
+      h.requestThumb(item,{priority:true,force:true});
+    },{id:vid,size:6*1024*1024});
+    await p.waitForFunction(id=>window.__uiBench.state.thumbErrors.get(id)?.includes('5 MiB'),vid,{timeout:15000});
+    assert.equal(downloads.length,1,'oversized posters must not fetch another full original');
+    console.log('PASS: valid WebM gets a visible generated poster; oversized posters remain read-only and bounded.');
+  }finally{await posterPage.ctx.close();}
+
   // Phase 11D real-Chromium recovery triage uses synthetic Google metadata.
   // The fixture denies individual file metadata: classify as inaccessible,
   // not deleted, and never issue Drive or Sheet writes during a recheck.
