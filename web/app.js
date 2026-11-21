@@ -10202,7 +10202,7 @@ async function nativeMediaPost(route,body,signal){
   // guessed decoder or network progress. It is scoped to the active item.
   function setMediaPlaybackState(status,label,id){
     if(id&&state.activeImage?.id!==id)return;
-    const el=$('mediaPlaybackState');if(!el)return;
+    const el=$('mediaPlaybackState');if(!el||!el.dataset)return;
     el.hidden=false;el.dataset.status=status;el.textContent=label;
   }
   function bindVideoPlaybackState(video,item){
