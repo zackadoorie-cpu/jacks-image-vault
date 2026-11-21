@@ -1,5 +1,13 @@
 # Jack's Image Vault — Windows image and media library
 
+## v2.1.49 — Five-step gallery density slider and Micro tiles
+
+The gallery's truncated size dropdown has been replaced with an accessible **five-step slider**, ordered **Large → Comfortable → Compact → Ultra Compact → Micro**. The active density label is always visible, keyboard Home/End and arrow keys work, the layout updates smoothly, and the existing local preference key keeps older settings intact. Preferences now lists Large first and adds Micro last. The surrounding filter toolbar wraps cleanly on narrow screens instead of cutting off the selected label.
+
+The new **Micro** option uses roughly 82px previews (74px on small screens) to fit more media per row than Ultra Compact, while preserving the tile's open, more-actions and favorite controls. Extra descriptions and folder labels are hidden only on the smallest tile style, not removed from detail views. Large-library virtualization uses a matching fixed **146px** Micro row, leaving the cache, thumbnail prefetch, Drive read-only scope and authenticated thumbnail concurrency unchanged.
+
+Chromium tests check monotonic tile column counts, real slider input and keyboard accessibility, preference persistence, Micro details/actions, mobile widths and the 10,000-item virtual gallery. The change is entirely in HTML/CSS/JS and needs only the normal UI patch ZIP on an existing v2.1.48 Windows installation.
+
 ## v2.1.48 — Instant visible gallery preview queue
 
 The gallery now **queues every tile already visible on the screen as soon as it is rendered**, without depending on IntersectionObserver notifications or the first scroll. Tiles within roughly 320 pixels of the viewport are queued next to make downward scrolling smoother, while distant rows remain lazy and the 10,000-item virtual gallery keeps its small DOM window. New rows appended by auto-load also enter the viewport queue immediately. A frame-throttled scroll/resize check prioritizes newly visible rows before preloading nearby items.
