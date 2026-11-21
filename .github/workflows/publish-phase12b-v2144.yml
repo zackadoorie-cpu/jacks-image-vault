@@ -1,0 +1,36 @@
+# One-shot, approval-backed release for Phase 12B; no Drive or Sheet writes.
+name: Publish Phase 12B v2.1.44
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-phase12b-v2144.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: Phase 12B v2.1.44')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify feature is merged and dispatch independently tested release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.44 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.44 already published; no duplicate dispatch."
+            exit 0
+          fi
+          if ! gh pr view 96 --repo "$GITHUB_REPOSITORY" --json state,mergedAt --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .; then
+            echo "::error::Feature PR #96 has not merged. Release blocked."
+            exit 1
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.44
+          echo "Dispatched independent Linux/Chromium/Windows release pipeline."
