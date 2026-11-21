@@ -1,5 +1,11 @@
 # Jack's Image Vault — Windows image and media library
 
+## Phase 12C — Large videos and original photos (v2.1.45)
+
+Large MP4/WebM videos stream in the player through a temporary, protected Windows loopback server ticket instead of downloading an entire file into a Blob. HTML5 seeking and pause are available subject to browser codec and Google Drive Range support. Larger animated GIFs stream on demand, and JPEG/PNG/WebP photos offer **Full resolution** with Fit/±Zoom controls. Small-file playback and the existing 12 MiB storyboard cap remain unchanged. Access tokens and private contents are never persisted or sent to GitHub. The original Google files and Sheets are read-only throughout this feature.
+
+**A full v2.1.45 Windows EXE or Desktop Bundle is necessary for native streaming. A UI-only patch applied to the old v2.1.44 launcher cannot add the server endpoint.** Read [Phase 12C security, size and format limits](docs/phase12c-large-media.md).
+
 ## Phase 12B — Fingerprint evidence audit (v2.1.44)
 
 Similarity Lab now reads existing `Manifest!V:W` SHA-256 and first-frame pHash values into a **read-only, account-bound** audit, rather than relying only on matching filenames and sizes. It shows recorded versus live-session evidence, missing fingerprints, malformed values, byte-equality leads, and separate perceptual candidates. User-approved batches of up to 25 original JPEG/PNG/WebP images (8 MiB each, 48 MiB per batch) compute SHA-256 in memory after a live ID/name/MIME/size/version preflight and readback. Cancel, clear, disconnect, and Sheet refresh protect session isolation; the process never writes hashes, media, metadata, or filenames to Google. Unsupported and unscanned files remain explicitly incomplete. See [Phase 12B safeguards and test plan](docs/phase12b-fingerprint-audit.md).

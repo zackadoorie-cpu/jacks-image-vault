@@ -1524,6 +1524,8 @@
     driveIdentity: null,
     lastFullScanAt: null,
     videoObjectUrl: null,
+    videoStreamId: '',
+    videoLastRenew: 0,
     videoController: null,
     playingMediaId: null,
     posterController: null,
@@ -2039,6 +2041,17 @@
       if(!canPlay)return {allowed:false,reason:'This browser does not support the reported video codec. Open in Drive.',limit};
       return {allowed:true,reason:'',limit};
     }
+    const VIDEO_STREAM_MAX=32*1024*1024*1024;
+    function videoStreamEligibility(item,{canPlay=true}={}){
+      const size=Number(item?.size),format=videoFormat(item);
+      if(format==='Unsupported')return {allowed:false,reason:'This format is not supported by the in-app video stream. Open in Drive.',limit:VIDEO_STREAM_MAX};
+      if(!Number.isSafeInteger(size)||size<=0||size>VIDEO_STREAM_MAX)return {allowed:false,
+        reason:'The video has an unknown size or exceeds the 32 GiB streaming limit. Open in Drive.',
+        limit:VIDEO_STREAM_MAX};
+      if(!canPlay)return {allowed:false,
+        reason:'The player cannot decode the reported video codec. Open in Drive.',limit:VIDEO_STREAM_MAX};
+      return {allowed:true,reason:'',limit:VIDEO_STREAM_MAX};
+    }
     function videoValidateSignature(bytes,item){
       const data=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes||[]);
       const format=videoFormat(item);
@@ -2101,7 +2114,8 @@
     return {VIDEO_LIBRARY_SCHEMA,VIDEO_STORYBOARD_MAX,VIDEO_PLAYBACK_MAX,
       VIDEO_STORYBOARD_FRAMES,VIDEO_MAX_DIMENSION,VIDEO_MAX_PIXELS,VIDEO_CATALOG_PAGE,
       VIDEO_EVIDENCE,videoMime,videoFormat,videoEligibility,videoValidateSignature,
-      videoStoryboardTimes,videoEvidence,videoList};
+      videoStoryboardTimes,videoEvidence,videoList,
+      VIDEO_STREAM_MAX,videoStreamEligibility};
   })();
   /* GENERATED VIDEO LIBRARY END */
   /* GENERATED COMMAND CENTER START */
@@ -9801,6 +9815,7 @@
     const playable=mediaKind(item)==='video'||isGIF(item);
     $('playVideoButton').classList.toggle('hidden',!playable||item.demo);
     $('playVideoButton').textContent=isGIF(item)?'▶ Play GIF animation':'▶ Play video';
+    $('viewOriginalButton').classList.toggle('hidden',item.demo||!state.connected||!['image/jpeg','image/png','image/webp'].includes(item.mime));
     renderModalPicture();
   }
   function renderModalPicture() {
@@ -9815,11 +9830,11 @@
     const diagnostic=kind==='video'||isGIF(item)||!!error;
     $('mediaDiagnostics').classList.toggle('hidden',!diagnostic);
     if(diagnostic)renderMediaDiagnostic(item);
-    if(state.playingMediaId===item.id && state.videoObjectUrl) return; // Preserve original playback when thumbnails refresh.
-    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · private in-app preview up to 32 MB; larger clips open in Drive.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · select the ▶ button to play animation (20 MB limit).` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
+    if(state.playingMediaId===item.id && (state.videoObjectUrl||state.videoStreamId)) return; // Preserve live playback and original-image zoom.
+    $('previewDetails').textContent=kind==='video' ? `Video · ${humanBytes(item.size)} · larger clips stream securely using the updated Windows launcher.` : isGIF(item)? `GIF · ${humanBytes(item.size)} · select ▶ to play; larger animations stream on demand.` : kind==='pdf' ? 'PDF document · use Open in Drive' : error ? error : (entry ? 'Drive preview' : 'Waiting for Google preview…');
     const poster=entry?`<img src="${escapeHTML(entry.src)}" alt="${escapeHTML(item.description||item.name)}">`:`<div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${kind==='video'?'Video preview available on demand':kind==='pdf'?'Open in Drive to view the document':item.demo?'Design preview':error?'Preview unavailable; use Retry or Open in Drive':'Preview loading…'}</small></div>`;
     const playable=!item.demo&&(kind==='video'||isGIF(item));
-    const oversized=kind==='video'&&item.size>MAX_VIDEO_PREVIEW || isGIF(item)&&item.size>MAX_GIF_PREVIEW;
+    const oversized=kind==='video'&&item.size>videoLibrary.VIDEO_STREAM_MAX || isGIF(item)&&item.size>256*1024*1024;
     const drive=oversized?linkToDrive(item):'';
     const label=isGIF(item)?'Play GIF animation':'Play video';
     const affordance=!playable?'':oversized&&drive?
@@ -9829,7 +9844,7 @@
     $('modalPicture').innerHTML=playable?
       `<div class="media-preview-stage">${poster}${affordance}${hint}</div>`:poster;
     $('modalPlayOverlay')?.addEventListener('click',()=>void playVideo());
-    const tools=['playVideoButton','retryPreview','generatePosterButton','storyboardButton','storyboardCancel'];
+    const tools=['playVideoButton','viewOriginalButton','retryPreview','generatePosterButton','storyboardButton','storyboardCancel'];
     $('mediaToolstrip').classList.toggle('hidden',tools.every(id=>$(id).classList.contains('hidden')));
     const pic=$('modalPicture').querySelector('img');
     if(pic)pic.onerror=()=>{if(entry?.kind==='signed')handleSignedImageFailure(item.id);else{state.thumbErrors.set(item.id,'Image format not supported by browser');paintThumb(item.id,null);}};
@@ -9842,6 +9857,8 @@
     $('generatePosterButton').disabled=false;
     const el=$('modalPicture').querySelector('video');if(el)el.pause();
     if(state.videoObjectUrl)URL.revokeObjectURL(state.videoObjectUrl);
+    if(state.videoStreamId){const id=state.videoStreamId;state.videoStreamId='';void nativeMediaStop(id);}
+    state.videoLastRenew=0;
     state.videoObjectUrl=null;
     state.playingMediaId=null;
     // Closing or stepping away while a download is pending must not leave
@@ -9939,6 +9956,149 @@
       }
     }
   }
+async function nativeMediaPost(route,body,signal){
+    if(!desktopNonce){
+      const response=await fetch('/__vault_update/status',{cache:'no-store',credentials:'omit',signal});
+      if(!response.ok)throw new Error('Secure streaming requires the v2.1.45 Windows executable.');
+      const status=await response.json();
+      if(typeof status.nonce!=='string'||!status.nonce)throw new Error('Native session token unavailable.');
+      desktopNonce=status.nonce;
+    }
+    const response=await fetch('/__vault_media/'+route,{method:'POST',cache:'no-store',credentials:'omit',signal,
+      headers:{'Content-Type':'application/json','X-Vault-Nonce':desktopNonce},body:JSON.stringify(body)});
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(String(result.error||'Native media server unavailable').slice(0,240));
+    return result;
+  }
+  async function nativeMediaStart(item,mode,signal){
+    const epoch=state.authEpoch,account=state.driveIdentity,sheet=state.config.sheetId;
+    const response=await fetch('/__vault_media/status',{cache:'no-store',credentials:'omit',signal});
+    if(!response.ok)throw new Error('Large media streaming requires the v2.1.45 Windows executable, not a UI-only patch.');
+    const cap=await response.json();
+    const max=Number(mode==='video'?cap.maxVideoBytes:cap.maxImageBytes);
+    if(!cap.available||!cap.streaming||!Number.isSafeInteger(item.size)||item.size<=0||item.size>max)
+      throw new Error('This file is not eligible for safe native streaming.');
+    if(state.authProvider==='desktop'&&Date.now()>state.expiry-15000)
+      await resumeDesktopSession({silent:true,load:false,allowBrowser:true});
+    if(!state.connected||epoch!==state.authEpoch||account!==state.driveIdentity||
+       sheet!==state.config.sheetId||!state.accessToken||Date.now()>state.expiry)
+      throw new Error('The Google sign-in changed or expired. Please reconnect.');
+    const ticket=await nativeMediaPost('start',{driveId:item.id,mime:item.mime,size:item.size,
+      mode,accessToken:state.accessToken},signal);
+    if(!/^[0-9a-f]{48}$/.test(String(ticket.id||''))||
+       ticket.url!=='/__vault_media/stream/'+ticket.id||
+       ticket.mime!==item.mime||Number(ticket.size)!==Number(item.size))
+      throw new Error('Unexpected native playback ticket.');
+    if(signal?.aborted||epoch!==state.authEpoch||account!==state.driveIdentity||
+      sheet!==state.config.sheetId){
+      void nativeMediaStop(ticket.id);
+      throw new Error('Streaming cancelled or account changed.');
+    }
+    return ticket;
+  }
+  async function nativeMediaStop(id){
+    if(!/^[0-9a-f]{48}$/.test(String(id||'')))return;
+    try{await nativeMediaPost('stop',{id});}catch{/* Host also expires unused tickets. */}
+  }
+  async function nativeMediaRenew(id){
+    if(id!==state.videoStreamId||!state.connected)return;
+    if(state.authProvider==='desktop'&&Date.now()>state.expiry-90000)
+      await resumeDesktopSession({silent:true,load:false,allowBrowser:true});
+    if(Date.now()>state.expiry||!state.accessToken)throw new Error('Google sign-in expired.');
+    await nativeMediaPost('renew',{id,accessToken:state.accessToken});
+  }
+  function nativeMediaShowPlayer(item,ticket,clip){
+    state.videoStreamId=ticket.id;state.playingMediaId=item.id;state.videoLastRenew=Date.now();
+    $('modalPicture').innerHTML='';
+    if(!clip){
+      const img=document.createElement('img');img.alt=item.description||item.name;
+      img.onerror=()=>{if(state.playingMediaId===item.id)$('previewDetails').textContent='GIF decoder or stream failed. Open in Drive.';};
+      img.src=ticket.url;$('modalPicture').appendChild(img);
+      $('previewDetails').textContent='Large GIF streaming on demand. Closing this viewer stops it.';
+      return;
+    }
+    const video=document.createElement('video');
+    video.controls=true;video.playsInline=true;video.preload='metadata';
+    video.setAttribute('aria-label',item.name);
+    video.onerror=()=>{if(state.playingMediaId===item.id)
+      $('previewDetails').textContent='Streaming interrupted by network, permissions or codec. Retry Play or open in Drive.';};
+    video.onended=()=>{
+      if(state.playingMediaId!==item.id)return;
+      state.videoSessionEvidence.set(item.id,{...videoSession(item),playbackEnded:true});
+      videoUpdateEvidence(item);
+    };
+    video.ontimeupdate=()=>{
+      if(state.videoStreamId!==ticket.id||Date.now()-state.videoLastRenew<20*60*1000)return;
+      state.videoLastRenew=Date.now();
+      void nativeMediaRenew(ticket.id).catch(error=>{
+        if(state.videoStreamId===ticket.id)$('previewDetails').textContent='Stream may need Google sign-in: '+error.message;
+      });
+    };
+    video.src=ticket.url;$('modalPicture').appendChild(video);
+    $('previewDetails').textContent='Secure Drive streaming. Pause and seek without downloading the entire video.';
+    video.play().catch(()=>{if(state.playingMediaId===item.id)$('previewDetails').textContent='Video ready. Press ▶ to start playback.';});
+  }
+  async function viewOriginalImage(){
+    const item=state.activeImage;
+    if(!item||item.demo||!state.connected||!['image/jpeg','image/png','image/webp'].includes(item.mime))return;
+    if(!Number.isSafeInteger(item.size)||item.size<=0||item.size>256*1024*1024){
+      $('previewDetails').textContent='Image exceeds the 256 MiB safe original-view limit. Open in Drive.';return;
+    }
+    stopVideo();
+    const controller=new AbortController();state.videoController=controller;
+    const button=$('viewOriginalButton');button.disabled=true;
+    $('previewDetails').textContent='Opening private full-resolution image…';
+    let url='',ticketId='',objectUrl='';
+    try{
+      try{
+        const ticket=await nativeMediaStart(item,'image',controller.signal);
+        ticketId=ticket.id;url=ticket.url;
+      }catch(error){
+        if(!String(error.message||'').includes('v2.1.45 Windows executable')||item.size>64*1024*1024)throw error;
+        const source='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(item.id)+
+          '?alt=media&supportsAllDrives=true';
+        const blob=await googleGet(source,{blob:true,maxBytes:64*1024*1024,signal:controller.signal});
+        if(blob.size!==item.size)throw new Error('Drive media size changed.');
+        objectUrl=URL.createObjectURL(new Blob([blob],{type:item.mime}));url=objectUrl;
+      }
+      if(controller.signal.aborted||state.videoController!==controller||state.activeImage?.id!==item.id){
+        if(ticketId)void nativeMediaStop(ticketId);
+        if(objectUrl)URL.revokeObjectURL(objectUrl);
+        return;
+      }
+      state.videoStreamId=ticketId;state.videoObjectUrl=objectUrl||null;state.playingMediaId=item.id;
+      const stage=document.createElement('div');stage.className='original-view-stage';
+      const toolbar=document.createElement('div');toolbar.className='original-view-controls';
+      const viewport=document.createElement('div');viewport.className='original-view-viewport';
+      const img=document.createElement('img');img.alt=item.description||item.name;img.decoding='async';
+      let zoom=1;
+      const apply=(next)=>{
+        zoom=Math.max(1,Math.min(4,next));
+        img.style.maxWidth=zoom===1?'100%':'none';
+        img.style.maxHeight=zoom===1?'70vh':'none';
+        img.style.width=zoom===1?'auto':(zoom*100)+'%';
+      };
+      for(const [label,delta] of [['−',-0.5],['Fit',0],['+',0.5]]){
+        const button=document.createElement('button');
+        button.type='button';button.className='btn outline';button.textContent=label;
+        button.setAttribute('aria-label',delta===0?'Fit original image':delta>0?'Zoom in':'Zoom out');
+        button.onclick=()=>apply(delta===0?1:zoom+delta);
+        toolbar.appendChild(button);
+      }
+      img.onload=()=>{if(state.playingMediaId===item.id)
+        $('previewDetails').textContent='Original '+img.naturalWidth+' × '+img.naturalHeight+' · zoom up to 4×. Drive unchanged.';};
+      img.onerror=()=>{if(state.playingMediaId===item.id)
+        $('previewDetails').textContent='Full-resolution image could not be decoded here. Open in Drive.';};
+      viewport.appendChild(img);stage.appendChild(toolbar);stage.appendChild(viewport);
+      $('modalPicture').innerHTML='';$('modalPicture').appendChild(stage);
+      img.src=url;
+    }catch(error){
+      if(ticketId)void nativeMediaStop(ticketId);
+      if(objectUrl)URL.revokeObjectURL(objectUrl);
+      if(!controller.signal.aborted&&state.activeImage?.id===item.id)
+        $('previewDetails').textContent='Full resolution unavailable: '+error.message+'. Open in Drive.';
+    }finally{button.disabled=false;}
+  }
   function modalPlayFeedback(message,{busy=false}={}){
     const hint=$('modalPlayHint'),button=$('modalPlayOverlay');
     if(hint)hint.textContent=message;
@@ -9956,11 +10116,14 @@
     const gif=isGIF(item),clip=mediaKind(item)==='video';
     if(!gif&&!clip)return;
     const maxBytes=gif?MAX_GIF_PREVIEW:MAX_VIDEO_PREVIEW;
-    if(item.size>maxBytes){
-      const message=`${gif?'GIF':'Video'} exceeds the ${gif?'20':'32'} MB in-app preview limit. Open in Drive instead.`;
-      $('previewDetails').textContent=message;
-      modalPlayFeedback(message);
-      return;
+    const large=item.size>maxBytes;
+    if(clip&&!videoLibrary.videoStreamEligibility(item).allowed){
+      const message=videoLibrary.videoStreamEligibility(item).reason;
+      $('previewDetails').textContent=message;modalPlayFeedback(message);return;
+    }
+    if(gif&&(!Number.isSafeInteger(item.size)||item.size<=0||item.size>256*1024*1024)){
+      const message='GIF exceeds the 256 MiB safe streaming limit. Open in Drive.';
+      $('previewDetails').textContent=message;modalPlayFeedback(message);return;
     }
     if(clip){
       // WebM/MP4 support is determined by the embedded browser's actual codecs.
@@ -9980,6 +10143,14 @@
     $('previewDetails').textContent=loading;
     modalPlayFeedback(loading,{busy:true});
     try{
+      if(large){
+        const ticket=await nativeMediaStart(item,gif?'image':'video',controller.signal);
+        if(state.videoController!==controller||controller.signal.aborted||state.activeImage?.id!==item.id){
+          void nativeMediaStop(ticket.id);return;
+        }
+        nativeMediaShowPlayer(item,ticket,clip);
+        return;
+      }
       const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
       const source=await googleGet(url,{blob:true,maxBytes,signal:controller.signal});
       if(clip)await videoCheckSignature(source,item);
@@ -10029,7 +10200,7 @@
     }finally{
       if(state.videoController===controller){
         button.disabled=false;
-        if(!state.videoObjectUrl){
+        if(!state.videoObjectUrl&&!state.videoStreamId){
           const overlay=$('modalPlayOverlay');
           if(overlay){
             overlay.disabled=false;
@@ -10674,6 +10845,7 @@
     $('layoutButton').onclick=()=>{state.layout=state.layout==='grid'?'list':'grid';renderGallery();};
     $('closeImage').onclick=closeImage;$('prevImage').onclick=()=>stepImage(-1);$('nextImage').onclick=()=>stepImage(1);
     $('playVideoButton').onclick=playVideo;
+    $('viewOriginalButton').onclick=()=>void viewOriginalImage();
     $('generatePosterButton').onclick=generateVideoThumbnail;
     $('favoriteImage').onclick=()=>{if(!state.activeImage?.demo){toggleFavorite(state.activeImage.id);renderGallery();}};
     $('retryPreview').onclick=()=>{if(state.activeImage){requestThumb(state.activeImage,{priority:true,force:true});renderModalPicture();}};
