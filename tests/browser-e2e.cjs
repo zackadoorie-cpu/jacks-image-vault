@@ -399,8 +399,8 @@ async function main(){
     const p=preview.page;
     await openDisclosure(p,'#homeInsights');
     await p.locator('#commandCenter').waitFor({state:'visible'});
-    assert.equal((await p.locator('#commandSnapshot').innerText()).trim(),'—');
-    assert.match(await p.locator('#commandConnection').innerText(),/Connect Drive/);
+    assert.equal((await p.locator('#commandSnapshot').textContent()).trim(),'—');
+    assert.match(await p.locator('#commandConnection').textContent(),/Connect Drive/);
     assert.equal(await p.locator('#homeActionVideos').isVisible(),true);
     assert.equal(await p.locator('#homeActionRename').isVisible(),true);
     assert.equal((await p.locator('#homeCoveragePercent').innerText()).trim(),'—');
@@ -784,7 +784,7 @@ async function main(){
     const p=connected.page;
     await p.locator('#connectButton').click();
     await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
-    assert.equal((await p.locator('#commandLive').innerText()).trim(),'—');
+    assert.equal((await p.locator('#commandLive').textContent()).trim(),'—');
     // Hostile search and saved-search names must render as text, never markup.
     const browserErrors=[];
     p.on('pageerror',err=>browserErrors.push(err.message));
@@ -1038,7 +1038,7 @@ async function main(){
     // Alt+1 is intentionally ignored when a text input holds focus.
     await p.locator('#navigation [data-view="home"]').click();
     assert.equal(await p.locator('#homeView').isVisible(),true);
-    assert.match(await p.locator('#commandLiveNote').innerText(),/Not verified/);
+    assert.match(await p.locator('#commandLiveNote').textContent(),/Not verified/);
     await p.locator('#homeActionDesk').click();
     assert.equal(await p.locator('#managerDeskView').isVisible(),true);
     assert.equal(await p.locator('#managerDeskList .manager-item').count(),2);
@@ -1163,8 +1163,8 @@ async function main(){
     await openDisclosure(p,'#homeInsights');
     await p.locator('#commandSync').click();
     await p.waitForFunction(()=>document.querySelector('#commandError')?.textContent.includes('Spreadsheet refresh failed'),null,{timeout:15000});
-    assert.equal((await p.locator('#commandSnapshot').innerText()).trim(),'2');
-    assert.equal((await p.locator('#commandLive').innerText()).trim(),'—');
+    assert.equal((await p.locator('#commandSnapshot').textContent()).trim(),'2');
+    assert.equal((await p.locator('#commandLive').textContent()).trim(),'—');
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     assert.equal((await p.evaluate(()=>JSON.stringify(localStorage))).includes('fake-e2e-token'),false);
   }finally{await connected.ctx.close();}
@@ -1695,7 +1695,7 @@ async function main(){
     auto.setAccount('fixture_different_account_123456789');
     await p.reload({waitUntil:'domcontentloaded'});
     await p.waitForFunction(()=>document.querySelector('#homeReconnectNote')?.textContent.includes('account changed'),null,{timeout:18000});
-    assert.equal((await p.locator('#commandSnapshot').innerText()).trim(),'—');
+    assert.equal((await p.locator('#commandSnapshot').textContent()).trim(),'—');
     assert.match(await p.locator('#homeReconnectNote').innerText(),/account changed/);
     assert.equal(auto.requests.filter(x=>x==='GET').length,baseline+1,
       'Wrong-account silent reconnect must only read the Drive about endpoint, not Sheet data.');
@@ -1705,7 +1705,7 @@ async function main(){
     await p.locator('#disconnectButton').click();
     assert.equal(await p.evaluate(()=>localStorage.getItem('jack-vault-autoconnect-binding-v1')),null);
     await p.reload({waitUntil:'domcontentloaded'});
-    assert.equal((await p.locator('#commandSnapshot').innerText()).trim(),'—');
+    assert.equal((await p.locator('#commandSnapshot').textContent()).trim(),'—');
     assert.equal((await p.evaluate(()=>window.__authPrompts||[])).length,0);
   }finally{await auto.ctx.close();}
   const mobile=await fixturePage(browser,url,{mobile:true});
