@@ -96,6 +96,18 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,t
  const page=await ctx.newPage();await page.goto(url,{waitUntil:'domcontentloaded'});
  return {ctx,page,requests,failSheet(){fail=true;},setAccount(id){activeAccount=id;},getSheetWrites(){return sheetWrites;},getSheetRow(){return sheetRow;}};
 }
+// End-user slider: five keyboard-accessible steps, with persisted legacy names.
+const densityOrder=['large','comfortable','compact','ultra-compact','micro'];
+async function setDensity(page,name){
+  const position=densityOrder.indexOf(name);
+  assert.ok(position>=0,'known density level');
+  await page.locator('#densityRange').evaluate((el,index)=>{
+    el.value=String(index);
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+  },position);
+  await page.waitForFunction(expected=>
+    document.querySelector('#galleryGrid')?.dataset.density===expected,name,{timeout:8000});
+}
 async function main(){
  const {server:host,url}=await server();let browser;
  try{
@@ -645,7 +657,7 @@ async function main(){
     assert.ok(initial.mounted<=180,'10k-media initial DOM must stay bounded: '+initial.mounted);
     assert.equal(initial.windowStart,0);
     // 10,000-file virtualization still has bounded DOM with denser columns.
-    await p.locator('#densitySelect').selectOption('ultra-compact');
+    await setDensity(p,'ultra-compact');
     const dense=await p.evaluate(()=>{
       const grid=document.querySelector('#galleryGrid');
       const style=getComputedStyle(grid);
@@ -658,7 +670,18 @@ async function main(){
     assert.equal(dense.cssRow,'182px');
     assert.ok(dense.cols>=8,'Ultra Compact should display many synthetic columns');
     assert.ok(dense.mounted<=180);
-    await p.locator('#densitySelect').selectOption('comfortable');
+    await setDensity(p,'micro');
+    const micro=await p.evaluate(()=>({
+      cssRow:getComputedStyle(document.querySelector('#galleryGrid')).getPropertyValue('--turbo-row-height').trim(),
+      row:window.__turboBench.turboGallery.rowHeight('grid','micro'),
+      cols:getComputedStyle(document.querySelector('#galleryGrid')).gridTemplateColumns.split(/\\s+/).filter(Boolean).length,
+      mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length
+    }));
+    assert.equal(micro.row,146,'Micro virtualization row height must match CSS');
+    assert.equal(micro.cssRow,'146px','Micro row height must be fixed to avoid scroll jumps');
+    assert.ok(micro.cols>dense.cols,'Micro tiles must fit more per row than Ultra Compact');
+    assert.ok(micro.mounted<=260,'Micro virtualization must remain bounded for 10,000 files');
+    await setDensity(p,'comfortable');
     await p.evaluate(()=>{
       const grid=document.querySelector('#galleryGrid');
       window.scrollTo({top:grid.getBoundingClientRect().top+window.scrollY+grid.scrollHeight,behavior:'instant'});
@@ -798,27 +821,47 @@ async function main(){
     // Ultra Compact must visibly increase columns, keep preview/detail actions,
     // persist its existing density preference and avoid Google writes.
     const densityBaseline=connected.requests.filter(method=>method!=='GET').length;
-    await p.locator('#densitySelect').selectOption('compact');
+    await setDensity(p,'compact');
     const compactCols=await p.locator('#galleryGrid').evaluate(el=>
       getComputedStyle(el).gridTemplateColumns.split(/\s+/).filter(Boolean).length);
-    await p.locator('#densitySelect').selectOption('ultra-compact');
+    await setDensity(p,'ultra-compact');
     const ultraCols=await p.locator('#galleryGrid').evaluate(el=>
       getComputedStyle(el).gridTemplateColumns.split(/\s+/).filter(Boolean).length);
     assert.ok(ultraCols>compactCols,
       'Ultra Compact must fit more columns than Compact ('+ultraCols+' vs '+compactCols+')');
     assert.equal(await p.locator('#galleryGrid').getAttribute('data-density'),'ultra-compact');
     assert.equal(await p.evaluate(()=>localStorage.getItem('jack-vault-gallery-density-v1')),'ultra-compact');
+    assert.equal(await p.locator('#densityValue').innerText(),'Ultra Compact');
+    await setDensity(p,'micro');
+    const microCols=await p.locator('#galleryGrid').evaluate(el=>
+      getComputedStyle(el).gridTemplateColumns.split(/\\s+/).filter(Boolean).length);
+    assert.ok(microCols>ultraCols,'Micro must fit more columns than Ultra Compact');
+    assert.equal(await p.locator('#densityValue').innerText(),'Micro');
+    assert.equal(await p.locator('#densityRange').getAttribute('aria-valuetext'),'Micro');
+    assert.equal(await p.evaluate(()=>localStorage.getItem('jack-vault-gallery-density-v1')),'micro');
+    const microLabel=await p.locator('#galleryGrid [data-open-image]').first().getAttribute('aria-label');
+    assert.ok(microLabel?.startsWith('View '),'Micro must retain accessible media buttons');
     assert.equal(await p.locator('#galleryGrid .tile-description').first().isVisible(),false);
     assert.equal(await p.locator('#galleryGrid [data-open-image]').count(),2);
     assert.equal(await p.locator('#galleryGrid [data-favorite]').count(),2);
     assert.equal(await p.locator('#galleryGrid [data-tile-actions]').count(),2);
     assert.equal(await p.locator('#galleryGrid [data-open-image]').first().getAttribute('aria-label')!==null,true);
     await p.locator('#sidebarPreferences').click();
-    assert.equal(await p.locator('#prefDensity').inputValue(),'ultra-compact');
+    assert.equal(await p.locator('#prefDensity').inputValue(),'micro');
+    const options=await p.locator('#prefDensity option').allTextContents();
+    assert.equal(options[0],'Large','Preferences must show Large first');
+    assert.match(options.at(-1),/^Micro/,'Micro should be listed last');
     await p.locator('#preferencesForm button[type="submit"]').click();
+    // Keyboard controls remain usable without pointer dragging.
+    await p.locator('#densityRange').focus();
+    await p.keyboard.press('Home');
+    await p.waitForFunction(()=>document.querySelector('#galleryGrid')?.dataset.density==='large');
+    assert.equal(await p.locator('#densityValue').innerText(),'Large');
+    await p.keyboard.press('End');
+    await p.waitForFunction(()=>document.querySelector('#galleryGrid')?.dataset.density==='micro');
     assert.equal(connected.requests.filter(method=>method!=='GET').length,densityBaseline,
       'Density changes must never write to Drive or Sheets');
-    await p.locator('#densitySelect').selectOption('comfortable');
+    await setDensity(p,'comfortable');
     const hostile='<img src=x onerror="window.__vaultXss=1">';
     await p.locator('#searchInput').fill(hostile);
     await p.locator('#saveSearchButton').click();
@@ -1603,6 +1646,10 @@ async function main(){
     const overflow=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
     assert.ok(overflow<=1,'Unexpected horizontal overflow: '+overflow);
     assert.equal(await p.evaluate(()=>getComputedStyle(document.documentElement).scrollBehavior),'auto');
+    await p.locator('[data-view="all"]').first().click();
+    await setDensity(p,'micro');
+    const mobileExcess=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
+    assert.ok(mobileExcess<=1,'Micro slider/gallery causes mobile horizontal overflow: '+mobileExcess);
   }finally{await mobile.ctx.close();}
   const narrow=await fixturePage(browser,url,{mobile:true,narrow:true});
   try{
@@ -1613,6 +1660,11 @@ async function main(){
       else await p.evaluate(view=>document.querySelector('[data-view="'+view+'"]').click(),view);
       const excess=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
       assert.ok(excess<=1,'320px viewport overflows '+view+' by '+excess+'px');
+      if(view==='all'){
+        await setDensity(p,'micro');
+        const microExcess=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
+        assert.ok(microExcess<=1,'Micro slider overflows 320px layout: '+microExcess);
+      }
     }
     await p.locator('#installButton').click();
     const dialogExcess=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
