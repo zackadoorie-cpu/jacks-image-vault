@@ -6837,7 +6837,8 @@
     $('memoryView').classList.toggle('hidden',view!=='memory');
     $('smartView').classList.toggle('hidden',view!=='smart');
     $('healthView').classList.toggle('hidden',view!=='health');
-    const healthNav=document.querySelector('#navigation [data-view="health"]');
+    const healthNav=typeof document.querySelector==='function'?
+      document.querySelector('#navigation [data-view="health"]'):null;
     if(healthNav){
       const label=view==='health'?'Close Library Health and return Home':'Library Health';
       healthNav.title=label;healthNav.setAttribute('aria-label',label);
