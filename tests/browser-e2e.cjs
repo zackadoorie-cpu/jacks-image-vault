@@ -96,6 +96,17 @@ async function fixturePage(browser,url,{mobile=false,narrow=false,native=false,t
  const page=await ctx.newPage();await page.goto(url,{waitUntil:'domcontentloaded'});
  return {ctx,page,requests,failSheet(){fail=true;},setAccount(id){activeAccount=id;},getSheetWrites(){return sheetWrites;},getSheetRow(){return sheetRow;}};
 }
+// Disclosure helpers follow the same visible UI paths as a person using
+// the streamlined navigation. Existing commands and IDs are unchanged.
+async function openDisclosure(page,selector){
+  const details=page.locator(selector);
+  if(await details.getAttribute('open')===null)
+    await details.locator(':scope > summary').click();
+}
+async function openAdvancedReview(page){
+  await openDisclosure(page,'#navigation [data-nav-group="review"]');
+  await openDisclosure(page,'#navigation [data-nav-subgroup="review-advanced"]');
+}
 // End-user slider: five keyboard-accessible steps, with persisted legacy names.
 const densityOrder=['large','comfortable','compact','ultra-compact','micro'];
 async function setDensity(page,name){
@@ -112,6 +123,49 @@ async function main(){
  const {server:host,url}=await server();let browser;
  try{
   browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+
+  // v2.2 Phase 1: semantic icon navigation and accessible progressive
+  // disclosures keep every legacy destination, command and control.
+  const makeover=await fixturePage(browser,url);
+  try{
+    const p=makeover.page;
+    assert.equal(await p.locator('#navigation [data-view]').count(),17,
+      'Every legacy library and review destination remains reachable');
+    assert.equal(await p.locator('#navigation details[data-nav-group]').count(),3);
+    assert.ok(await p.locator('#navigation .vault-icon').count()>=20,
+      'Navigation uses one consistent SVG icon family');
+    assert.match(await p.locator('.sidebar-safety').innerText(),/READ-ONLY BY DEFAULT/);
+    assert.match(await p.locator('.sidebar-caption').innerText(),/explicit approval/);
+    assert.equal(await p.locator('#homeInsights').getAttribute('open'),null,
+      'Deep diagnostics should be secondary on the simplified Home');
+    assert.equal(await p.locator('#sidebarAppMenu').getAttribute('open'),null,
+      'Duplicate settings links start inside the App & account menu');
+    await openDisclosure(p,'#homeInsights');
+    assert.equal(await p.locator('#commandCenter').isVisible(),true,
+      'Old sync and verification tools are retained behind disclosure');
+    await p.locator('#homeInsights > summary').click();
+    assert.equal(await p.locator('#commandCenter').isVisible(),false);
+    await p.locator('#sidebarAppMenu > summary').click();
+    assert.equal(await p.locator('#sidebarSettings').isVisible(),true);
+    await p.locator('#sidebarSettings').click();
+    assert.equal(await p.locator('#settingsDialog').evaluate(el=>el.open),true);
+    await p.locator('#cancelSettings').click();
+    await p.locator('#navigation [data-nav-group="review"] > summary').click();
+    assert.equal(await p.locator('[data-nav-subgroup="review-advanced"]').getAttribute('open'),null);
+    await p.locator('[data-nav-subgroup="review-advanced"] > summary').click();
+    assert.equal(await p.locator('[data-view="activity"]').isVisible(),true);
+    await p.locator('[data-view="activity"]').click();
+    assert.equal(await p.locator('#activityView').isVisible(),true);
+    await p.locator('[data-view="all"]').click();
+    assert.equal(await p.locator('#galleryAdvanced').getAttribute('open'),null);
+    await p.locator('#galleryAdvanced > summary').click();
+    assert.equal(await p.locator('#savedSearchSelect').isVisible(),true);
+    assert.equal(await p.locator('#folderSelect').isVisible(),true);
+    assert.equal(await p.locator('#densityRange').isVisible(),true);
+    assert.equal(makeover.requests.some(method=>method!=='GET'),false,
+      'A UI makeover must never send remote edits');
+  }finally{await makeover.ctx.close();}
+  console.log('PASS: v2.2 Phase 1 navigation, menus, diagnostics, gallery controls, and no remote writes.');
 
   // Real fabricated VP8 WebM playback regression. Earlier smoke only
   // checked for a <video> node, not whether a single frame could decode.
@@ -356,6 +410,7 @@ async function main(){
     assert.equal(await p.locator('#installBrowserButton').isVisible(),true);
     assert.match(await p.locator('#installDialog').innerText(),/edge:\/\/apps/);
     await p.locator('#installOkay').click();
+    await openDisclosure(p,'#sidebarAppMenu');
     await p.locator('#sidebarSettings').click();
     assert.equal(await p.locator('#desktopAuthSection').isVisible(),false,'Browser-only mode must never offer native OAuth');
     await p.locator('#cancelSettings').click();
@@ -381,6 +436,7 @@ async function main(){
     await p.unroute('**/__vault_windows/status');
     await p.unroute('**/__vault_update/status');
     await p.unroute('**/__vault_windows/install');
+    await openDisclosure(p,'#homeInsights');
     await p.locator('#shortcutHelpButton').focus();await p.keyboard.press('?');
     assert.equal(await p.locator('#shortcutsDialog').evaluate(e=>e.open),true);
     assert.equal(await p.evaluate(()=>document.activeElement.id),'shortcutsClose');
@@ -390,12 +446,14 @@ async function main(){
     assert.equal(await p.locator('#shortcutsDialog').evaluate(e=>e.open),false);
     assert.equal(await p.evaluate(()=>document.activeElement.id),'shortcutHelpButton');
     // Native backdrop closes help but retains the origin control for keyboard users.
+    await openDisclosure(p,'#homeInsights');
     await p.locator('#shortcutHelpButton').click();
     assert.equal(await p.locator('#shortcutsDialog').evaluate(e=>e.open),true);
     await p.mouse.click(5,5);
     assert.equal(await p.locator('#shortcutsDialog').evaluate(e=>e.open),false);
     assert.equal(await p.evaluate(()=>document.activeElement.id),'shortcutHelpButton');
     // Drive setup also closes on backdrop, without submitting the form.
+    await openDisclosure(p,'#sidebarAppMenu');
     await p.locator('#sidebarSettings').click();
     assert.equal(await p.locator('#settingsDialog').evaluate(e=>e.open),true);
     await p.locator('#settingsTitle').click();
@@ -539,6 +597,7 @@ async function main(){
       return route.fulfill(reply(polls===1?{status:'pending'}:
         {status:'ready',accessToken:'fake-e2e-token',expiresIn:3600}));
     });
+    await openDisclosure(p,'#sidebarAppMenu');
     await p.locator('#sidebarSettings').click();
     await p.locator('#desktopAuthSection').waitFor({state:'visible'});
     await p.locator('#desktopClientIdInput').fill('123456789-desktopfixture.apps.googleusercontent.com');
@@ -594,6 +653,7 @@ async function main(){
     await p.reload({waitUntil:'domcontentloaded'});
     await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
     assert.equal(resumes,1,'Browser launcher must use one saved Windows refresh on restart');
+    await openDisclosure(p,'#sidebarAppMenu');
     await p.locator('#sidebarSettings').click();
     await p.locator('#desktopResumeSavedButton').waitFor({state:'visible'});
     assert.equal(await p.locator('#desktopResumeSavedButton').isDisabled(),true);
@@ -846,6 +906,7 @@ async function main(){
     assert.equal(await p.locator('#galleryGrid [data-favorite]').count(),2);
     assert.equal(await p.locator('#galleryGrid [data-tile-actions]').count(),2);
     assert.equal(await p.locator('#galleryGrid [data-open-image]').first().getAttribute('aria-label')!==null,true);
+    await openDisclosure(p,'#sidebarAppMenu');
     await p.locator('#sidebarPreferences').click();
     assert.equal(await p.locator('#prefDensity').inputValue(),'micro');
     const options=await p.locator('#prefDensity option').allTextContents();
@@ -864,6 +925,7 @@ async function main(){
     await setDensity(p,'comfortable');
     const hostile='<img src=x onerror="window.__vaultXss=1">';
     await p.locator('#searchInput').fill(hostile);
+    await openDisclosure(p,'#galleryAdvanced');
     await p.locator('#saveSearchButton').click();
     await p.locator('#savedSearchName').fill(hostile);
     await p.locator('#saveSearchForm button[type="submit"]').click();
@@ -1016,6 +1078,7 @@ async function main(){
     assert.match(await p.locator('#reviewEditorStatus').innerText(),/Undo is available/);
     await p.mouse.click(5,5);
     assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),false);
+    await openAdvancedReview(p);
     await p.locator('[data-view="activity"]').click();
     assert.equal(await p.locator('#activityView').isVisible(),true);
     assert.match(await p.locator('#activityStatus').innerText(),/Nothing has been written to Google/);
@@ -1046,6 +1109,7 @@ async function main(){
     assert.equal(await p.locator('#reviewInboxView').isVisible(),true);
     assert.equal(connected.requests.every(x=>x==='GET'),true);
     await p.keyboard.press('Alt+1');
+    await openDisclosure(p,'#homeInsights');
     await p.locator('#commandVideos').click();
     assert.match(await p.locator('#videoCatalogSummary').innerText(),/1 video files/);
     assert.match(await p.locator('#videoCatalogSummary').innerText(),/1 with descriptions/);
@@ -1086,6 +1150,7 @@ async function main(){
     assert.equal(await p.locator('#filenameReviewView').isVisible(),true);
     assert.equal(await p.locator('[data-filename-stage="'+vid+'"]').isChecked(),true);
     await p.locator('#filenameClear').click();
+    await openAdvancedReview(p);
     await p.locator('[data-view="activity"]').click();
     await p.locator('#activityFilter').selectOption('plans');
     assert.equal(await p.locator('#activityList .activity-entry').count(),3,
@@ -1094,6 +1159,7 @@ async function main(){
     assert.equal(connected.requests.every(x=>x==='GET'),true);
 
     await p.keyboard.press('Alt+1');connected.failSheet();
+    await openDisclosure(p,'#homeInsights');
     await p.locator('#commandSync').click();
     await p.waitForFunction(()=>document.querySelector('#commandError')?.textContent.includes('Spreadsheet refresh failed'),null,{timeout:15000});
     assert.equal((await p.locator('#commandSnapshot').innerText()).trim(),'2');
@@ -1416,6 +1482,7 @@ async function main(){
     p.off('dialog',accept);
     // The fabricated PATCH handler must update the real mock state.
     reconLive={...reconLive,name:'orange cat - reaction meme.jpg',version:'19'};
+    await openAdvancedReview(p);
     await p.locator('[data-view="sheet-write"]').click();
     assert.equal(await p.locator('[data-reconcile-preview]').count(),1,
       'reconciliation candidate missing: '+JSON.stringify(await p.evaluate(()=>({
