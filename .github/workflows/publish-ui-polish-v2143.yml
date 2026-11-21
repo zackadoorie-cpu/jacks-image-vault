@@ -1,0 +1,33 @@
+# Single-owner-authorized UX maintenance patch.
+# The independent release.yml gates Windows host, Chromium, updater, and checksums.
+name: Publish approved UI polish v2.1.43
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-ui-polish-v2143.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: UI Polish v2.1.43')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch independent release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v2.1.43 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v2.1.43 already exists; no duplicate dispatch."
+            exit 0
+          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f version=2.1.43
+          echo "Dispatched full release build, tests, checksums and Windows artifacts."
