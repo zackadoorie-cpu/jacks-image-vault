@@ -1637,3 +1637,60 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
   .gallery-advanced-body{padding:0 9px 10px}
 }
 @media(prefers-reduced-motion:reduce){.home-insights-chevron{transition:none}}
+
+
+/* v2.2 Phase 2 — gallery refinement without changing loading budgets.
+   Only actually queued/loading previews animate. Offscreen waiting tiles
+   stay still and the app honors reduced-motion preferences. */
+.tile-preview[data-preview-state="queued"] .tile-placeholder small,
+.tile-preview[data-preview-state="loading"] .tile-placeholder small{color:var(--text)}
+.tile-preview[data-preview-state="loading"] .tile-placeholder{
+  background:linear-gradient(110deg,transparent 25%,color-mix(in srgb,var(--purple) 10%,transparent) 50%,transparent 75%);
+  background-size:240% 100%;animation:vault-preview-loading 1.8s ease-in-out infinite;
+}
+@keyframes vault-preview-loading{from{background-position:120% 0}to{background-position:-120% 0}}
+.tile-preview[data-preview-state="ready"] .tile-placeholder{visibility:hidden}
+.tile-preview[data-preview-state="unavailable"] .tile-placeholder{
+  background:color-mix(in srgb,var(--surface2) 89%,var(--purple) 11%);
+}
+.tile-preview[data-preview-state="unavailable"] .tile-placeholder small{
+  max-width:94%;overflow-wrap:anywhere;color:var(--text);line-height:1.4
+}
+.tile-preview[data-preview-state="unavailable"]{outline:1px solid color-mix(in srgb,var(--purple) 38%,transparent);outline-offset:-1px}
+@media(prefers-reduced-motion:reduce){
+  .tile-preview[data-preview-state="loading"] .tile-placeholder{animation:none}
+}
+
+.active-filters{display:flex;align-items:center;flex-wrap:wrap;gap:8px;
+  margin:3px 0 12px;padding:10px 12px;border:1px solid var(--line);
+  border-radius:11px;background:var(--surface)}
+.active-filters.hidden{display:none!important}
+.active-filters-label{font-size:11px;color:var(--muted);font-weight:700;white-space:nowrap}
+.active-filter-chips{display:flex;gap:6px;flex:1 1 150px;flex-wrap:wrap;min-width:0}
+.active-filter-chip{display:inline-flex;align-items:center;gap:6px;min-height:30px;
+  padding:5px 9px;border-radius:999px;border:1px solid color-mix(in srgb,var(--purple) 48%,var(--line));
+  background:color-mix(in srgb,var(--purple) 12%,var(--surface));color:var(--text);
+  max-width:100%;font-size:11px;text-align:left;cursor:pointer}
+.active-filter-chip>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(280px,55vw)}
+.active-filter-chip>span:last-child{font-size:14px;line-height:1;color:var(--purple)}
+.active-filter-chip:hover,.active-filter-chip:focus-visible{border-color:var(--purple);background:var(--surface2)}
+.active-filters-clear{flex:none;border:0;background:transparent;color:var(--purple);
+  padding:6px 7px;min-height:30px;font-weight:750;font-size:11px;border-radius:7px}
+.active-filters-clear:hover,.active-filters-clear:focus-visible{background:var(--surface2)}
+.media-playback-state{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;
+  margin:10px 0 1px;border:1px solid var(--line);border-radius:9px;background:var(--surface2);
+  font-size:11px;font-weight:750;color:var(--text)}
+.media-playback-state[hidden]{display:none!important}
+.media-playback-state::before{content:"";width:7px;height:7px;border-radius:100%;background:var(--muted)}
+.media-playback-state[data-status="playing"]::before{background:var(--green)}
+.media-playback-state[data-status="error"]::before{background:#ec9b89}
+.media-playback-state[data-status="loading"]::before,
+.media-playback-state[data-status="buffering"]::before,
+.media-playback-state[data-status="seeking"]::before{background:var(--purple);animation:vault-preview-pulse 1.2s ease-in-out infinite}
+@keyframes vault-preview-pulse{50%{opacity:.35}}
+@media(prefers-reduced-motion:reduce){.media-playback-state::before{animation:none!important}}
+@media(max-width:480px){
+  .active-filters{padding:8px;gap:6px}
+  .active-filter-chips{flex-basis:100%;order:3}
+  .active-filters-clear{margin-left:auto}
+}
