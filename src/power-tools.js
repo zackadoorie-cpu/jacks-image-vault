@@ -194,7 +194,7 @@ function powerContextOpen(id,x,y,origin){
   const rect=menu.getBoundingClientRect();
   menu.style.left=Math.max(6,Math.min(x,window.innerWidth-rect.width-8))+'px';
   menu.style.top=Math.max(6,Math.min(y,window.innerHeight-rect.height-8))+'px';
-  menu.querySelector('[data-context-action="open"]').focus();
+  menu.querySelector('[data-context-action="open"]').focus({preventScroll:true});
 }
 async function powerContextAction(action){
   const id=powerContextId;
@@ -269,7 +269,11 @@ function powerToolsInit(){
   document.addEventListener('pointerdown',e=>{
     if(!menu.hidden&&!menu.contains(e.target)&&!e.target.closest('[data-tile-actions]'))powerContextClose();
   });
-  window.addEventListener('scroll',()=>powerContextClose(),{passive:true});
+  window.addEventListener('scroll',()=>{if(!menu.contains(document.activeElement))powerContextClose();},{passive:true});
+  // Deliberate wheel/touch scrolling still dismisses the menu. Programmatic
+  // focus/scroll into view during keyboard or pointer activation must not.
+  document.addEventListener('wheel',()=>powerContextClose(),{passive:true});
+  document.addEventListener('touchmove',()=>powerContextClose(),{passive:true});
   window.addEventListener('resize',()=>powerContextClose(),{passive:true});
 }
 /* power-tools:portable:end */
