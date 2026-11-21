@@ -1439,3 +1439,11 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 @media(prefers-reduced-motion:reduce){
   .media-play-overlay{transition:none!important}
 }
+
+/* Phase 12C native large-media viewing. Original bytes remain in Drive. */
+.original-view-stage{width:100%;max-width:100%;min-width:0;display:flex;flex-direction:column;gap:10px;align-items:stretch}
+.original-view-controls{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}
+.original-view-controls .btn{min-width:45px;padding:7px 12px}
+.original-view-viewport{width:100%;min-height:220px;max-height:70vh;display:flex;align-items:center;justify-content:center;overflow:auto;border-radius:12px;background:var(--surface,#151923)}
+.original-view-viewport img{display:block;max-width:100%;max-height:70vh;width:auto;height:auto;object-fit:contain;flex-shrink:0}
+@media(max-width:650px){.original-view-viewport{max-height:55vh}.original-view-viewport img{max-height:55vh}}
