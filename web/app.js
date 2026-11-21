@@ -1427,6 +1427,10 @@
     turboScrollScheduled: false,
     activeImage: null,
     returnFocus: null,
+    quickPeekId: null,
+    quickPeekReturnFocus: null,
+    compareIds: [],
+    compareReturnFocus: null,
     thumbCache: new Map(),
     thumbCacheBytes: 0,
     maxThumbCacheBytes: 48*1024*1024,
@@ -5805,6 +5809,10 @@
     state.accessToken = null; state.expiry=0; state.connected=false; state.tokenClient=null;state.authProvider='browser';
     saveBrowsingPosition();
     stopScans();stopVideo();similarityClearLocal();state.videoSessionEvidence.clear();renameDeskClear();
+    if($('quickPeekDialog')?.open)$('quickPeekDialog').close();
+    if($('compareDialog')?.open)$('compareDialog').close();
+    state.quickPeekId=null;state.quickPeekReturnFocus=null;
+    state.compareIds=[];state.compareReturnFocus=null;
     state.snapshotLoadedAt=null;state.lastSyncAttemptAt=null;state.lastSyncSuccessAt=null;state.lastSyncError='';
     clearBrowsingPosition();clearLocalSyncCache();state.inboxPreviewId=null;state.inboxPreviewReturnFocus=null;state.inboxFilter='all';state.inboxPage=1;state.inventory=[];state.catalogManifestIDs.clear();state.folderSources=[];state.baseFolderSources=[];state.libraryRoots=[];state.lastDiscoveryAt=null;state.lastFallbackScanAt=null;state.discoveryError=null;state.syncedFolders.clear();state.health.clear();state.scanFailures.clear();state.lastScanAt=null;state.changeToken=null;state.driveIdentity=null;state.lastFullScanAt=null;
     if (token && !wasDesktop && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(token, () => {});
@@ -9547,6 +9555,10 @@
     for(const btn of hearts)btn.addEventListener('click',e=>{
       e.preventDefault();toggleFavorite(btn.dataset.favorite);renderGallery();
     });
+    const grid=$('galleryGrid');
+    if(typeof grid?.querySelectorAll==='function')
+      for(const btn of grid.querySelectorAll('[data-compare-image]'))
+        btn.addEventListener('click',()=>toggleCompareSelection(btn.dataset.compareImage));
   }
   function updateLoadMoreArea(){
     state.autoLoadObserver?.disconnect();
@@ -9675,6 +9687,7 @@
     }
     updateLoadMoreArea();
     updatePreviewStats();
+    renderCompareBar();
     scheduleBrowseSave();
   }
   // Phase 2: summarize active filters without exposing or mutating private
@@ -9766,7 +9779,7 @@
       status==='deferred'?'deferred':'';
     const why=state.view==='smart-results'?smartFor(item).reasons.join(' · '):'';
     const when=state.view==='memory-results'?memorySourceLabel(item):'';
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-preview-state="${previewState}" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(display.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Select ▶ to play · no thumbnail':'Preview unavailable · open for retry'):state.loadingThumbs.has(item.id)?'Queued for preview…':'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(display.name)}">${escapeHTML(display.name)}</div>${display.suggested?`<p class="tile-proposal-note">${display.reviewed?"Suggested name":"Suggestion awaiting review"} · Drive: ${escapeHTML(display.original)}</p>`:""}<p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tile-more" data-tile-actions="${escapeHTML(item.id)}" aria-label="More actions for ${escapeHTML(item.name)}" title="Read-only file actions">⋯</button><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-preview-state="${previewState}" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(display.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Select ▶ to play · no thumbnail':'Preview unavailable · open for retry'):state.loadingThumbs.has(item.id)?'Queued for preview…':'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(display.name)}">${escapeHTML(display.name)}</div>${display.suggested?`<p class="tile-proposal-note">${display.reviewed?"Suggested name":"Suggestion awaiting review"} · Drive: ${escapeHTML(display.original)}</p>`:""}<p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tile-compare" data-compare-image="${escapeHTML(item.id)}" aria-label="Add ${escapeHTML(display.name)} to comparison" aria-pressed="${state.compareIds.includes(item.id)}" title="Compare cached previews without changing files"><svg class="vault-icon" aria-hidden="true"><use href="#vicon-similar"></use></svg><span>${state.compareIds.includes(item.id)?'Selected':'Compare'}</span></button><button type="button" class="tile-more" data-tile-actions="${escapeHTML(item.id)}" aria-label="More actions for ${escapeHTML(item.name)}" title="Read-only file actions">⋯</button><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   const THUMB_PRELOAD_MARGIN=320;
   function enqueueViewportThumbs(tiles){
@@ -10024,6 +10037,7 @@
       if(small)small.textContent='Loading thumbnail…';
     }
     if(state.activeImage?.id===id)renderModalPicture();
+    if(state.quickPeekId===id&&$('quickPeekDialog')?.open)renderQuickPeek();
     updatePreviewStats();
   }
   function toggleFavorite(id) {
@@ -10032,6 +10046,153 @@
     try {localStorage.setItem(FAVORITES_STORAGE,JSON.stringify([...state.favorites]));}
     catch {/* Browser storage may be disabled. */}
     if(state.activeImage?.id===id)updateFavoriteButton();
+  }
+  // Phase 4: ephemeral selection, limited to two IDs in the currently
+  // loaded account. Nothing is persisted, uploaded, renamed or deleted.
+  function renderCompareBar(){
+    const bar=$('galleryCompareBar');
+    if(!bar?.classList)return; // Optional in minimal DOM stress harnesses.
+    state.compareIds=state.compareIds.filter(id=>state.images.some(item=>item.id===id)).slice(0,2);
+    const count=state.compareIds.length;
+    bar.classList.toggle('hidden',count===0);
+    $('galleryCompareCount').textContent=count+' of 2 selected';
+    $('galleryCompareHint').textContent=count===2?
+      'Ready to compare cached previews side by side.':
+      'Select another file using Compare on its gallery tile.';
+    $('galleryCompareOpen').disabled=count!==2;
+    const grid=$('galleryGrid');
+    if(typeof grid?.querySelectorAll!=='function')return;
+    for(const button of grid.querySelectorAll('[data-compare-image]')){
+      if(!button?.dataset||typeof button.setAttribute!=='function')continue;
+      const selected=state.compareIds.includes(button.dataset.compareImage);
+      button.setAttribute('aria-pressed',String(selected));
+      button.disabled=count===2&&!selected;
+      const label=button.querySelector('span');if(label)label.textContent=selected?'Selected':'Compare';
+    }
+  }
+  function toggleCompareSelection(id){
+    if(!state.images.some(item=>item.id===id))return;
+    const index=state.compareIds.indexOf(id);
+    if(index>=0)state.compareIds.splice(index,1);
+    else if(state.compareIds.length<2)state.compareIds.push(id);
+    else {
+      $('galleryCompareHint').textContent='Two already selected. Remove one to choose a different file.';
+      return;
+    }
+    renderCompareBar();
+    if($('quickPeekDialog')?.open&&state.quickPeekId===id)renderQuickPeek();
+  }
+  function clearCompareSelection(){
+    state.compareIds=[];
+    renderCompareBar();
+    if($('compareDialog')?.open)$('compareDialog').close();
+    if($('quickPeekDialog')?.open)renderQuickPeek();
+  }
+  function mediaPreviewPlaceholder(stage,message,kind){
+    const div=document.createElement('div');div.className='quick-peek-placeholder';
+    const symbol=document.createElement('span');symbol.setAttribute('aria-hidden','true');
+    symbol.textContent=kind==='video'?'▶':kind==='pdf'?'▤':'▧';
+    const heading=document.createElement('strong');
+    heading.textContent=kind==='video'?'Video poster':kind==='pdf'?'PDF document':'Thumbnail preview';
+    const p=document.createElement('p');p.textContent=message;
+    div.append(symbol,heading,p);stage.replaceChildren(div);
+  }
+  function renderCachedPreview(stage,item){
+    const kind=mediaKind(item),entry=state.thumbCache.get(item.id);
+    if(!entry?.src){
+      const error=state.thumbErrors.get(item.id);
+      mediaPreviewPlaceholder(stage,error?'Preview unavailable. Open full details to retry.':
+        kind==='video'?'No cached video poster. Open full details to play.':
+        kind==='pdf'?'Open the PDF in Google Drive.':
+        'Waiting for a standard gallery thumbnail.',kind);
+      return !!entry;
+    }
+    const img=document.createElement('img');img.alt='Cached preview of '+item.name;
+    img.decoding='async';img.loading='eager';
+    img.addEventListener('error',()=>{
+      if(img.isConnected)mediaPreviewPlaceholder(stage,'Cached preview could not be displayed. Open full details to retry.',kind);
+    });
+    stage.replaceChildren(img);
+    img.src=entry.src;
+    return true;
+  }
+  function renderQuickPeek(){
+    const item=state.filtered.find(x=>x.id===state.quickPeekId);
+    if(!item||!$('quickPeekDialog')?.open)return;
+    const index=state.filtered.findIndex(x=>x.id===item.id);
+    $('quickPeekTitle').textContent=item.name;
+    $('quickPeekMeta').textContent=mediaKind(item).toUpperCase()+
+      ' · '+item.folder+' · '+(index+1)+' of '+state.filtered.length;
+    $('quickPeekStatus').textContent='Standard bounded thumbnails only. Video playback and full resolution are available in the full viewer.';
+    $('quickPeekPrev').disabled=index<=0;
+    $('quickPeekNext').disabled=index>=state.filtered.length-1;
+    $('quickPeekCompare').textContent=state.compareIds.includes(item.id)?'Remove from compare':'Add to compare';
+    $('quickPeekCompare').disabled=!state.compareIds.includes(item.id)&&state.compareIds.length>=2;
+    renderCachedPreview($('quickPeekStage'),item);
+  }
+  function openQuickPeek(id,origin){
+    if(!state.filtered.some(item=>item.id===id)||$('imageDialog')?.open||
+       $('compareDialog')?.open)return;
+    state.quickPeekId=id;state.quickPeekReturnFocus=origin||document.activeElement;
+    if(!$('quickPeekDialog').open)$('quickPeekDialog').showModal();
+    renderQuickPeek();
+    const item=state.filtered.find(x=>x.id===id);
+    // This is the same eight-worker thumbnail queue as an ordinary explicit
+    // detail open, not a second fetcher or automatic original download.
+    if(state.connected&&item)requestThumb(item,{priority:true});
+  }
+  function stepQuickPeek(direction){
+    const index=state.filtered.findIndex(item=>item.id===state.quickPeekId);
+    const next=state.filtered[index+direction];
+    if(index<0||!next)return;
+    state.quickPeekId=next.id;renderQuickPeek();
+    if(state.connected)requestThumb(next,{priority:true});
+  }
+  function quickPeekOpenDetails(){
+    const id=state.quickPeekId,origin=state.quickPeekReturnFocus;
+    state.quickPeekReturnFocus=null;
+    if($('quickPeekDialog').open)$('quickPeekDialog').close();
+    if(id)openImage(id,origin);
+  }
+  function renderCompareDialog(){
+    const ids=state.compareIds.filter(id=>state.images.some(item=>item.id===id));
+    if(ids.length!==2){if($('compareDialog').open)$('compareDialog').close();return;}
+    const box=$('compareVisuals');box.replaceChildren();
+    for(const id of ids){
+      const item=state.images.find(x=>x.id===id);
+      const pane=document.createElement('article');pane.className='compare-pane';
+      const stage=document.createElement('div');stage.className='compare-pane-preview';
+      renderCachedPreview(stage,item);
+      const details=document.createElement('div');details.className='compare-pane-details';
+      const title=document.createElement('strong');title.textContent=item.name;
+      const meta=document.createElement('p');meta.textContent=mediaKind(item).toUpperCase()+' · '+item.folder;
+      const description=document.createElement('p');
+      description.textContent=effectiveDescription(item)||'No verified visual description available.';
+      const button=document.createElement('button');button.className='btn outline';
+      button.type='button';button.textContent='Open full details';
+      button.addEventListener('click',()=>compareOpenDetails(id));
+      details.append(title,meta,description,button);
+      pane.append(stage,details);box.appendChild(pane);
+    }
+    $('compareStatus').textContent='Two cached previews. No originals fetched and no files modified.';
+  }
+  function openCompareDialog(origin){
+    if(state.compareIds.length!==2)return;
+    state.compareReturnFocus=origin||document.activeElement;
+    if(!$('compareDialog').open)$('compareDialog').showModal();
+    renderCompareDialog();
+  }
+  function compareOpenDetails(id){
+    if(!state.images.some(item=>item.id===id))return;
+    const origin=state.compareReturnFocus;state.compareReturnFocus=null;
+    if($('compareDialog').open)$('compareDialog').close();
+    // A saved comparison may outlive a gallery filter; move to All media
+    // only when needed to ensure the existing viewer can find this file.
+    if(!state.filtered.some(item=>item.id===id)){
+      state.search='';state.sort='name';state.mediaType='all';state.folder='all';state.activeSavedSearch='';
+      $('searchInput').value='';displayPage('all');
+    }
+    openImage(id,origin);
   }
   function openImage(id,origin) {
     const item=state.filtered.find(x=>x.id===id);if(!item)return;
