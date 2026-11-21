@@ -10179,7 +10179,8 @@ async function nativeMediaPost(route,body,signal){
       const source=await googleGet(url,{blob:true,maxBytes,signal:controller.signal});
       // The previous hard-coded MP4 ftyp offset rejected valid videos with
       // different leading boxes. Browser decoding, not a heuristic, decides.
-      if(source.size!==Number(item.size))throw new Error('Drive returned a different file size. Sync the catalog and retry.');
+      // Live Drive bytes may be newer than a stale Sheet size. The bounded
+      // authenticated response is safe to decode even if catalog metadata drifts.
       if(state.videoController!==controller||state.activeImage?.id!==item.id||controller.signal.aborted)return;
       // Drive sometimes returns application/octet-stream. The inventory's verified
       // MIME tells the browser how to decode this private, in-memory file.
