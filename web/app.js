@@ -6902,7 +6902,11 @@
     document.addEventListener('pointerdown',e=>{
       if(!menu.hidden&&!menu.contains(e.target)&&!e.target.closest('[data-tile-actions]'))powerContextClose();
     });
-    window.addEventListener('scroll',()=>powerContextClose(),{passive:true});
+    window.addEventListener('scroll',()=>{if(!menu.contains(document.activeElement))powerContextClose();},{passive:true});
+  // Deliberate wheel/touch scrolling still dismisses the menu. Programmatic
+  // focus/scroll into view during keyboard or pointer activation must not.
+  document.addEventListener('wheel',()=>powerContextClose(),{passive:true});
+  document.addEventListener('touchmove',()=>powerContextClose(),{passive:true});
     window.addEventListener('resize',()=>powerContextClose(),{passive:true});
   }
   /* GENERATED POWER TOOLS END */
