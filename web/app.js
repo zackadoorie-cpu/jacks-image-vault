@@ -9637,7 +9637,7 @@
       status==='deferred'?'deferred':'';
     const why=state.view==='smart-results'?smartFor(item).reasons.join(' · '):'';
     const when=state.view==='memory-results'?memorySourceLabel(item):'';
-    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(display.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(display.name)}">${escapeHTML(display.name)}</div>${display.suggested?`<p class="tile-proposal-note">${display.reviewed?"Suggested name":"Suggestion awaiting review"} · Drive: ${escapeHTML(display.original)}</p>`:""}<p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tile-more" data-tile-actions="${escapeHTML(item.id)}" aria-label="More actions for ${escapeHTML(item.name)}" title="Read-only file actions">⋯</button><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
+    return `<article class="image-tile"><button class="tile-preview" type="button" data-open-image="${escapeHTML(item.id)}" aria-label="View ${escapeHTML(display.name)}"><div class="tile-placeholder"><span class="placeholder-symbol">${kind==='video'?'▶':kind==='pdf'?'▤':escapeHTML(style.icon)}</span><small>${item.demo?'Design preview':kind==='pdf'?'PDF document':error?(kind==='video'?'Select ▶ to play · no thumbnail':'Preview unavailable · open for retry'):'Waiting for preview…'}</small></div><span class="tile-badge ${badgeClass}">${badge}</span></button><div class="tile-info"><div class="tile-title" title="${escapeHTML(display.name)}">${escapeHTML(display.name)}</div>${display.suggested?`<p class="tile-proposal-note">${display.reviewed?"Suggested name":"Suggestion awaiting review"} · Drive: ${escapeHTML(display.original)}</p>`:""}<p class="tile-description">${escapeHTML(description||'No verified visual description yet')}</p>${why?'<p class="smart-why">Why here: '+escapeHTML(why)+'</p>':''}${when?'<p class="memory-provenance">'+escapeHTML(when)+'</p>':''}<div class="tile-footer"><span class="folder-label" title="${escapeHTML(item.folder)}">${escapeHTML(date)}${note?' · Edited locally':''}</span><button type="button" class="tile-more" data-tile-actions="${escapeHTML(item.id)}" aria-label="More actions for ${escapeHTML(item.name)}" title="Read-only file actions">⋯</button><button type="button" class="tiny-heart ${favorite?'on':''}" data-favorite="${escapeHTML(item.id)}" aria-label="${favorite?'Remove from':'Add to'} favorites" title="Saved only on this device">${favorite?'♥':'♡'}</button></div></div></article>`;
   }
   function observeThumbs() {
     state.observer?.disconnect();
@@ -9770,7 +9770,7 @@
     for(const btn of document.querySelectorAll('[data-open-image]')) {
       if(btn.dataset.openImage!==id)continue;
       const small=btn.querySelector('.tile-placeholder small');
-      if(!entry){if(small)small.textContent=mediaKind(state.images.find(x=>x.id===id)||{})==='video'?'Playable on click · no thumbnail':'Preview unavailable · open for retry';const old=btn.querySelector('img');old?.remove();continue;}
+      if(!entry){if(small)small.textContent=mediaKind(state.images.find(x=>x.id===id)||{})==='video'?'Select ▶ to play · no thumbnail':'Preview unavailable · open for retry';const old=btn.querySelector('img');old?.remove();continue;}
       let img=btn.querySelector('img');
       if(!img){img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';btn.appendChild(img);}
       const timer=setTimeout(()=>{if(img.isConnected&&!img.classList.contains('ready')) {if(entry.kind==='signed')handleSignedImageFailure(id);else {state.thumbErrors.set(id,'Preview timed out');paintThumb(id,null);}}},12000);
@@ -10036,7 +10036,14 @@ async function nativeMediaPost(route,body,signal){
     };
     video.src=ticket.url;$('modalPicture').appendChild(video);
     $('previewDetails').textContent='Secure Drive streaming. Pause and seek without downloading the entire video.';
-    video.play().catch(()=>{if(state.playingMediaId===item.id)$('previewDetails').textContent='Video ready. Press ▶ to start playback.';});
+    video.onloadedmetadata=()=>{
+      if(state.videoStreamId===ticket.id)
+        $('previewDetails').textContent='Video metadata decoded. Use ▶, pause or seek controls.';
+    };
+    video.play().catch(()=>{
+      if(state.videoStreamId===ticket.id)
+        $('previewDetails').textContent='Playback could not start automatically. Press ▶ or open in Drive.';
+    });
   }
   async function viewOriginalImage(){
     const item=state.activeImage;
@@ -10109,7 +10116,7 @@ async function nativeMediaPost(route,body,signal){
       if(label)label.textContent=busy?'Loading…':'Play again';
     }
   }
-  async function playVideo(){
+  async function playVideo(blobOnly=false){
     const item=state.activeImage;
     if($('playVideoButton').disabled)return;
     if(!item)return;
@@ -10125,17 +10132,7 @@ async function nativeMediaPost(route,body,signal){
       const message='GIF exceeds the 256 MiB safe streaming limit. Open in Drive.';
       $('previewDetails').textContent=message;modalPlayFeedback(message);return;
     }
-    if(clip){
-      // WebM/MP4 support is determined by the embedded browser's actual codecs.
-      // A .webm extension alone does not guarantee a usable video codec.
-      const probe=document.createElement('video');
-      if(typeof probe.canPlayType==='function' && probe.canPlayType(item.mime||'video/webm')===''){
-        const message='This browser cannot play the video format. Open in Drive to preview it.';
-        $('previewDetails').textContent=message;
-        modalPlayFeedback(message);
-        return;
-      }
-    }
+    // Attempt decoding instead of rejecting a container-only canPlayType() result.
     stopVideo();
     const controller=new AbortController();state.videoController=controller;
     const button=$('playVideoButton');button.disabled=true;
@@ -10143,17 +10140,41 @@ async function nativeMediaPost(route,body,signal){
     $('previewDetails').textContent=loading;
     modalPlayFeedback(loading,{busy:true});
     try{
-      if(large){
-        const ticket=await nativeMediaStart(item,gif?'image':'video',controller.signal);
-        if(state.videoController!==controller||controller.signal.aborted||state.activeImage?.id!==item.id){
-          void nativeMediaStop(ticket.id);return;
+      // Stream every video, including tiny MP4/WebM clips. On a legacy host,
+      // or when a small stream cannot decode, use one bounded Blob fallback.
+      if((clip||large)&&blobOnly!==true){
+        let ticket;
+        try{
+          ticket=await nativeMediaStart(item,gif?'image':'video',controller.signal);
+        }catch(error){
+          if(large)throw error;
+          ticket=null;
         }
-        nativeMediaShowPlayer(item,ticket,clip);
-        return;
+        if(ticket){
+          if(state.videoController!==controller||controller.signal.aborted||
+             state.activeImage?.id!==item.id){
+            void nativeMediaStop(ticket.id);return;
+          }
+          nativeMediaShowPlayer(item,ticket,clip);
+          if(clip&&!large){
+            const video=$('modalPicture').querySelector('video');
+            if(video)video.onerror=()=>{
+              if(state.videoController!==controller||controller.signal.aborted||
+                 state.videoStreamId!==ticket.id||state.activeImage?.id!==item.id)return;
+              $('previewDetails').textContent='Local streaming failed. Retrying a small authenticated preview…';
+              // Only one fallback; its Blob path cannot re-enter streaming.
+              void playVideo(true);
+            };
+          }
+          return;
+        }
       }
+      if(large)throw new Error('Large media requires the updated Windows launcher.');
       const url=`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(item.id)}?alt=media&supportsAllDrives=true`;
       const source=await googleGet(url,{blob:true,maxBytes,signal:controller.signal});
-      if(clip)await videoCheckSignature(source,item);
+      // The previous hard-coded MP4 ftyp offset rejected valid videos with
+      // different leading boxes. Browser decoding, not a heuristic, decides.
+      if(source.size!==Number(item.size))throw new Error('Drive returned a different file size. Sync the catalog and retry.');
       if(state.videoController!==controller||state.activeImage?.id!==item.id||controller.signal.aborted)return;
       // Drive sometimes returns application/octet-stream. The inventory's verified
       // MIME tells the browser how to decode this private, in-memory file.
@@ -10176,16 +10197,27 @@ async function nativeMediaPost(route,body,signal){
         video.controls=true;video.playsInline=true;video.autoplay=false;video.preload='metadata';
         video.setAttribute('aria-label',item.name);
         video.onerror=()=>{
-          if(state.playingMediaId===item.id)$('previewDetails').textContent='This clip uses a codec the browser cannot decode. Open in Drive instead.';
+          if(state.playingMediaId===item.id){
+            const code=video.error?.code;
+            const reason=code===2?'The browser could not read the video.':
+              code===3?'The video decoder rejected its content.':
+              code===4?'The video codec or format is unsupported here.':
+              'The video could not be opened.';
+            $('previewDetails').textContent=reason+' Open in Drive or try a compatible file.';
+          }
         };
         video.onended=()=>{
           if(state.playingMediaId!==item.id)return;
           state.videoSessionEvidence.set(item.id,{...videoSession(item),playbackEnded:true});
           videoUpdateEvidence(item);
         };
+        video.onloadedmetadata=()=>{
+          if(state.playingMediaId===item.id)
+            $('previewDetails').textContent='Video metadata decoded. Use the player to pause, play or seek.';
+        };
         video.src=objectUrl;
         $('modalPicture').appendChild(video);
-        $('previewDetails').textContent='Video loaded. Use the playback controls; unsupported codecs can be opened in Drive.';
+        $('previewDetails').textContent='Opening small video in the decoder…';
         // A browser may reject autoplay once the authenticated download finishes.
         video.play().catch(()=>{
           if(state.playingMediaId===item.id)$('previewDetails').textContent='Video ready. Press ▶ in the player to start playback.';
