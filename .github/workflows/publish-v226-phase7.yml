@@ -1,0 +1,48 @@
+# One-time publisher for verified v2.2.6 Phase 7 Gallery Jump Navigator.
+name: Publish v2.2.6 Phase 7 Gallery Jump Navigator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v226-phase7.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v2.2.6 Phase 7 gallery jump navigator')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify Phase 7 merged and release tag unused
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          if gh release view v2.2.6 --repo "$REPO" >/dev/null 2>&1; then
+            echo "::notice::v2.2.6 is already published; skipping duplicate dispatch."
+            exit 0
+          fi
+          if ! gh pr view 123 --repo "$REPO" --json state,mergedAt \
+            --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .; then
+            echo "::error::Phase 7 PR #123 must be merged before publishing."
+            exit 1
+          fi
+          STATUS="$(gh api "repos/$REPO/compare/b5128ed7cc9c948ed1038c6f0ffda180c46b2983...$GITHUB_SHA" --jq '.status')"
+          if [[ "$STATUS" != "ahead" && "$STATUS" != "identical" ]]; then
+            echo "::error::Release source does not contain verified Phase 7 merge."
+            exit 1
+          fi
+          if gh api "repos/$REPO/git/ref/tags/v2.2.6" >/dev/null 2>&1; then
+            echo "::error::v2.2.6 tag already exists."
+            exit 1
+          fi
+          gh workflow run release.yml --repo "$REPO" --ref main -f version=2.2.6
+          echo "Dispatched independent v2.2.6 release validation."
