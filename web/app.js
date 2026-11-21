@@ -1386,6 +1386,12 @@
     similarityCrossFolder: false,
     similarityEpoch: 0,
     similarityLocalItems: [],
+    similarityDriveEpoch: 0,
+    similarityDriveBusy: false,
+    similarityDriveAbort: null,
+    similarityDriveMessage: '',
+    similarityDriveEvidence: new Map(),
+    similarityDriveErrors: new Map(),
     similarityProcessing: false,
     similarityProgress: '',
     similarityError: '',
@@ -2585,10 +2591,87 @@
       }
       return entries;
     }
+    const SIMILARITY_DRIVE_BATCH=25;
+    const SIMILARITY_DRIVE_MAX_FILE_BYTES=8*1024*1024;
+    const SIMILARITY_DRIVE_MAX_BATCH_BYTES=48*1024*1024;
+    function similarityHashValid(value,length){
+      return typeof value==='string'&&new RegExp('^[0-9a-f]{'+length+'}$','i').test(value);
+    }
+    function similarityFingerprintAudit(records,{maxScan=SIMILARITY_MAX_SCAN,maxGroups=SIMILARITY_MAX_GROUPS}={}){
+      const input=Array.isArray(records)?records:[];
+      const scanLimit=Math.max(0,Math.min(SIMILARITY_MAX_SCAN,Math.floor(Number(maxScan)||0)));
+      const groupLimit=Math.max(0,Math.min(SIMILARITY_MAX_GROUPS,Math.floor(Number(maxGroups)||0)));
+      const seen=new Set(),shaGroups=new Map(),pHashGroups=new Map();
+      let scanned=0,eligible=0,shaCount=0,manifestSHA=0,sessionSHA=0,pHashCount=0,sessionDHash=0;
+      let invalidSHA=0,invalidPHash=0;
+      for(const item of input){
+        if(scanned>=scanLimit)break;
+        scanned++;
+        if(!item||typeof item.id!=='string'||!item.id||seen.has(item.id))continue;
+        seen.add(item.id);
+        if(item.demo||!String(item.mime||'').startsWith('image/'))continue;
+        eligible++;
+        const original=String(item.manifestSHA||'').trim();
+        const session=String(item.sessionSHA||'').trim();
+        const sha=similarityHashValid(session,64)?session.toLowerCase():
+          similarityHashValid(original,64)?original.toLowerCase():'';
+        if(original&&!similarityHashValid(original,64))invalidSHA++;
+        if(sha){
+          shaCount++;
+          if(similarityHashValid(original,64))manifestSHA++;
+          if(similarityHashValid(session,64))sessionSHA++;
+          if(!shaGroups.has(sha))shaGroups.set(sha,[]);
+          shaGroups.get(sha).push({...item,hashOrigin:similarityHashValid(session,64)?'live-session':'manifest'});
+        }
+        const pHash=String(item.manifestPHash||'').trim();
+        if(pHash&&!similarityHashValid(pHash,16))invalidPHash++;
+        if(similarityHashValid(pHash,16)){
+          pHashCount++;
+          const key=pHash.toLowerCase();
+          if(!pHashGroups.has(key))pHashGroups.set(key,[]);
+          pHashGroups.get(key).push(item);
+        }
+        if(similarityHashValid(item.sessionDHash,16))sessionDHash++;
+      }
+      const rank=groups=>[...groups.values()].filter(members=>members.length>1).map(members=>({
+        members:members.slice(0,12),
+        count:members.length,
+        crossFolder:new Set(members.map(x=>String(x.folder||''))).size>1
+      })).sort((a,b)=>b.count-a.count||Number(b.crossFolder)-Number(a.crossFolder)||
+        String(a.members[0].id).localeCompare(String(b.members[0].id)));
+      const exact=rank(shaGroups),visual=rank(pHashGroups);
+      return {scanned,eligible,shaCount,missingSHA:eligible-shaCount,manifestSHA,sessionSHA,
+        pHashCount,sessionDHash,invalidSHA,invalidPHash,
+        exactGroups:exact.slice(0,groupLimit),visualGroups:visual.slice(0,groupLimit),
+        totalExactGroups:exact.length,totalVisualGroups:visual.length,
+        limited:scanned<input.length||exact.length>groupLimit||visual.length>groupLimit};
+    }
+    function similarityDriveBatchCandidates(records,completed=new Map(),errors=new Map()){
+      const input=Array.isArray(records)?records:[];
+      const done=completed instanceof Map?completed:new Map();
+      const failed=errors instanceof Map?errors:new Map();
+      const files=[],seen=new Set();
+      let bytes=0,unsupported=0,oversized=0;
+      for(const item of input.slice(0,SIMILARITY_MAX_SCAN)){
+        if(!item||typeof item.id!=='string'||!item.id||seen.has(item.id))continue;
+        seen.add(item.id);
+        if(item.demo||!String(item.mime||'').startsWith('image/'))continue;
+        if(similarityHashValid(String(item.manifestSHA||'').trim(),64)||done.has(item.id)||failed.has(item.id))continue;
+        if(!['image/jpeg','image/png','image/webp'].includes(item.mime)){unsupported++;continue;}
+        const size=Number(item.size);
+        if(!Number.isSafeInteger(size)||size<=0||size>SIMILARITY_DRIVE_MAX_FILE_BYTES){oversized++;continue;}
+        if(files.length>=SIMILARITY_DRIVE_BATCH)continue;
+        if(bytes+size>SIMILARITY_DRIVE_MAX_BATCH_BYTES)continue;
+        files.push(item);bytes+=size;
+      }
+      return {files,bytes,unsupported,oversized,limited:input.length>SIMILARITY_MAX_SCAN};
+    }
     return {SIMILARITY_MAX_SCAN,SIMILARITY_MAX_GROUPS,SIMILARITY_MAX_LOCAL_FILES,
       SIMILARITY_MAX_FILE_BYTES,SIMILARITY_MAX_TOTAL_BYTES,SIMILARITY_MAX_PIXELS,
       SIMILARITY_NEAR_DISTANCE,similarityCandidates,similarityHamming,similarityDHash,
-      similarityLocalPairs,similarityValidateFiles};
+      similarityLocalPairs,similarityValidateFiles,SIMILARITY_DRIVE_BATCH,
+      SIMILARITY_DRIVE_MAX_FILE_BYTES,SIMILARITY_DRIVE_MAX_BATCH_BYTES,
+      similarityHashValid,similarityFingerprintAudit,similarityDriveBatchCandidates};
   })();
   /* GENERATED SIMILARITY LAB END */
   const humanBytes = n => n ? `${(n / 1024 / 1024).toFixed(1)} MB` : 'Unknown size';
@@ -4744,7 +4827,7 @@
 
   async function readSpreadsheetSnapshot() {
       const id = encodeURIComponent(state.config.sheetId);
-      const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G", "'Manifest'!T:T", "'Manifest'!AC:AC", "'Manifest'!R:R", "'Manifest'!AD:AD"];
+      const ranges = ["'Search Index'!A:M", "'Manifest'!A:L", "'Folders'!A:G", "'Manifest'!T:T", "'Manifest'!AC:AC", "'Manifest'!R:R", "'Manifest'!AD:AD", "'Manifest'!V:W"];
       const params = ranges.map(x => `ranges=${encodeURIComponent(x)}`).join('&');
       const data = await googleGet(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchGet?${params}&valueRenderOption=FORMATTED_VALUE`);
       const index = data.valueRanges?.[0]?.values || [];
@@ -4754,6 +4837,7 @@
       const analysisMethods = data.valueRanges?.[4]?.values || [];
       const proposedFilenames = data.valueRanges?.[5]?.values || [];
       const currentFilenames = data.valueRanges?.[6]?.values || [];
+      const manifestFingerprints = data.valueRanges?.[7]?.values || [];
       if ((index[0] || [])[0] !== 'Collection' || (manifest[0] || [])[0] !== 'Collection' ||
           reviewStatuses[0]?.[0] !== 'Review status' || analysisMethods[0]?.[0] !== 'Analysis method')
         throw new Error('This inventory needs Search Index and Manifest visual-review columns. No existing data was changed.');
@@ -4766,6 +4850,7 @@
           manifestRow:row+1,manifestOriginalName:r[2]||'',
           manifestProposedName:proposedFilenames[row]?.[0]||'',
           manifestCurrentName:currentFilenames[row]?.[0]||'',
+           manifestSHA:manifestFingerprints[row]?.[0]||'',manifestPHash:manifestFingerprints[row]?.[1]||'',
           filenameDate:r[9]||'',filenameDateEvidence:r[10]||'',
           driveCreatedAt:r[7]||'',driveModifiedAt:r[8]||''
         });
@@ -4780,7 +4865,8 @@
         images.push(mediaContract.normalizeMediaRecord({id,collection:r[0]||'',folder:r[1]||'',name:r[2]||'Untitled image',description:r[4]||'',tags:r[5]||'',captureDate:r[7]||'',filenameDate:source.filenameDate,filenameDateEvidence:source.filenameDateEvidence,
         driveCreatedAt:source.driveCreatedAt,driveModifiedAt:source.driveModifiedAt,review:source.review||r[9]||'',analysisMethod:source.analysisMethod,confidence:r[11]||'',category:r[12]||'',mime:source.mime,size:source.size,url:linkToDrive({id}),demo:false,
           manifestRow:source.manifestRow,indexRow:ix+1,manifestOriginalName:source.manifestOriginalName,
-          manifestProposedName:source.manifestProposedName,manifestCurrentName:source.manifestCurrentName}));
+          manifestProposedName:source.manifestProposedName,manifestCurrentName:source.manifestCurrentName,
+           manifestSHA:source.manifestSHA,manifestPHash:source.manifestPHash}));
       }
       if (!images.length) throw new Error('No matching media rows were found. Check the inventory spreadsheet ID.');
       const baseFolderSources = folders.slice(1).filter(r=>safeId(r[2]) && /^((Memes)|(Jacks Photos))\//.test(r[1]||''))
@@ -4789,6 +4875,7 @@
   }
   async function loadLiveIndex() {
     integrityReset();
+    similarityClearDrive(true);
     const authorizationEpoch=state.authEpoch;
     // Invalidate previous scans before loading a refreshed spreadsheet snapshot.
     stopScans();
@@ -4884,6 +4971,7 @@
     const signature=folders=>folders.map(f=>f.path+':'+f.id).sort().join('|');
     const changedFolders=signature(snapshot.baseFolderSources)!==signature(state.baseFolderSources);
     integrityReset();
+    similarityClearDrive(true);
     state.inventory=snapshot.images;
     state.catalogManifestIDs=snapshot.manifestIDs||new Set(snapshot.images.map(x=>x.id));
     state.catalogPreview=null;
@@ -5617,6 +5705,7 @@
   }
   function disconnect() {
     integrityReset();
+    similarityClearDrive(true);
     powerContextClose();
     powerPaletteClose();
     // Clear access and all in-memory image data. Favorites store IDs only on this device.
@@ -5705,6 +5794,30 @@
       (group.members.length>8?'<li>+'+(group.members.length-8)+' more candidate files</li>':'')+
       '</ul></article>').join(''):
       '<p class="similarity-empty">No metadata candidates match this filter. That does not prove there are no visual duplicates.</p>';
+    const proof=similarityEngine.similarityFingerprintAudit(similarityCurrentFingerprints());
+    $('similarityFingerprintStatus').textContent=state.connected?
+      format(proof.shaCount)+'/'+format(proof.eligible)+' images have SHA-256 evidence ('+
+      format(proof.manifestSHA)+' recorded in Manifest, '+format(proof.sessionSHA)+
+      ' verified against live Drive this session). '+format(proof.pHashCount)+
+      ' Manifest first-frame pHashes. '+format(proof.missingSHA)+' SHA-256 gaps.'+
+      (proof.invalidSHA||proof.invalidPHash?' Invalid stored fingerprints: '+
+        (proof.invalidSHA+proof.invalidPHash)+'.':''):
+      'Connect Drive to inspect fingerprint coverage.';
+    const candidates=similarityEngine.similarityDriveBatchCandidates(
+      state.connected?state.images:[],state.similarityDriveEvidence,state.similarityDriveErrors);
+    $('similarityFingerprintList').innerHTML=
+      [...proof.exactGroups.slice(0,20).map(g=>similarityFingerprintCard(g,'sha')),
+        ...proof.visualGroups.slice(0,20).map(g=>similarityFingerprintCard(g,'phash'))].join('')||
+      '<p class="similarity-empty">No matching recorded hashes yet. Missing evidence is not proof of unique images.</p>';
+    $('similarityDriveStatus').textContent=state.similarityDriveMessage||
+      ('Eligible for next read-only batch: '+format(candidates.files.length)+
+      ' · unsupported GIF/AVIF: '+format(candidates.unsupported)+
+      ' · oversized/unknown size: '+format(candidates.oversized)+
+      ' · failed this session: '+format(state.similarityDriveErrors.size)+
+      '. Session-only fingerprints are cleared on disconnect or Sheet refresh.');
+    $('similarityDriveScan').disabled=!state.connected||state.similarityDriveBusy||!candidates.files.length;
+    $('similarityDriveStop').disabled=!state.similarityDriveBusy;
+    $('similarityDriveClear').disabled=!state.similarityDriveEvidence.size&&!state.similarityDriveErrors.size&&!state.similarityDriveBusy;
     $('similarityLocalStatus').textContent=state.similarityError||
       (state.similarityProcessing?state.similarityProgress:
       state.similarityLocalItems.length?format(state.similarityLocalItems.length)+
@@ -5776,6 +5889,128 @@
       }
     }finally{
       if(epoch===state.similarityEpoch){state.similarityProcessing=false;state.similarityProgress='';renderSimilarityLab();}
+    }
+  }
+  function similarityCurrentFingerprints(){
+    const account=state.driveIdentity,sheet=state.config.sheetId,epoch=state.authEpoch;
+    return (state.connected?state.images:[]).map(item=>{
+      const proof=state.similarityDriveEvidence.get(item.id);
+      if(!proof||proof.name!==item.name||proof.mime!==item.mime||
+        proof.size!==item.size||proof.account!==account||proof.sheet!==sheet||
+        proof.epoch!==epoch)return item;
+      return {...item,sessionSHA:proof.sha256,sessionDHash:proof.dhash};
+    });
+  }
+  function similarityStopDrive(){
+    state.similarityDriveEpoch++;
+    state.similarityDriveAbort?.abort();
+    state.similarityDriveAbort=null;
+    state.similarityDriveBusy=false;
+    state.similarityDriveMessage='Scan stopped. Verified session hashes retained until you clear them or disconnect.';
+    if(state.view==='similarity')renderSimilarityLab();
+  }
+  function similarityClearDrive(silent=false){
+    state.similarityDriveEpoch++;
+    state.similarityDriveAbort?.abort();
+    state.similarityDriveAbort=null;
+    state.similarityDriveBusy=false;
+    state.similarityDriveEvidence.clear();
+    state.similarityDriveErrors.clear();
+    state.similarityDriveMessage='';
+    if(!silent&&state.view==='similarity')renderSimilarityLab();
+  }
+  function similarityFingerprintCard(group,type){
+    const strong=type==='sha'?'Same recorded SHA-256':'Same recorded perceptual pHash';
+    const evidence=type==='sha'?
+      'Matching SHA-256 is a byte-identity lead. Manifest-only values have NOT been reverified from live originals.':
+      'Matching first-frame pHash is only a visual-similarity candidate, never exact-byte proof.';
+    return '<article class="similarity-card"><div class="similarity-card-head"><strong>'+
+      strong+'</strong><span>'+format(group.count)+' files</span></div>'+
+      '<p>'+evidence+(group.crossFolder?' Across folders.':'')+'</p><ul>'+
+      group.members.map(item=>'<li><span>'+escapeHTML(item.hashOrigin==='live-session'?'Live verified this session':type==='sha'?'Manifest-recorded':'Manifest pHash')+
+        '</span> <a href="'+escapeHTML(linkToDrive(item))+'" target="_blank" rel="noopener noreferrer">'+
+        escapeHTML(item.name)+'</a></li>').join('')+
+      (group.count>group.members.length?'<li>+'+(group.count-group.members.length)+' more in group</li>':'')+
+      '</ul></article>';
+  }
+  async function similarityScanDriveNext(){
+    if(!state.connected||state.similarityDriveBusy||!state.accessToken)return;
+    if(!globalThis.crypto?.subtle){
+      state.similarityDriveMessage='Secure browser SHA-256 hashing is unavailable.';renderSimilarityLab();return;
+    }
+    const batch=similarityEngine.similarityDriveBatchCandidates(
+      state.images,state.similarityDriveEvidence,state.similarityDriveErrors);
+    if(!batch.files.length){state.similarityDriveMessage='No eligible unscanned JPEG, PNG or WebP files remain. Inspect unsupported, oversized or failed files separately.';renderSimilarityLab();return;}
+    if(!confirm('Read-only download and fingerprint up to '+batch.files.length+
+      ' originals ('+humanBytes(batch.bytes)+')? Hashes stay in browser memory only. No Drive, Sheet or local-disk changes.'))return;
+    const context={epoch:state.authEpoch,account:state.driveIdentity,sheet:state.config.sheetId};
+    const generation=++state.similarityDriveEpoch;
+    const controller=new AbortController();
+    state.similarityDriveAbort=controller;
+    state.similarityDriveBusy=true;
+    let done=0,failed=0;
+    const active=()=>state.similarityDriveEpoch===generation&&!controller.signal.aborted&&
+      state.connected&&state.authEpoch===context.epoch&&
+      state.driveIdentity===context.account&&state.config.sheetId===context.sheet;
+    const metadataUrl=item=>'https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(item.id)+
+      '?fields=id,name,mimeType,size,version,trashed&supportsAllDrives=true';
+    try{
+      for(const item of batch.files){
+        if(!active())break;
+        state.similarityDriveMessage='Read-only fingerprint '+(done+failed+1)+'/'+batch.files.length+
+          ' · '+item.name.slice(0,90);
+        renderSimilarityLab();
+        try{
+          const before=await googleGet(metadataUrl(item),{signal:controller.signal});
+          if(!active())break;
+          if(before.id!==item.id||before.name!==item.name||
+            before.mimeType!==item.mime||Number(before.size)!==Number(item.size)||
+            before.trashed===true||!before.version)
+            throw Error('Live file identity differs from the indexed Sheet; sync or review drift.');
+          const bytes=await googleGet('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(item.id)+
+            '?alt=media&supportsAllDrives=true',{blob:true,maxBytes:similarityEngine.SIMILARITY_DRIVE_MAX_FILE_BYTES,
+            signal:controller.signal});
+          if(!active())break;
+          if(bytes.size!==Number(item.size))throw Error('Downloaded byte length differs from indexed size.');
+          const digest=await crypto.subtle.digest('SHA-256',await bytes.arrayBuffer());
+          if(!active())break;
+          const sha256=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');
+          let dhash='',bitmap=null;
+          try{
+            if(typeof createImageBitmap==='function'){
+              bitmap=await createImageBitmap(bytes);
+              if(!active())break;
+              if(bitmap.width>0&&bitmap.height>0&&bitmap.width*bitmap.height<=similarityEngine.SIMILARITY_MAX_PIXELS){
+                const canvas=document.createElement('canvas');canvas.width=9;canvas.height=8;
+                const ctx=canvas.getContext('2d',{willReadFrequently:true});
+                if(ctx){ctx.drawImage(bitmap,0,0,9,8);
+                  dhash=similarityEngine.similarityDHash(ctx.getImageData(0,0,9,8));}
+              }
+            }
+          }catch{/* SHA remains valid if decoding fails. */}
+          finally{bitmap?.close?.();}
+          if(!active())break;
+          const after=await googleGet(metadataUrl(item),{signal:controller.signal});
+          if(!active())break;
+          if(after.id!==before.id||after.version!==before.version||after.name!==before.name||
+             after.size!==before.size||after.mimeType!==before.mimeType||after.trashed===true)
+            throw Error('Drive file changed while hashing; result discarded.');
+          state.similarityDriveEvidence.set(item.id,{name:item.name,mime:item.mime,size:item.size,
+            sha256,dhash,version:before.version,account:context.account,sheet:context.sheet,epoch:context.epoch});
+          done++;
+        }catch(error){
+          if(!active())break;
+          failed++;
+          state.similarityDriveErrors.set(item.id,String(error?.message||error).slice(0,240));
+        }
+      }
+    }finally{
+      if(state.similarityDriveEpoch===generation){
+        state.similarityDriveBusy=false;state.similarityDriveAbort=null;
+        state.similarityDriveMessage=done+' verified SHA-256 fingerprints added in memory; '+
+          failed+' files blocked or failed. No originals or Sheet data changed.';
+        if(state.view==='similarity')renderSimilarityLab();
+      }
     }
   }
   /* GENERATED SIMILARITY CONTROLLER END */
@@ -10352,6 +10587,9 @@
     $('storyboardCancel').onclick=videoClearStoryboard;
     $('similarityCrossFolder').onchange=event=>{state.similarityCrossFolder=!!event.target.checked;renderSimilarityLab();};
     $('similarityClear').onclick=similarityClearLocal;
+    $('similarityDriveScan').onclick=()=>void similarityScanDriveNext();
+    $('similarityDriveStop').onclick=similarityStopDrive;
+    $('similarityDriveClear').onclick=()=>{if(confirm('Clear all live fingerprint evidence from this session?'))similarityClearDrive();};
     $('similarityFiles').onchange=async event=>{
       try{await similarityScanLocal(event.target.files);}
       catch(error){state.similarityError=error.message||'Local comparison failed';state.similarityProcessing=false;renderSimilarityLab();}

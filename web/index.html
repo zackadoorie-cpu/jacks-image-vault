@@ -352,6 +352,16 @@
           <p class="similarity-status" role="status" id="similarityStatus"></p>
           <p class="similarity-status" id="similarityCandidateCount"></p>
           <div class="similarity-list" id="similarityCandidateList"></div>
+          <h2 class="similarity-section-title">Fingerprint evidence and coverage</h2>
+          <p class="similarity-hint">Existing Manifest SHA-256 (column V) and first-frame perceptual hash (column W) are reported separately. Recorded values are historical evidence, not proof that current Drive bytes still match. Perceptual matches are leads, never evidence of identical bytes. No originals are downloaded until you explicitly start a bounded read-only batch.</p>
+          <p class="similarity-status" id="similarityFingerprintStatus" role="status"></p>
+          <div class="similarity-list" id="similarityFingerprintList"></div>
+          <div class="similarity-actions">
+            <button class="btn primary" id="similarityDriveScan" type="button">Verify next 25 eligible originals (read-only)</button>
+            <button class="btn outline" id="similarityDriveStop" type="button" disabled>Stop current batch</button>
+            <button class="btn outline" id="similarityDriveClear" type="button" disabled>Clear session fingerprints</button>
+          </div>
+          <p class="similarity-status" id="similarityDriveStatus" role="status" aria-live="polite"></p>
           <h2 class="similarity-section-title">Compare files you choose</h2>
           <p class="similarity-hint">Optional and entirely local. Choose up to 24 JPEG, PNG or WebP files, each no larger than 15 MB, 96 MB total. SHA-256 confirms <em>identical bytes</em>; a 64-bit perceptual dHash identifies visually similar previews, which may be false positives. No filenames, images or hashes are uploaded or saved.</p>
           <div class="similarity-actions">

@@ -247,6 +247,9 @@ async function main(){
     assert.equal(await p.locator('#navigation [data-nav-group="tools"]').getAttribute('open')!==null,true);
     await p.locator('#navigation [data-view="similarity"]').click();
     assert.equal(await p.locator('#similarityView').isVisible(),true);
+    assert.equal(await p.locator('#similarityDriveScan').isDisabled(),true,'Disconnected vault cannot download Drive media');
+    assert.match(await p.locator('#similarityFingerprintStatus').innerText(),/Connect Drive/);
+    assert.equal(await p.locator('#similarityDriveStop').isDisabled(),true);
     assert.equal(await p.locator('#experienceBreadcrumb').innerText(),'TOOLS');
     await p.locator('#navigation [data-view="health"]').click();
     assert.equal(await p.locator('#healthView').isVisible(),true);

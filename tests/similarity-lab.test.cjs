@@ -83,6 +83,76 @@ test('local intake rejects nonimages, oversized and excessive selections',()=>{
   assert.throws(()=>lab.similarityValidateFiles(Array.from({length:8},(_,i)=>f(i+'.jpg',14*1024*1024))),/96 MB/);
 });
 
+
+test('1,758-image fingerprint stress fixture counts recorded coverage without inflating completeness',()=>{
+  const images=Array.from({length:1758},(_,i)=>item(i,{name:'image-'+i+'.jpg',
+    mime:'image/jpeg',manifestSHA:i<104?digest('image-'+i):'',
+    manifestPHash:i<95?'ab'.repeat(8):''}));
+  const before=JSON.stringify(images);
+  const audit=lab.similarityFingerprintAudit(images);
+  assert.equal(audit.eligible,1758);
+  assert.equal(audit.manifestSHA,104);
+  assert.equal(audit.shaCount,104);
+  assert.equal(audit.missingSHA,1654);
+  assert.equal(audit.pHashCount,95);
+  assert.equal(audit.totalExactGroups,0);
+  assert.equal(JSON.stringify(images),before,'audit must never modify records');
+});
+test('SHA-256 groups differ from perceptual-hash leads and session evidence is labeled separately',()=>{
+  const sha=digest('same image bytes');
+  const records=[item(1,{name:'a.jpg',folder:'A',manifestSHA:sha,manifestPHash:'abcdef9876543210'}),
+    item(2,{name:'different.png',folder:'B',sessionSHA:sha,sessionDHash:'ffffffffffffffff',
+      manifestPHash:'abcdef9876543210'}),
+    item(3,{name:'not-the-same.jpg',folder:'C',manifestSHA:digest('different'),
+      manifestPHash:'abcdef9876543210'})];
+  const a=lab.similarityFingerprintAudit(records);
+  assert.equal(a.shaCount,3);
+  assert.equal(a.manifestSHA,2);
+  assert.equal(a.sessionSHA,1);
+  assert.equal(a.exactGroups.length,1);
+  assert.equal(a.exactGroups[0].count,2);
+  assert.equal(a.exactGroups[0].crossFolder,true);
+  assert.equal(a.visualGroups.length,1);
+  assert.equal(a.visualGroups[0].count,3,'pHash only indicates a visual lead');
+});
+test('malformed and repeated hashes cannot be promoted into verified duplicate groups',()=>{
+  const records=[item(1,{manifestSHA:'x'.repeat(64),manifestPHash:'g'.repeat(16)}),
+    item(2,{manifestSHA:'',manifestPHash:'g'.repeat(16)}),
+    item(1,{manifestSHA:'f'.repeat(64)}),
+    item(3,{mime:'video/mp4',manifestSHA:'f'.repeat(64)})];
+  const a=lab.similarityFingerprintAudit(records);
+  assert.equal(a.eligible,2);
+  assert.equal(a.invalidSHA,1);
+  assert.equal(a.invalidPHash,2);
+  assert.equal(a.shaCount,0);
+  assert.equal(a.exactGroups.length,0);
+  assert.equal(a.totalVisualGroups,0);
+});
+test('read-only Drive hashing queue enforces 25 files, 8MB each, 48MB per batch and skips completed',()=>{
+  const MB=1024*1024;
+  const files=Array.from({length:400},(_,i)=>item(i,{mime:'image/jpeg',size:4*MB,
+    name:'image-'+i+'.jpg'}));
+  files[0].manifestSHA=digest('existing');
+  files[1].mime='image/gif';
+  files[2].size=9*MB;
+  const done=new Map([[files[3].id,{sha256:digest('session')}]]);
+  const failed=new Map([[files[4].id,'read denied']]);
+  const batch=lab.similarityDriveBatchCandidates(files,done,failed);
+  assert.equal(batch.files.length,12,'48MB / 4MB bound');
+  assert.equal(batch.bytes,48*MB);
+  assert.ok(batch.files.every(x=>x.size<=8*MB&&!done.has(x.id)&&!failed.has(x.id)));
+  assert.equal(batch.unsupported,1);
+  assert.equal(batch.oversized,1);
+  const tiny=Array.from({length:300},(_,i)=>item(i,{size:100}));
+  assert.equal(lab.similarityDriveBatchCandidates(tiny).files.length,25);
+});
+test('20,000 image fingerprint audit respects scan cap without media reads',()=>{
+  const records=Array.from({length:25000},(_,i)=>item(i,{name:'photo-'+i+'.jpg'}));
+  const a=lab.similarityFingerprintAudit(records);
+  assert.equal(a.scanned,20000);assert.equal(a.eligible,20000);
+  assert.equal(a.limited,true);assert.equal(a.missingSHA,20000);
+});
+
 const root=path.resolve(__dirname,'..');
 const app=fs.readFileSync(path.join(root,'web','app.js'),'utf8');
 const html=fs.readFileSync(path.join(root,'web','index.html'),'utf8');

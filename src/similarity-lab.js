@@ -103,11 +103,88 @@ function similarityValidateFiles(files){
   }
   return entries;
 }
+const SIMILARITY_DRIVE_BATCH=25;
+const SIMILARITY_DRIVE_MAX_FILE_BYTES=8*1024*1024;
+const SIMILARITY_DRIVE_MAX_BATCH_BYTES=48*1024*1024;
+function similarityHashValid(value,length){
+  return typeof value==='string'&&new RegExp('^[0-9a-f]{'+length+'}$','i').test(value);
+}
+function similarityFingerprintAudit(records,{maxScan=SIMILARITY_MAX_SCAN,maxGroups=SIMILARITY_MAX_GROUPS}={}){
+  const input=Array.isArray(records)?records:[];
+  const scanLimit=Math.max(0,Math.min(SIMILARITY_MAX_SCAN,Math.floor(Number(maxScan)||0)));
+  const groupLimit=Math.max(0,Math.min(SIMILARITY_MAX_GROUPS,Math.floor(Number(maxGroups)||0)));
+  const seen=new Set(),shaGroups=new Map(),pHashGroups=new Map();
+  let scanned=0,eligible=0,shaCount=0,manifestSHA=0,sessionSHA=0,pHashCount=0,sessionDHash=0;
+  let invalidSHA=0,invalidPHash=0;
+  for(const item of input){
+    if(scanned>=scanLimit)break;
+    scanned++;
+    if(!item||typeof item.id!=='string'||!item.id||seen.has(item.id))continue;
+    seen.add(item.id);
+    if(item.demo||!String(item.mime||'').startsWith('image/'))continue;
+    eligible++;
+    const original=String(item.manifestSHA||'').trim();
+    const session=String(item.sessionSHA||'').trim();
+    const sha=similarityHashValid(session,64)?session.toLowerCase():
+      similarityHashValid(original,64)?original.toLowerCase():'';
+    if(original&&!similarityHashValid(original,64))invalidSHA++;
+    if(sha){
+      shaCount++;
+      if(similarityHashValid(original,64))manifestSHA++;
+      if(similarityHashValid(session,64))sessionSHA++;
+      if(!shaGroups.has(sha))shaGroups.set(sha,[]);
+      shaGroups.get(sha).push({...item,hashOrigin:similarityHashValid(session,64)?'live-session':'manifest'});
+    }
+    const pHash=String(item.manifestPHash||'').trim();
+    if(pHash&&!similarityHashValid(pHash,16))invalidPHash++;
+    if(similarityHashValid(pHash,16)){
+      pHashCount++;
+      const key=pHash.toLowerCase();
+      if(!pHashGroups.has(key))pHashGroups.set(key,[]);
+      pHashGroups.get(key).push(item);
+    }
+    if(similarityHashValid(item.sessionDHash,16))sessionDHash++;
+  }
+  const rank=groups=>[...groups.values()].filter(members=>members.length>1).map(members=>({
+    members:members.slice(0,12),
+    count:members.length,
+    crossFolder:new Set(members.map(x=>String(x.folder||''))).size>1
+  })).sort((a,b)=>b.count-a.count||Number(b.crossFolder)-Number(a.crossFolder)||
+    String(a.members[0].id).localeCompare(String(b.members[0].id)));
+  const exact=rank(shaGroups),visual=rank(pHashGroups);
+  return {scanned,eligible,shaCount,missingSHA:eligible-shaCount,manifestSHA,sessionSHA,
+    pHashCount,sessionDHash,invalidSHA,invalidPHash,
+    exactGroups:exact.slice(0,groupLimit),visualGroups:visual.slice(0,groupLimit),
+    totalExactGroups:exact.length,totalVisualGroups:visual.length,
+    limited:scanned<input.length||exact.length>groupLimit||visual.length>groupLimit};
+}
+function similarityDriveBatchCandidates(records,completed=new Map(),errors=new Map()){
+  const input=Array.isArray(records)?records:[];
+  const done=completed instanceof Map?completed:new Map();
+  const failed=errors instanceof Map?errors:new Map();
+  const files=[],seen=new Set();
+  let bytes=0,unsupported=0,oversized=0;
+  for(const item of input.slice(0,SIMILARITY_MAX_SCAN)){
+    if(!item||typeof item.id!=='string'||!item.id||seen.has(item.id))continue;
+    seen.add(item.id);
+    if(item.demo||!String(item.mime||'').startsWith('image/'))continue;
+    if(similarityHashValid(String(item.manifestSHA||'').trim(),64)||done.has(item.id)||failed.has(item.id))continue;
+    if(!['image/jpeg','image/png','image/webp'].includes(item.mime)){unsupported++;continue;}
+    const size=Number(item.size);
+    if(!Number.isSafeInteger(size)||size<=0||size>SIMILARITY_DRIVE_MAX_FILE_BYTES){oversized++;continue;}
+    if(files.length>=SIMILARITY_DRIVE_BATCH)continue;
+    if(bytes+size>SIMILARITY_DRIVE_MAX_BATCH_BYTES)continue;
+    files.push(item);bytes+=size;
+  }
+  return {files,bytes,unsupported,oversized,limited:input.length>SIMILARITY_MAX_SCAN};
+}
 /* similarity-lab:portable:end */
 
 if(typeof module!=='undefined')module.exports={
   SIMILARITY_MAX_SCAN,SIMILARITY_MAX_GROUPS,SIMILARITY_MAX_LOCAL_FILES,
   SIMILARITY_MAX_FILE_BYTES,SIMILARITY_MAX_TOTAL_BYTES,SIMILARITY_MAX_PIXELS,
   SIMILARITY_NEAR_DISTANCE,similarityCandidates,similarityHamming,similarityDHash,
-  similarityLocalPairs,similarityValidateFiles
+  similarityLocalPairs,similarityValidateFiles,
+  SIMILARITY_DRIVE_BATCH,SIMILARITY_DRIVE_MAX_FILE_BYTES,SIMILARITY_DRIVE_MAX_BATCH_BYTES,
+  similarityHashValid,similarityFingerprintAudit,similarityDriveBatchCandidates
 };
