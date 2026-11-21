@@ -100,6 +100,73 @@ async function main(){
  const {server:host,url}=await server();let browser;
  try{
   browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+
+  // Real fabricated VP8 WebM playback regression. Earlier smoke only
+  // checked for a <video> node, not whether a single frame could decode.
+  const syntheticWebM=Buffer.from('GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAIeEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggII7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDNXQYxMYXZmNjEuNy4xMDNEiYhAj0AAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WI3AW3vf09S0GcgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QdzWUA4JCwgUC6gUCagQJVsIRVuYEBElTDZ/tzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYxLjcuMTAzc3PWY8CLY8WI3AW3vf09S0FnyKFFo4dFTkNPREVSRIeUTGF2YzYxLjE5LjEwMSBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z14OeBAKPDgQAAgJADAJ0BKkAAQAAARwiFhYiFhIgCAgJ1qgP4AgboQVwx0hMAVVgA/v9NEv/8WFfxYV/FhX/xYV/8/M7txfzmAKOWgQH0ANEBAAEQEAAYABhYL/QACI6AABxTu2uRu4+zgQC3iveBAfGCAaPwgQM=','base64');
+  const playback=await fixturePage(browser,url,{uiBench:true});
+  try{
+    const p=playback.page,ticket='c'.repeat(48),issued=[],revoked=[];
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    await p.locator('[data-view="all"]').click();
+    await playback.ctx.route('**/__vault_update/status',r=>r.fulfill(reply({nonce:'media-test-nonce'})));
+    await playback.ctx.route('**/__vault_media/status',r=>r.fulfill(reply({
+      available:true,streaming:true,maxVideoBytes:32*1024**3,maxImageBytes:256*1024**2
+    })));
+    await playback.ctx.route('**/__vault_media/start',r=>{
+      const body=r.request().postDataJSON();
+      assert.equal(body.accessToken,'fake-e2e-token');
+      assert.equal(body.driveId,vid);assert.equal(body.mime,'video/webm');
+      assert.equal(body.size,syntheticWebM.length);
+      issued.push(body);return r.fulfill(reply({id:ticket,url:'/__vault_media/stream/'+ticket,
+        mime:'video/webm',size:syntheticWebM.length}));
+    });
+    await playback.ctx.route('**/__vault_media/stop',r=>{
+      revoked.push(r.request().postDataJSON().id);
+      return r.fulfill(reply({stopped:true}));
+    });
+    await playback.ctx.route('**/__vault_media/stream/*',r=>{
+      const range=r.request().headers()['range']||'';
+      if(!range)return r.fulfill({status:200,contentType:'video/webm',body:syntheticWebM,
+        headers:{'Accept-Ranges':'bytes','Content-Length':String(syntheticWebM.length)}});
+      const m=/^bytes=(\d+)-(\d*)$/.exec(range);
+      assert.ok(m,'Bad browser Range: '+range);
+      const from=Number(m[1]),to=m[2]?Math.min(Number(m[2]),syntheticWebM.length-1):syntheticWebM.length-1;
+      if(from>=syntheticWebM.length)return r.fulfill({status:416,body:''});
+      return r.fulfill({status:206,contentType:'video/webm',body:syntheticWebM.subarray(from,to+1),
+        headers:{'Accept-Ranges':'bytes','Content-Range':'bytes '+from+'-'+to+'/'+syntheticWebM.length,
+          'Content-Length':String(to-from+1)}});
+    });
+    const open=async()=>{
+      await p.locator('#galleryGrid [data-open-image="'+vid+'"]').click();
+      await p.evaluate(n=>{
+        const x=window.__uiBench.state.activeImage;
+        x.mime='video/webm';x.size=n;x.name='test-webm.webm';
+        window.__uiBench.renderModalPicture();
+      },syntheticWebM.length);
+      await p.locator('#modalPlayOverlay').click();
+      await p.waitForFunction(()=>{
+        const v=document.querySelector('#modalPicture video');
+        return !!v&&v.readyState>=1&&v.videoWidth===64&&v.videoHeight===64;
+      },null,{timeout:18000});
+    };
+    await open();
+    assert.equal(issued.length,1,'A small WebM must use native streaming.');
+    await p.locator('#closeImage').click();
+    await p.waitForTimeout(90);
+    assert.ok(revoked.includes(ticket),'closing video must revoke the native ticket');
+    // The bounded legacy Blob fallback must decode the same real media bytes.
+    await playback.ctx.unroute('**/__vault_media/status');
+    await playback.ctx.route('https://www.googleapis.com/drive/v3/files/'+vid+'*',
+      r=>r.fulfill({status:200,contentType:'video/webm',body:syntheticWebM}));
+    await open();
+    const source=await p.locator('#modalPicture video').getAttribute('src');
+    assert.ok(source.startsWith('blob:'),'legacy fallback must use decoded bounded Blob');
+    await p.locator('#closeImage').click();
+    assert.equal(playback.requests.filter(x=>x!=='GET').length,0);
+    console.log('PASS: 590-byte real VP8 WebM decodes from native streaming and legacy fallback.');
+  }finally{await playback.ctx.close();}
   // Phase 11D real-Chromium recovery triage uses synthetic Google metadata.
   // The fixture denies individual file metadata: classify as inaccessible,
   // not deleted, and never issue Drive or Sheet writes during a recheck.
