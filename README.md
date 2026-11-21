@@ -1,6 +1,17 @@
 # Jack's Image Vault — Windows image and media library
 
-## v2.2.6 — Phase 7: Jump Navigator for Large Galleries
+## v2.2.7 — Gallery Cleanup and Keyboard Polish
+
+Retires the v2.2.6 Jump Navigator entirely (markup, JavaScript, styles and
+events); the standard gallery, density slider, lazy-loading, Quick Peek,
+Manual Albums, and video streaming remain unchanged. Manual Load more now
+keeps keyboard focus after a batch replaces the control. The grid/list button
+has an accurate hover title, and Back to top respects reduced-motion settings.
+No new controls, Google scopes or Drive/Sheet writes. Browser regression tests
+cover a synthetic 10,000-file gallery and no Jump Navigator in any result size.
+See [v2.2.7 notes](docs/v2.2-phase7-rollback-gallery-polish.md).
+
+## v2.2.6 — Phase 7: Jump Navigator for Large Galleries (superseded by v2.2.7)
 
 Browse extensive filtered collections without manually loading every batch.
 A compact navigator appears only for galleries with over 96 matching results.
