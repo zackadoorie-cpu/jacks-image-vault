@@ -3098,8 +3098,9 @@
       const fresh=state.images.find(x=>x.id===nextItem.id);
       if(fresh)openImage(fresh.id);
     }else if(advance&&state.view==='review'){
-      // Keep the current image visible with its saved status when the queue is empty.
+      // Keep the current item visible rather than closing its details abruptly.
       populateImageDialog();
+      $('reviewEditorStatus').textContent=feedback+' No other item in this review selection.';
     }else populateImageDialog();
     if(!advance)$('reviewEditorStatus').textContent=feedback;
     return true;
@@ -3206,6 +3207,36 @@
     refreshReviewPresentation();
     alertUser('Imported '+next.size+' review records for this Drive account. Originals unchanged.','success');
   }
+  function openNextReviewItem(origin){
+    if(!state.connected||state.view!=='review')return;
+    const item=state.filtered.find(x=>!x.demo);
+    if(item)openImage(item.id,origin||$('reviewStartNext'));
+  }
+  function startPendingReviewsFromInbox(){
+    // This is an explicit local navigation action, not a Sheet approval or a
+    // hidden upload. Start an unfiltered pending queue so stale gallery search
+    // state cannot hide every item when entering from the Inbox.
+    if(!state.connected||!reviewCounts().pending)return;
+    state.reviewFilter='pending';
+    state.search='';state.sort='name';state.mediaType='all';
+    state.activeSavedSearch='';state.page=1;
+    $('searchInput').value='';
+    $('mediaTypeSelect').value='all';
+    displayPage('review');
+    openNextReviewItem($('reviewStartNext'));
+  }
+  function updateReviewQueueAction(){
+    if(state.view!=='review')return;
+    const count=state.filtered.length;
+    const status={pending:'needs attention',deferred:'review later',
+      reviewed:'reviewed locally',all:'all statuses'}[state.reviewFilter]||'review';
+    const button=$('reviewStartNext');
+    button.disabled=!state.connected||count===0;
+    button.textContent=state.reviewFilter==='pending'?'Review next pending':'Open first item';
+    $('reviewSelectionHint').textContent=state.connected?
+      format(count)+' in the current '+status+' selection. Uses your active gallery filters.':
+      'Connect Drive to review private media.';
+  }
   function renderReviewToolbar(){
     const shown=state.view==='review';
     $('reviewToolbar').classList.toggle('hidden',!shown);
@@ -3217,7 +3248,19 @@
     $('reviewProgress').textContent=format(done)+' reviewed / '+format(total)+' items';
     $('reviewHelp').textContent=format(counts.pending)+' need visual attention · '+
       format(counts.deferred)+' deferred · '+format(counts.reviewed)+
-      ' reviewed locally. Missing EXIF dates and duplicate decisions are tracked separately in the Sheet.';
+      ' reviewed locally · '+format(counts['source-reviewed'])+
+      ' source-verified. Local reviews do not write to Sheets. Missing EXIF dates and duplicate decisions are tracked separately.';
+    const percent=total?Math.round(done*100/total):0;
+    $('reviewCoverageLabel').textContent=total?percent+'% confirmed':'No loaded media';
+    $('reviewCoverageMeter').setAttribute('aria-valuenow',String(percent));
+    $('reviewCoverageFill').style.width=percent+'%';
+    $('reviewPendingMetric').textContent=format(counts.pending);
+    $('reviewDeferredMetric').textContent=format(counts.deferred);
+    $('reviewLocalMetric').textContent=format(counts.reviewed);
+    $('reviewSourceMetric').textContent=format(counts['source-reviewed']);
+    document.querySelectorAll('[data-review-quick]').forEach(button=>{
+      button.setAttribute('aria-pressed',String(button.dataset.reviewQuick===state.reviewFilter));
+    });
   }
   function populateReviewEditor(item){
     const editor=$('reviewForm');
@@ -3230,6 +3273,11 @@
       'Saved locally · '+status.replace('-',' ')+' · '+new Date(local.updatedAt).toLocaleString():
       'From original spreadsheet · '+status.replace('-',' ')+'. Save to create your own local review.';
     $('reviewEditorStatus').textContent='';
+    const index=state.view==='review'?state.filtered.findIndex(x=>x.id===item.id):-1;
+    $('reviewPosition').textContent=state.view!=='review'?'':
+      index<0?'Saved as '+status.replace('-',' ')+'. This item is outside the current review selection.':
+      'Item '+format(index+1)+' of '+format(state.filtered.length)+
+      ' in this selection · '+status.replace('-',' ');
     $('reviewDefer').textContent=status==='deferred'?'Keep for later':'Review later';
     $('reviewReset').disabled=!local;
     state.reviewDirty=false;
@@ -6723,6 +6771,7 @@
     $('reviewInboxNamingCount').textContent=connected?fmt(snapshot.counts.naming):'—';
     $('reviewInboxFilter').value=p.filter;
     $('reviewInboxFilter').disabled=!connected;
+    $('reviewInboxStart').disabled=!connected||reviewCounts().pending===0;
     $('reviewInboxSummary').textContent=!connected?
       'Connect Drive to view your private review inbox. No data is public.':
       fmt(snapshot.counts.all)+' actionable records in current gallery · '+fmt(p.total)+
@@ -9600,7 +9649,9 @@
     $('folderSelect').value=state.folder;
     $('folderPickerCount').textContent=query?`${matched.length} collections found`:`${available.length} collections`;
     renderActiveGalleryFilters();
-    state.filtered=filterImages();const items=state.filtered.slice(0,state.page*state.pageSize);
+    state.filtered=filterImages();
+    updateReviewQueueAction();
+    const items=state.filtered.slice(0,state.page*state.pageSize);
     state.filteredById=new Map(state.filtered.map(item=>[item.id,item]));
     state.renderedCount=items.length;
     state.turboEnabled=virtualGalleryAvailable();
@@ -10983,6 +11034,15 @@ async function nativeMediaPost(route,body,signal){
     $('reviewInboxPrev').onclick=()=>{state.inboxPage=Math.max(1,state.inboxPage-1);reviewInboxRender();};
     $('reviewInboxNext').onclick=()=>{state.inboxPage++;reviewInboxRender();};
     $('reviewInboxList').onclick=reviewInboxHandleItemClick;
+    $('reviewInboxStart').onclick=startPendingReviewsFromInbox;
+    $('reviewStartNext').onclick=()=>openNextReviewItem($('reviewStartNext'));
+    document.querySelectorAll('[data-review-quick]').forEach(button=>{
+      button.onclick=()=>{
+        const filter=button.dataset.reviewQuick;
+        if(!['pending','deferred','reviewed'].includes(filter))return;
+        state.reviewFilter=filter;state.page=1;renderGallery();
+      };
+    });
     $('reviewInboxDraftCheck').onclick=reviewInboxValidateDraft;
     $('reviewInboxDraftCancel').onclick=reviewInboxClosePreview;
     $('reviewInboxPreviewDialog').addEventListener('close',()=>{

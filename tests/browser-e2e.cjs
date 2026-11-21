@@ -217,6 +217,70 @@ async function main(){
     console.log('PASS: Phase 2 removable filter chips, safe query text, preview failures and zero remote writes.');
   }finally{await polish.ctx.close();}
 
+  // Review Center 2.0: truthful source-vs-local review counts, explicit
+  // transition from Inbox to a fresh pending queue, and local-only saves.
+  const reviewCenter=await fixturePage(browser,url,{uiBench:true});
+  try{
+    const p=reviewCenter.page;
+    await p.locator('#connectButton').click();
+    await p.waitForFunction(()=>document.querySelector('#commandSnapshot')?.textContent==='2',null,{timeout:18000});
+    const staged=await p.evaluate(()=>{
+      const h=window.__uiBench,s=h.state;
+      const item=s.images.find(x=>x.mime==='image/jpeg')||s.images[0];
+      item.description='';item.tags='';item.review='Needs review';
+      item.analysisMethod='';item.newInDrive=false;
+      s.reviewEdits.delete(item.id);
+      const other={...item,id:'deferred_fixture_123456789',name:'Deferred test media.jpg'};
+      s.images.push(other);
+      s.reviewEdits.set(other.id,{description:'Deferred verified local note',tags:'',status:'deferred',updatedAt:Date.now()});
+      return {pendingId:item.id,deferredId:other.id};
+    });
+    await openDisclosure(p,'#navigation [data-nav-group="review"]');
+    await p.locator('[data-view="review-inbox"]').click();
+    assert.equal(await p.locator('#reviewInboxStart').isEnabled(),true,
+      'An unreviewed loaded item must enable the guided queue');
+    const writesBefore=reviewCenter.getSheetWrites().length;
+    await p.locator('#reviewInboxStart').click();
+    assert.equal(await p.locator('#galleryView').isVisible(),true);
+    assert.equal(await p.locator('#reviewToolbar').isVisible(),true);
+    assert.equal(await p.locator('#reviewQueueFilter').inputValue(),'pending');
+    assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),true);
+    assert.match(await p.locator('#reviewPosition').innerText(),/Item [0-9]+ of [0-9]+/);
+    assert.equal(await p.locator('#reviewBackupTools').getAttribute('open'),null);
+    assert.equal(await p.locator('#reviewBatchImport').isVisible(),false,
+      'Import/backup buttons remain accessible under a disclosure');
+    await p.locator('#reviewDescription').fill('Locally inspected synthetic image for review.');
+    await p.locator('#reviewSaveDraft').click();
+    assert.match(await p.locator('#reviewEditorStatus').innerText(),/saved on this device/);
+    assert.equal(reviewCenter.getSheetWrites().length,writesBefore);
+    await p.locator('#reviewApprove').click();
+    const metrics=await p.evaluate(()=>({
+      local:document.querySelector('#reviewLocalMetric').textContent,
+      deferred:document.querySelector('#reviewDeferredMetric').textContent,
+      covered:document.querySelector('#reviewCoverageMeter').getAttribute('aria-valuenow')
+    }));
+    assert.ok(Number(metrics.local)>=1,'A local review counts separately from source inspection');
+    assert.ok(Number(metrics.deferred)>=1,'Review-later items remain in their own bucket');
+    assert.ok(Number(metrics.covered)>0,'Visual review coverage updates after local approval');
+    await p.locator('#closeImage').click();
+    await p.locator('[data-review-quick="deferred"]').click();
+    assert.equal(await p.locator('#reviewQueueFilter').inputValue(),'deferred');
+    assert.equal(await p.locator('[data-review-quick="deferred"]').getAttribute('aria-pressed'),'true');
+    assert.equal(await p.locator('#reviewStartNext').isEnabled(),true);
+    await p.locator('#reviewStartNext').click();
+    assert.equal(await p.locator('#imageDialog').evaluate(d=>d.open),true);
+    assert.equal(await p.locator('#reviewPosition').isVisible(),true);
+    await p.locator('#closeImage').click();
+    await p.locator('#reviewBackupTools > summary').click();
+    assert.equal(await p.locator('#reviewBatchImport').isVisible(),true);
+    assert.equal(await p.locator('#reviewExport').isVisible(),true);
+    assert.equal(reviewCenter.getSheetWrites().length,writesBefore,
+      'Review navigation, drafts and local approvals must not write a Sheet');
+    assert.equal(reviewCenter.requests.every(method=>method==='GET'),true,
+      'Review Center 2.0 must not write to Google Drive or Sheets');
+    console.log('PASS: Review Center 2.0 guided queue, honest coverage, source/local separation, and zero remote writes.');
+  }finally{await reviewCenter.ctx.close();}
+
   // Real fabricated VP8 WebM playback regression. Earlier smoke only
   // checked for a <video> node, not whether a single frame could decode.
   const syntheticWebM=Buffer.from('GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAIeEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggII7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDNXQYxMYXZmNjEuNy4xMDNEiYhAj0AAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WI3AW3vf09S0GcgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QdzWUA4JCwgUC6gUCagQJVsIRVuYEBElTDZ/tzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYxLjcuMTAzc3PWY8CLY8WI3AW3vf09S0FnyKFFo4dFTkNPREVSRIeUTGF2YzYxLjE5LjEwMSBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z14OeBAKPDgQAAgJADAJ0BKkAAQAAARwiFhYiFhIgCAgJ1qgP4AgboQVwx0hMAVVgA/v9NEv/8WFfxYV/FhX/xYV/8/M7txfzmAKOWgQH0ANEBAAEQEAAYABhYL/QACI6AABxTu2uRu4+zgQC3iveBAfGCAaPwgQM=','base64');

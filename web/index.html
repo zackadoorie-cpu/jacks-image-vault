@@ -314,8 +314,22 @@
                 </select>
               </label>
             </div>
-            <div class="review-toolbar-actions"><button type="button" class="btn primary" id="reviewBatchImport">Import visual reviews (JSON)</button><input class="hidden" type="file" accept=".json,application/json" id="reviewBatchImportFile" aria-label="Choose reviewed batch JSON"><button type="button" class="btn outline" id="reviewExport">Export review backup</button><button type="button" class="btn quiet" id="reviewImport">Restore full backup</button><input class="hidden" type="file" accept=".json,application/json" id="reviewImportFile" aria-label="Choose review backup JSON"></div>
-            <p class="review-privacy">Visual review batches contain inspected descriptions and tags, not filename plans. If you choose a saved filename plan here, Image Vault directs it into the separate Filename Review queue. Neither import changes Drive or Sheets.</p>
+            <div class="review-journey">
+              <div class="review-meter-heading"><span>Visual review coverage in loaded library</span><strong id="reviewCoverageLabel">—</strong></div>
+              <div class="review-meter" id="reviewCoverageMeter" role="progressbar" aria-label="Visually reviewed share of loaded library" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="reviewCoverageFill"></span></div>
+              <div class="review-quick-filters" role="group" aria-label="Review status quick filters">
+                <button type="button" class="review-quick-filter" data-review-quick="pending" aria-pressed="true">Needs attention <strong id="reviewPendingMetric">—</strong></button>
+                <button type="button" class="review-quick-filter" data-review-quick="deferred" aria-pressed="false">Review later <strong id="reviewDeferredMetric">—</strong></button>
+                <button type="button" class="review-quick-filter" data-review-quick="reviewed" aria-pressed="false">Reviewed locally <strong id="reviewLocalMetric">—</strong></button>
+                <span class="review-source-count">Source-verified <strong id="reviewSourceMetric">—</strong></span>
+              </div>
+              <div class="review-start-actions"><button type="button" class="btn primary" id="reviewStartNext" disabled>Review next pending</button><span id="reviewSelectionHint" role="status">Connect Drive to review private media.</span></div>
+            </div>
+            <details class="review-backup-tools" id="reviewBackupTools">
+              <summary>Review imports &amp; backup <span aria-hidden="true">⌄</span></summary>
+              <div class="review-toolbar-actions"><button type="button" class="btn primary" id="reviewBatchImport">Import visual reviews (JSON)</button><input class="hidden" type="file" accept=".json,application/json" id="reviewBatchImportFile" aria-label="Choose reviewed batch JSON"><button type="button" class="btn outline" id="reviewExport">Export review backup</button><button type="button" class="btn quiet" id="reviewImport">Restore full backup</button><input class="hidden" type="file" accept=".json,application/json" id="reviewImportFile" aria-label="Choose review backup JSON"></div>
+            <p class="review-privacy">Visual review batches contain inspected descriptions and tags, not filename plans. Saved filename plans belong in Filename Review. Neither importing nor exporting changes Drive or Sheets.</p>
+            </details>
           </div>
           <div id="galleryNotice" class="gallery-notice hidden"></div>
           <div id="galleryGrid" class="image-grid" aria-live="off" aria-label="Media results"></div>
@@ -621,6 +635,10 @@
             <div><span>New in Drive</span><strong id="reviewInboxNewCount">—</strong><small>May not have a Manifest row yet</small></div>
             <div><span>Visual review needed</span><strong id="reviewInboxPendingCount">—</strong><small>Source evidence not yet confirmed</small></div>
             <div><span>Filename candidates</span><strong id="reviewInboxNamingCount">—</strong><small>Tag-based suggestions only</small></div>
+          </div>
+          <div class="review-inbox-start">
+            <div><strong>Ready for the next visual review?</strong><p>Start with an item lacking confirmed visual evidence in the loaded library. Review notes stay on this device.</p></div>
+            <button id="reviewInboxStart" class="btn primary" type="button" disabled>Review next pending</button>
           </div>
           <div class="review-inbox-toolbar">
             <label for="reviewInboxFilter">Show review items</label>
@@ -1133,13 +1151,13 @@
               <div id="storyboardFrames" class="video-storyboard-frames"></div>
             </div>
           <form id="reviewForm" class="review-editor hidden">
-            <h3>Personal review</h3><p class="review-editor-note" id="reviewEditorNote">Your changes will stay on this device.</p>
+            <h3>Personal review</h3><p class="review-position" id="reviewPosition" role="status" aria-live="polite"></p><p class="review-editor-note" id="reviewEditorNote">Your changes will stay on this device.</p>
             <label class="field-label" for="reviewDescription">Description</label>
             <textarea class="field review-textarea" id="reviewDescription" maxlength="2000" rows="3" placeholder="Describe what's actually visible in this image…"></textarea>
             <label class="field-label" for="reviewTags">Tags (comma-separated)</label>
             <input class="field" id="reviewTags" type="text" maxlength="400" placeholder="reaction, cat, funny">
             <div class="review-editor-actions">
-              <button type="submit" class="btn primary" id="reviewApprove">✓ Approve &amp; next</button>
+              <button type="submit" class="btn primary" id="reviewApprove">✓ Mark reviewed locally &amp; next</button>
               <button type="button" class="btn outline" id="reviewSaveDraft">Save draft</button>
               <button type="button" class="btn outline" id="reviewDefer">Review later</button>
               <button type="button" class="btn quiet" id="reviewReset">Reset local changes</button>
