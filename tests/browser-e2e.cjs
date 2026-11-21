@@ -1057,7 +1057,7 @@ async function main(){
     assert.equal(await p.locator('#reviewInboxView').isVisible(),true);
     // The new Library Desk navigation can already have expanded this group.
     const manageNav=p.locator('#navigation details[data-nav-group="review"]');
-    if(await manageNav.getAttribute('open')===null)await manageNav.locator('summary').click();
+    if(await manageNav.getAttribute('open')===null)await manageNav.locator(':scope > summary').click();
     assert.equal(await manageNav.getAttribute('open')!==null,true);
     await p.locator('[data-view="review-inbox"]').click();
     assert.equal(await p.locator('#reviewInboxView').isVisible(),true);
@@ -1237,6 +1237,7 @@ async function main(){
     assert.equal(current.parents[0],folder);
     assert.equal(await p.locator('#filenameRenamePanel').isVisible(),false);
     assert.equal((await p.locator('#filenameStaged').innerText()).trim(),'0');
+    await openAdvancedReview(p);
     await p.locator('#navigation [data-view="activity"]').click();
     await p.locator('#activityFilter').selectOption('writes');
     assert.match(await p.locator('#activityList').innerText(),/Drive filename changed and verified/);
@@ -1554,7 +1555,8 @@ async function main(){
     await p.locator('#reviewApprove').click();
     await p.mouse.click(5,5);
     const reviewNavigation=p.locator('#navigation details[data-nav-group="review"]');
-    if(await reviewNavigation.getAttribute('open')===null)await reviewNavigation.locator('summary').click();
+    if(await reviewNavigation.getAttribute('open')===null)await reviewNavigation.locator(':scope > summary').click();
+    await openAdvancedReview(p);
     await reviewNavigation.locator('[data-view="sheet-write"]').click();
     assert.equal(await p.locator('#sheetWriteView').isVisible(),true);
     await p.keyboard.press('Alt+1');
