@@ -1384,6 +1384,7 @@
     activeSavedSearch: '',
     smartCollections: [],
     manualAlbums: [],manualAlbumId:'',albumHealthy:true,
+    albumEditId:'',albumRefreshPending:false,
     bulkEnabled:false,bulkIds:new Set(),
     smartCollectionId: '',
     smartDraft: null,
@@ -3576,6 +3577,7 @@
   }
   function albumLoad(){
     state.manualAlbums=[];state.manualAlbumId='';state.albumHealthy=true;
+    state.albumEditId='';state.albumRefreshPending=false;
     state.bulkEnabled=false;state.bulkIds.clear();
     const key=albumStorageKey();if(!key)return;
     try{const raw=localStorage.getItem(key);if(raw)state.manualAlbums=albumParse(raw);}
@@ -3594,6 +3596,7 @@
       escapeHTML(a.name)+'</strong><small>'+format(a.ids.filter(id=>known.has(id)).length)+' loaded / '+
       format(a.ids.length)+' saved IDs</small></div></div><p>Files stay in their Drive folders.</p>'+
       '<div class="smart-card-actions"><button class="btn outline" data-album-open="'+a.id+'">Browse</button>'+
+      '<button class="btn quiet" type="button" data-album-rename="'+a.id+'">Rename</button>'+
       '<button class="btn quiet" data-album-delete="'+a.id+'">Delete</button></div></article>').join('')||
       '<p class="field-help">Create an album, then select files in the gallery to add them.</p>';
     area.querySelectorAll('[data-album-open]').forEach(b=>b.onclick=()=>{
@@ -3601,6 +3604,7 @@
       state.folder='all';state.page=1;$('searchInput').value='';
       displayPage('manual-results',{reset:false});
     });
+    area.querySelectorAll('[data-album-rename]').forEach(b=>b.onclick=()=>albumRename(b.dataset.albumRename));
     area.querySelectorAll('[data-album-delete]').forEach(b=>b.onclick=()=>{
       const a=state.manualAlbums.find(x=>x.id===b.dataset.albumDelete);
       if(!a||!confirm('Delete local album "'+a.name+'"? No Google file changes.'))return;
@@ -3611,18 +3615,42 @@
   }
   function albumNew(){
     if(!albumStorageKey()||!state.albumHealthy||state.manualAlbums.length>=40)return;
-    $('albumName').value='';$('albumDialog').showModal();$('albumName').focus();
+    state.albumEditId='';$('albumTitle').textContent='New manual album';
+    $('albumSaveButton').textContent='Create';$('albumName').value='';
+    $('albumDialog').showModal();$('albumName').focus();
+  }
+  function albumRename(id){
+    if(!albumStorageKey()||!state.albumHealthy)return;
+    const album=state.manualAlbums.find(a=>a.id===id);if(!album)return;
+    state.albumEditId=id;$('albumTitle').textContent='Rename manual album';
+    $('albumSaveButton').textContent='Save name';$('albumName').value=album.name;
+    $('albumDialog').showModal();$('albumName').focus();$('albumName').select();
   }
   function albumCreate(e){
-    e.preventDefault();const name=$('albumName').value.trim();
-    if(!name||name.length>80||state.manualAlbums.some(x=>x.name.toLowerCase()===name.toLowerCase())){
+    e.preventDefault();
+    if(!albumStorageKey()||!state.albumHealthy)return;
+    const name=$('albumName').value.trim(),editing=state.albumEditId;
+    const previous=editing?state.manualAlbums.find(a=>a.id===editing):null;
+    if(editing&&!previous){alertUser('Album no longer exists. No changes saved.','error');return;}
+    if(!name||name.length>80||state.manualAlbums.some(a=>a.id!==editing&&
+      a.name.toLocaleLowerCase()===name.toLocaleLowerCase())){
       alertUser('Choose a unique album name (1–80 characters).','error');return;
     }
-    const at=Date.now(),id='a'+at+'_'+(state.manualAlbums.length+1);
-    try{albumSave([...state.manualAlbums,{id,name,ids:[],createdAt:at,updatedAt:at}]);}
-    catch(error){alertUser(error.message,'error');return;}
-    $('albumDialog').close();if(state.view==='smart')albumCards();else albumBar();
-    alertUser('Album created locally. Select files to add them.','success');
+    if(previous&&name===previous.name){$('albumDialog').close();return;}
+    const at=Date.now();let next;
+    if(previous)next=state.manualAlbums.map(a=>a.id===editing?
+      {...a,name,updatedAt:Math.max(at,a.updatedAt)}:a);
+    else{
+      let suffix=1,id='a'+at+'_'+suffix;
+      while(state.manualAlbums.some(a=>a.id===id))id='a'+at+'_'+(++suffix);
+      next=[...state.manualAlbums,{id,name,ids:[],createdAt:at,updatedAt:at}];
+    }
+    try{albumSave(next);}catch(error){alertUser(error.message,'error');return;}
+    state.albumEditId='';$('albumDialog').close();
+    if(state.view==='smart')albumCards();
+    else if(state.view==='manual-results')renderGallery();
+    else albumBar();
+    alertUser((previous?'Renamed':'Created')+' private album "'+name+'". Drive unchanged.','success');
   }
   function albumExport(){
     const raw=JSON.stringify({schema:1,albums:state.manualAlbums});
@@ -3642,6 +3670,61 @@
     if(!confirm('Import '+additions.length+' local albums? Drive files remain unchanged.'))return;
     albumSave([...state.manualAlbums,...additions]);albumCards();
   }
+  // Phase 6: local-only individual album membership from existing media viewers.
+  function albumQuickRender(kind,item){
+    const prefix=kind==='peek'?'quickPeek':'detail';
+    const row=$(prefix+'AlbumRow'),select=$(prefix+'AlbumSelect'),
+      button=$(prefix+'AlbumAction'),status=$(prefix+'AlbumStatus');
+    if(!row||!select||!button||!status)return;
+    const visible=!!item&&!item.demo&&state.connected&&state.albumHealthy&&
+      !!albumStorageKey()&&state.manualAlbums.length>0;
+    row.classList.toggle('hidden',!visible);
+    if(!visible)return;
+    const chosen=select.value;
+    select.replaceChildren();
+    for(const album of state.manualAlbums){
+      const opt=document.createElement('option');opt.value=album.id;opt.textContent=album.name;
+      select.appendChild(opt);
+    }
+    select.value=state.manualAlbums.some(a=>a.id===chosen)?chosen:
+      (state.manualAlbums.some(a=>a.id===state.manualAlbumId)?state.manualAlbumId:state.manualAlbums[0].id);
+    const album=state.manualAlbums.find(a=>a.id===select.value);
+    const present=album?.ids.includes(item.id);
+    button.textContent=present?'Remove from album':'Add to album';button.disabled=!album;
+    status.textContent=present?'Already in this private album.':'Not in this private album.';
+  }
+  function albumQuickUpdate(kind){
+    const item=kind==='peek'?state.filtered.find(x=>x.id===state.quickPeekId):state.activeImage;
+    albumQuickRender(kind,item);
+  }
+  function albumQuickApply(kind){
+    const item=kind==='peek'?state.filtered.find(x=>x.id===state.quickPeekId):state.activeImage;
+    const prefix=kind==='peek'?'quickPeek':'detail';
+    const album=state.manualAlbums.find(a=>a.id===$(prefix+'AlbumSelect')?.value);
+    if(!item||item.demo||!state.connected||!state.albumHealthy||!album||
+       !state.images.some(x=>x.id===item.id))return;
+    const members=new Set(album.ids),remove=members.has(item.id);
+    if(remove)members.delete(item.id);else members.add(item.id);
+    if(members.size>10000){alertUser('Maximum 10,000 entries per album.','error');return;}
+    try{albumSave(state.manualAlbums.map(a=>a.id===album.id?
+      {...a,ids:[...members],updatedAt:Math.max(Date.now(),a.updatedAt)}:a));}
+    catch(error){alertUser(error.message,'error');return;}
+    // Do not replace an open viewer while its current file falls out
+    // of a manual album. Refresh that filtered gallery after close.
+    if(state.view==='manual-results')state.albumRefreshPending=true;
+    albumQuickRender(kind,item);
+    $(prefix+'AlbumStatus').textContent=(remove?'Removed from ':'Added to ')+
+      '"'+album.name+'" on this device. Drive unchanged.';
+  }
+  function albumRefreshOnClose(){
+    if(!state.albumRefreshPending)return;
+    // Quick Peek may open full details for this same file. Keep its filtered
+    // context intact until the details dialog closes, including review drafts.
+    if($('imageDialog')?.open)return;
+    state.albumRefreshPending=false;
+    if(state.view==='manual-results')renderGallery();
+  }
+
   function albumBar(){
     const show=state.connected&&state.albumHealthy&&
       ['all','photos','memes','favorites','review','smart-results','memory-results','manual-results'].includes(state.view);
@@ -10292,6 +10375,7 @@
     $('quickPeekCompare').textContent=state.compareIds.includes(item.id)?'Remove from compare':'Add to compare';
     $('quickPeekCompare').disabled=!state.compareIds.includes(item.id)&&state.compareIds.length>=2;
     renderCachedPreview($('quickPeekStage'),item);
+    albumQuickRender('peek',item);
   }
   function openQuickPeek(id,origin){
     if(!state.filtered.some(item=>item.id===id)||$('imageDialog')?.open||
@@ -10377,6 +10461,7 @@
     $('modalMeta').innerHTML=fields.map(([key,val])=>`<dt>${escapeHTML(key)}</dt><dd>${escapeHTML(val)}</dd>`).join('');
     const link=$('openDriveLink');link.href=linkToDrive(item)||'#';link.classList.toggle('hidden',!linkToDrive(item));
     $('favoriteImage').disabled=item.demo;updateFavoriteButton();
+    albumQuickRender('detail',item);
     populateReviewEditor(item);
     videoUpdateEvidence(item);
     $('storyboardButton').classList.toggle('hidden',item.demo||mediaKind(item)!=='video');
@@ -10866,6 +10951,9 @@ async function nativeMediaPost(route,body,signal){
     state.reviewDirty=false;stopVideo();
     if($('imageDialog').open)$('imageDialog').close();
     state.activeImage=null;
+    // Run synchronously on the explicit Close action so album counts are
+    // correct before the queued native dialog close event is dispatched.
+    albumRefreshOnClose();
     if(state.returnFocus?.isConnected)state.returnFocus.focus();
   }
   async function installApp(){
@@ -11388,7 +11476,18 @@ async function nativeMediaPost(route,body,signal){
     $('backSmartCollections').onclick=()=>displayPage('smart');
     $('backManual').onclick=()=>displayPage('smart');
     $('manualNew').onclick=albumNew;
+    $('manualHeadingLink').onclick=()=>{
+      displayPage('smart');
+      $('manualAlbumsHeading').scrollIntoView({block:'start',behavior:'instant'});
+      $('manualNew').focus({preventScroll:true});
+    };
     $('manualForm').onsubmit=albumCreate;
+    $('albumDialog').addEventListener('close',()=>{state.albumEditId='';});
+    for(const kind of ['peek','detail']){
+      const prefix=kind==='peek'?'quickPeek':'detail';
+      $(prefix+'AlbumSelect').onchange=()=>albumQuickUpdate(kind);
+      $(prefix+'AlbumAction').onclick=()=>albumQuickApply(kind);
+    }
     $('manualCancel').onclick=()=>$('albumDialog').close();
     $('manualExport').onclick=albumExport;
     $('manualImport').onclick=()=>$('manualImportFile').click();
@@ -11545,6 +11644,7 @@ async function nativeMediaPost(route,body,signal){
     $('compareClear').onclick=clearCompareSelection;
     $('quickPeekDialog').addEventListener('close',()=>{
       state.quickPeekId=null;
+      albumRefreshOnClose();
       if(state.quickPeekReturnFocus?.isConnected)state.quickPeekReturnFocus.focus();
       state.quickPeekReturnFocus=null;
     });
@@ -11562,7 +11662,7 @@ async function nativeMediaPost(route,body,signal){
       if(state.reviewDirty&&!confirm('Discard unsaved review changes?'))event.preventDefault();
       else state.reviewDirty=false;
     });
-    $('imageDialog').addEventListener('close',()=>{state.reviewDirty=false;stopVideo();state.activeImage=null;if(state.returnFocus?.isConnected)state.returnFocus.focus();});
+    $('imageDialog').addEventListener('close',()=>{state.reviewDirty=false;stopVideo();state.activeImage=null;albumRefreshOnClose();if(state.returnFocus?.isConnected)state.returnFocus.focus();});
     $('backToTop').onclick=()=>window.scrollTo({top:0,behavior:'smooth'});
     window.addEventListener('scroll',()=>{
       updateScrollControls();

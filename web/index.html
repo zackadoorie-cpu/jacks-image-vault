@@ -288,7 +288,7 @@
             <button type="button" class="active-filters-clear" id="clearGalleryFilters">Clear all</button>
           </div>
 
-          <div class="album-start"><button type="button" class="btn outline hidden" id="bulkToggle" aria-pressed="false">Select files</button><small>Hand-picked local albums. No Google file changes.</small></div>
+          <div class="album-start"><button type="button" class="btn outline hidden" id="bulkToggle" aria-pressed="false">Select files</button><button type="button" class="btn quiet" id="manualHeadingLink">Manage albums</button><small>Hand-picked local albums. No Google file changes.</small></div>
           <div class="gallery-bulk-bar hidden" id="bulkBar" role="group" aria-label="Manual album selection"><strong id="bulkCount" role="status">0 selected</strong>
             <div class="gallery-bulk-actions">
               <button class="btn quiet" id="bulkDisplayed" type="button">Select displayed</button>
@@ -367,7 +367,7 @@
           <p class="smart-status" id="smartCollectionStatus" role="status"></p>
           <div class="smart-grid" id="smartCollectionCards"></div>
 
-          <div class="section-heading manual-heading"><div><p class="eyebrow">HAND-PICKED FILES</p><h2>Manual Albums</h2></div></div>
+          <div class="section-heading manual-heading" id="manualAlbumsHeading"><div><p class="eyebrow">HAND-PICKED FILES</p><h2>Manual Albums</h2></div></div>
           <p class="field-help">Choose individual photos and videos independently of folder and Smart Collection rules. Stored only for this verified account and spreadsheet.</p>
           <div class="smart-actions">
             <button id="manualNew" class="btn primary" type="button">+ New album</button>
@@ -1178,7 +1178,13 @@
     </div>
     <div class="quick-peek-stage" id="quickPeekStage" aria-label="Cached media preview"></div>
     <div class="quick-peek-footer">
-      <div><p id="quickPeekMeta"></p><p id="quickPeekStatus" role="status">Quick Peek uses existing thumbnails.</p></div>
+      <div><p id="quickPeekMeta"></p><p id="quickPeekStatus" role="status">Quick Peek uses existing thumbnails.</p>
+        <div class="album-quick-controls hidden" id="quickPeekAlbumRow" role="group" aria-label="Quick Peek manual album">
+          <label for="quickPeekAlbumSelect">Manual album</label><select class="select" id="quickPeekAlbumSelect" aria-label="Select album for current file"></select>
+          <button type="button" class="btn outline" id="quickPeekAlbumAction">Add to album</button>
+          <small id="quickPeekAlbumStatus" role="status" aria-live="polite"></small>
+        </div>
+      </div>
       <div class="quick-peek-actions">
         <button class="btn outline" type="button" id="quickPeekCompare">Add to compare</button>
         <button class="btn primary" type="button" id="quickPeekDetails">Open full details</button>
@@ -1209,7 +1215,13 @@
         <button class="btn outline hidden" id="storyboardButton" type="button">▤ 3-frame storyboard</button>
         <button class="btn quiet hidden" id="storyboardCancel" type="button">Cancel sampling</button>
       </div>
-      <p id="modalDescription"></p><dl id="modalMeta"></dl><p class="media-playback-state" id="mediaPlaybackState" role="status" aria-live="polite" hidden></p><p class="preview-details" id="previewDetails"></p><div class="media-diagnostics hidden" id="mediaDiagnostics" role="status" aria-live="polite"></div>
+      <p id="modalDescription"></p>
+      <div class="album-quick-controls hidden" id="detailAlbumRow" role="group" aria-label="Media details manual album">
+        <label for="detailAlbumSelect">Manual album</label><select class="select" id="detailAlbumSelect" aria-label="Select album for this file"></select>
+        <button type="button" class="btn outline" id="detailAlbumAction">Add to album</button>
+        <small id="detailAlbumStatus" role="status" aria-live="polite"></small>
+      </div>
+      <dl id="modalMeta"></dl><p class="media-playback-state" id="mediaPlaybackState" role="status" aria-live="polite" hidden></p><p class="preview-details" id="previewDetails"></p><div class="media-diagnostics hidden" id="mediaDiagnostics" role="status" aria-live="polite"></div>
             <p id="videoEvidenceStatus" class="video-evidence-status hidden" role="status"></p>
             <div id="storyboardPanel" class="video-storyboard hidden" aria-live="polite">
               <p id="storyboardStatus" class="video-storyboard-note" role="status"></p>
@@ -1279,7 +1291,7 @@
     <form id="manualForm"><div class="dialog-header"><h2 id="albumTitle">New manual album</h2></div>
       <div class="search-save-body"><label class="field-label" for="albumName">Album name</label><input id="albumName" class="field" maxlength="80" required autocomplete="off">
       <p class="field-help">Local membership only. Google Drive files are not moved, renamed or uploaded.</p>
-      <div class="dialog-actions"><button class="btn quiet" id="manualCancel" type="button">Cancel</button><button class="btn primary" type="submit">Create</button></div></div></form>
+      <div class="dialog-actions"><button class="btn quiet" id="manualCancel" type="button">Cancel</button><button class="btn primary" id="albumSaveButton" type="submit">Create</button></div></div></form>
   </dialog>
   <dialog id="saveSearchDialog" class="dialog search-save-dialog" aria-labelledby="saveSearchTitle">
     <form id="saveSearchForm">

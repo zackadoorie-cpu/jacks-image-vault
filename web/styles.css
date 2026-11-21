@@ -1825,3 +1825,14 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 .tile-bulk input{width:15px;height:15px;margin:0;accent-color:var(--purple)}
 .tile-bulk:focus-within{outline:2px solid var(--purple);outline-offset:2px}
 @media(max-width:560px){.gallery-bulk-actions .select{min-width:100%;max-width:none}.gallery-bulk-actions .btn{flex:1 1 auto}}
+
+/* v2.2 Phase 6: local manual album controls in Quick Peek and full details. */
+.album-quick-controls{display:flex;align-items:center;flex-wrap:wrap;gap:7px;
+ padding:9px 0;margin:8px 0;border-top:1px solid var(--line)}
+.album-quick-controls.hidden{display:none!important}
+.album-quick-controls label{font-size:11px;font-weight:750;color:var(--text)}
+.album-quick-controls .select{flex:1 1 155px;min-width:120px;max-width:255px}
+.album-quick-controls .btn{min-height:34px}
+.album-quick-controls small{width:100%;font-size:11px;line-height:1.4;color:var(--muted)}
+.quick-peek-footer>div:first-child{flex:1 1 285px}
+@media(max-width:570px){.album-quick-controls .select{max-width:none;flex-basis:100%}.album-quick-controls .btn{flex:1 1 100%}}
