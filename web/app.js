@@ -7066,6 +7066,10 @@
       .find(node=>node.dataset.view===named);
     const group=item?.closest('details[data-nav-group]');
     if(group&&!group.open&&$('app')?.dataset?.sidebarMode!=='compact')group.open=true;
+    // Advanced links stay discoverable when visited from the command
+    // palette, Home shortcuts, or another view. Only disclosure changes.
+    const advanced=item?.closest('details[data-nav-subgroup]');
+    if(advanced&&!advanced.open)advanced.open=true;
   }
   function displayPage(view,{reset=true,scroll=true}={}) {
     powerContextClose();
@@ -9362,7 +9366,7 @@
     $('homeFolderCount').textContent=count(state.folders.length);
     $('homeFavoriteCount').textContent=count(files.filter(x=>state.favorites.has(x.id)).length);
     $('homeNeedReview').textContent=count((reviews?.pending||0)+(reviews?.deferred||0));
-    $('homeLiveness').textContent=state.connected?'● Drive linked · read-only':'○ Private preview';
+    $('homeLiveness').textContent=state.connected?'● Drive linked · read-only browsing':'○ Private preview';
 
     commandRender();
     // Featured collections are selected from the private inventory at runtime.
@@ -9579,6 +9583,9 @@
     $('searchHelp').textContent=parsedSearch.errors.length?parsedSearch.errors.join(' · '):
       'Search tips: "exact phrase" · tag:cat · type:video · folder:"Memes/Cats" · after:2025-01-01';
     $('searchHelp').classList.toggle('error',parsedSearch.errors.length>0);
+    // Keep actionable search parse errors visible even when optional filters
+    // are normally tucked into the gallery's secondary-controls drawer.
+    if(parsedSearch.errors.length&&$('galleryAdvanced'))$('galleryAdvanced').open=true;
     $('layoutButton').textContent=state.layout==='grid'?'☷':'▦';
     $('layoutButton').setAttribute('aria-label',state.layout==='grid'?'Switch to list view':'Switch to grid view');
     const available=state.folders.filter(f=>state.view==='all'||state.view==='review'||state.view==='favorites'||f.kind===state.view);
