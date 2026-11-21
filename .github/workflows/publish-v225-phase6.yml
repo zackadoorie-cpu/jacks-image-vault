@@ -1,0 +1,49 @@
+# One-time publisher for approved v2.2.5 album quick actions.
+# The independent release workflow rebuilds and verifies Chromium, Windows and checksums.
+name: Publish v2.2.5 Phase 6 Album Quick Actions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v225-phase6.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v2.2.5 Phase 6 album quick actions')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify Phase 6 was merged and tag unused
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          if gh release view v2.2.5 --repo "$REPO" >/dev/null 2>&1; then
+            echo "::notice::v2.2.5 was already published; skipping duplicate dispatch."
+            exit 0
+          fi
+          if ! gh pr view 121 --repo "$REPO" --json state,mergedAt \
+            --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .; then
+            echo "::error::Phase 6 PR #121 must be merged before publication."
+            exit 1
+          fi
+          STATUS="$(gh api "repos/$REPO/compare/9b897bac5563a91d003ee96129e938f3dc3a9f58...$GITHUB_SHA" --jq '.status')"
+          if [[ "$STATUS" != "ahead" && "$STATUS" != "identical" ]]; then
+            echo "::error::Release source does not include the verified Phase 6 merge."
+            exit 1
+          fi
+          if gh api "repos/$REPO/git/ref/tags/v2.2.5" >/dev/null 2>&1; then
+            echo "::error::v2.2.5 tag already exists."
+            exit 1
+          fi
+          gh workflow run release.yml --repo "$REPO" --ref main -f version=2.2.5
+          echo "Dispatched independently verified v2.2.5 patch ZIP, Windows EXE and Desktop Bundle."
