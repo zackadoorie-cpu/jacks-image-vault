@@ -224,7 +224,53 @@ async function main(){
     await p.locator('#layoutButton').click();
     assert.equal(await p.locator('#layoutButton').getAttribute('title'),'Switch to grid view');
     await p.locator('#layoutButton').click();
+    // Phase 9: multiple input events in one typing burst yield one gallery
+    // render. The live state updates immediately, with zero remote writes.
+    const rapid=await p.evaluate(()=>{
+      const h=window.__uiBench,field=document.querySelector('#searchInput');
+      const before=h.state.galleryRevision;
+      for(const query of ['o','or','ora','oran','orange']){
+        field.value=query;field.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+      return {before,after:h.state.galleryRevision,query:h.state.search,
+        timer:h.state.searchRenderTimer!==null};
+    });
+    assert.equal(rapid.after,rapid.before,'Input burst must not synchronously rebuild media tiles');
+    assert.equal(rapid.query,'orange','Search state must always carry the newest keystroke');
+    assert.equal(rapid.timer,true,'Burst should schedule one bounded render');
+    await p.waitForFunction(before=>window.__uiBench.state.galleryRevision===before+1,
+      rapid.before,{timeout:5000});
+    assert.equal(await p.locator('#galleryGrid [data-open-image]').count(),1);
+    assert.match(await p.locator('[data-clear-filter="search"]').innerText(),/Search: orange/);
+    // Composition events must not show half-finished IME text.
+    const imeStart=await p.evaluate(()=>{
+      const h=window.__uiBench,field=document.querySelector('#searchInput');
+      const before=h.state.galleryRevision;
+      field.dispatchEvent(new Event('compositionstart',{bubbles:true}));
+      for(const query of ['c','ca','cat']){
+        field.value=query;field.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+      return {before,current:h.state.galleryRevision,pending:h.state.searchRenderTimer};
+    });
+    assert.equal(imeStart.current,imeStart.before);
+    assert.equal(imeStart.pending,null,'IME composition must not schedule a gallery rebuild');
+    await p.waitForTimeout(190);
+    assert.equal(await p.evaluate(()=>window.__uiBench.state.galleryRevision),imeStart.before);
+    await p.evaluate(()=>{
+      document.querySelector('#searchInput').dispatchEvent(new Event('compositionend',{bubbles:true}));
+    });
+    assert.equal(await p.evaluate(()=>window.__uiBench.state.galleryRevision),imeStart.before+1);
     await p.locator('#searchInput').fill('orange');
+    await p.locator('#searchInput').press('Enter');
+    assert.equal(await p.evaluate(()=>window.__uiBench.state.searchRenderTimer),null);
+    assert.match(await p.locator('[data-clear-filter="search"]').innerText(),/Search: orange/);
+    await p.locator('#searchInput').press('Escape');
+    assert.equal(await p.locator('#searchInput').inputValue(),'');
+    assert.equal(await p.locator('#activeFilterBar').isVisible(),false);
+    // Clearing must immediately restore both gallery thumbnails.
+    assert.equal(await p.locator('#galleryGrid [data-open-image]').count(),2);
+    await p.locator('#searchInput').fill('orange');
+    await p.waitForFunction(()=>document.querySelector('[data-clear-filter="search"]')?.textContent.includes('orange'));
     assert.match(await p.locator('[data-clear-filter="search"]').innerText(),/Search: orange/);
     await p.locator('#mediaTypeSelect').selectOption('video');
     assert.match(await p.locator('[data-clear-filter="type"]').innerText(),/Type: Videos/);
@@ -248,6 +294,26 @@ async function main(){
     assert.equal(await p.locator('#mediaTypeSelect').inputValue(),'all');
     assert.equal(await p.locator('#folderSelect').inputValue(),'all');
     assert.equal(await p.locator('#sortSelect').inputValue(),'name');
+    // Typing in the folder picker must never reconstruct thumbnail DOM.
+    const folderBase=await p.evaluate(()=>{
+      window.__phase9OriginalPreview=document.querySelector('#galleryGrid [data-open-image]');
+      return window.__uiBench.state.galleryRevision;
+    });
+    await p.locator('#folderSearch').fill('Ca');
+    assert.equal(await p.locator('#folderSelect option').count(),2);
+    assert.match(await p.locator('#folderPickerCount').innerText(),/1 collection/);
+    await p.locator('#folderSearch').fill('Cats');
+    assert.equal(await p.evaluate(()=>window.__uiBench.state.galleryRevision),folderBase);
+    assert.equal(await p.evaluate(()=>document.querySelector('#galleryGrid [data-open-image]')===window.__phase9OriginalPreview),true);
+    await p.locator('#folderSelect').selectOption('Memes/Cats');
+    assert.equal(await p.locator('#galleryGrid [data-open-image]').count(),2);
+    await p.locator('#folderSearch').fill('Not a folder');
+    assert.equal(await p.locator('#folderSelect').inputValue(),'Memes/Cats',
+      'Folder text search must preserve a selected collection even if unmatched');
+    assert.equal(await p.evaluate(()=>window.__uiBench.state.folder),'Memes/Cats');
+    await p.locator('#folderSearch').fill('');
+    await p.locator('#folderSelect').selectOption('all');
+    assert.equal(polish.requests.every(method=>method==='GET'),true);
     await p.evaluate(id=>{
       const h=window.__uiBench;
       h.state.thumbErrors.set(id,'Fabricated thumbnail failure (read-only)');
@@ -1156,9 +1222,22 @@ async function main(){
     }));
     assert.equal(up.start,0,'scrolling back must restore the first media tiles');
     assert.ok(up.mounted<=180);
+    // A 10k-file search burst should cause only one filtered gallery render.
+    const largeSearch=await p.evaluate(()=>{
+      const h=window.__turboBench,field=document.querySelector('#searchInput');
+      const before=h.state.galleryRevision;
+      for(const query of ['Synthetic','Synthetic media','Synthetic media 009',
+          'Synthetic media 0099','Synthetic media 009999']){
+        field.value=query;field.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+      return {before,after:h.state.galleryRevision,current:h.state.search};
+    });
+    assert.equal(largeSearch.before,largeSearch.after);
+    assert.equal(largeSearch.current,'Synthetic media 009999');
+    await p.waitForFunction(before=>window.__turboBench.state.galleryRevision===before+1,
+      largeSearch.before,{timeout:7000});
     const changed=await p.evaluate(()=>{
       const h=window.__turboBench;
-      h.state.search='Synthetic media 009999';h.state.page=1;h.renderGallery();
       return {total:h.state.filtered.length,virtual:h.state.turboEnabled,
         mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length,
         label:document.querySelector('#galleryGrid [data-open-image]')?.getAttribute('aria-label')};
@@ -1210,10 +1289,14 @@ async function main(){
     // favorite:true is a reactive query; it cannot use the fast path.
     await p.locator('#galleryGrid [data-favorite="'+id+'"]').click();
     await p.locator('#searchInput').fill('favorite:true');
+    await p.waitForFunction(()=>window.__uiBench.state.searchRenderTimer===null&&
+      window.__uiBench.state.filtered.length===1&&
+      document.querySelector('#galleryGrid [data-open-image]'),null,{timeout:5000});
     assert.equal(await p.locator('#galleryGrid [data-open-image="'+id+'"]').count(),1);
     await p.locator('#galleryGrid [data-favorite="'+id+'"]').click();
     assert.equal(await p.locator('#galleryGrid [data-open-image="'+id+'"]').count(),0);
     await p.locator('#searchInput').fill('');
+    await p.waitForFunction(()=>document.querySelectorAll('#galleryGrid [data-open-image]').length===2);
     assert.equal(await p.locator('#galleryGrid [data-open-image]').count(),2);
     assert.equal(connected.requests.filter(method=>method!=='GET').length,favoriteBaseline,
       'Local favorites must never write to Drive or Sheets');
