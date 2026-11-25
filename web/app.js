@@ -1379,6 +1379,7 @@
     view: 'home',
     folder: 'all',
     search: '',
+    searchRenderTimer: null,
     sort: 'name',
     savedSearches: [],
     activeSavedSearch: '',
@@ -7369,6 +7370,9 @@
     if(advanced&&!advanced.open)advanced.open=true;
   }
   function displayPage(view,{reset=true,scroll=true}={}) {
+    // An outstanding live-search timer must never render a hidden gallery
+    // after navigation. The search value is already current in state.
+    cancelSearchRender();
     powerContextClose();
     if(state.connected&&browsingView())saveBrowsingPosition();
     if(view==='home'||view==='health'||view==='smart'||view==='memory'||view==='similarity'||view==='video-library'||view==='review-inbox'||view==='rename-desk'||view==='activity'||view==='sheet-write'||view==='manager-desk'||view==='filename-review'){
@@ -9875,7 +9879,46 @@
     updatePreviewStats();
     return true;
   }
+  // Phase 9: changes to folder *search text* only rebuild the small picker.
+  // They must not reset the gallery DOM, virtual window or thumbnail queue.
+  function renderFolderPicker(){
+  const available=state.folders.filter(f=>state.view==='all'||state.view==='review'||state.view==='favorites'||f.kind===state.view);
+      const query=state.folderQuery.trim().toLocaleLowerCase();
+      const matched=available.filter(f=>!query||f.path.toLocaleLowerCase().includes(query));
+      // Preserve the selected option even while typing an unrelated query.
+      const selected=available.find(f=>f.path===state.folder);
+      const options=selected&&!matched.some(f=>f.path===selected.path)?[selected,...matched]:matched;
+      $('folderSelect').innerHTML='<option value="all">All collections</option>'+
+        options.map(f=>`<option value="${escapeHTML(f.path)}">${escapeHTML(f.name)} (${format(f.count)})</option>`).join('');
+      $('folderSelect').value=state.folder;
+      $('folderPickerCount').textContent=query?`${matched.length} collections found`:`${available.length} collections`;
+  }
+  function cancelSearchRender(){
+    if(state.searchRenderTimer!==null){
+      clearTimeout(state.searchRenderTimer);
+      state.searchRenderTimer=null;
+    }
+  }
+  // Keep the live input and search state current immediately, while the
+  // expensive gallery sort/virtual repaint runs once after typing settles.
+  function updateSearchInput(value){
+    const query=String(value).slice(0,searchEngine.SEARCH_MAX_QUERY);
+    if($('searchInput').value!==query)$('searchInput').value=query;
+    if(query===state.search)return false;
+    if(query.trim()&&!state.search.trim()&&state.sort==='name')state.sort='relevance';
+    if(!query.trim()&&state.sort==='relevance')state.sort='name';
+    state.search=query;state.activeSavedSearch='';state.page=1;
+    return true;
+  }
+  function scheduleSearchRender(){
+    cancelSearchRender();
+    state.searchRenderTimer=setTimeout(()=>{
+      state.searchRenderTimer=null;
+      if(!$('galleryView')?.classList?.contains('hidden'))renderGallery();
+    },125);
+  }
   function renderGallery() {
+    cancelSearchRender();
     state.galleryRevision++;
     state.autoLoadObserver?.disconnect();state.autoLoadObserver=null;
     state.autoLoadPending=false;
@@ -9911,16 +9954,7 @@
     $('layoutButton').textContent=state.layout==='grid'?'☷':'▦';
     $('layoutButton').setAttribute('aria-label',state.layout==='grid'?'Switch to list view':'Switch to grid view');
     $('layoutButton').title=state.layout==='grid'?'Switch to list view':'Switch to grid view';
-    const available=state.folders.filter(f=>state.view==='all'||state.view==='review'||state.view==='favorites'||f.kind===state.view);
-    const query=state.folderQuery.trim().toLocaleLowerCase();
-    const matched=available.filter(f=>!query||f.path.toLocaleLowerCase().includes(query));
-    // Preserve the selected option even while typing an unrelated query.
-    const selected=available.find(f=>f.path===state.folder);
-    const options=selected&&!matched.some(f=>f.path===selected.path)?[selected,...matched]:matched;
-    $('folderSelect').innerHTML='<option value="all">All collections</option>'+
-      options.map(f=>`<option value="${escapeHTML(f.path)}">${escapeHTML(f.name)} (${format(f.count)})</option>`).join('');
-    $('folderSelect').value=state.folder;
-    $('folderPickerCount').textContent=query?`${matched.length} collections found`:`${available.length} collections`;
+    renderFolderPicker();
     renderActiveGalleryFilters();
     state.filtered=filterImages();
     updateReviewQueueAction();
@@ -11603,12 +11637,36 @@ async function nativeMediaPost(route,body,signal){
       finally{event.target.value='';}
     };
     $('smartExportButton').onclick=exportSmartCollections;
+    let searchComposing=false;
+    $('searchInput').addEventListener('compositionstart',()=>{
+      searchComposing=true;cancelSearchRender();
+    });
+    $('searchInput').addEventListener('compositionend',event=>{
+      searchComposing=false;
+      updateSearchInput(event.target.value);
+      renderGallery(); // one final IME result, never intermediate fragments
+    });
     $('searchInput').oninput=event=>{
-      const input=event.target.value.slice(0,searchEngine.SEARCH_MAX_QUERY);
-      if(input.trim()&&!state.search.trim()&&state.sort==='name')state.sort='relevance';
-      if(!input.trim()&&state.sort==='relevance')state.sort='name';
-      state.search=input;state.activeSavedSearch='';state.page=1;renderGallery();
+      const changed=updateSearchInput(event.target.value);
+      if(changed&&!searchComposing){
+        if(!state.search.trim())renderGallery(); // clear is immediate
+        else scheduleSearchRender();
+      }
     };
+    $('searchInput').onkeydown=event=>{
+      if(event.key==='Enter'&&!searchComposing){
+        event.preventDefault();updateSearchInput(event.target.value);
+        if(state.searchRenderTimer!==null)renderGallery();
+      }else if(event.key==='Escape'&&!searchComposing&&event.target.value){
+        event.preventDefault();event.target.value='';
+        updateSearchInput('');renderGallery();
+      }
+    };
+    $('searchInput').addEventListener('search',event=>{
+      if(searchComposing)return;
+      const changed=updateSearchInput(event.target.value);
+      if(changed||state.searchRenderTimer!==null)renderGallery();
+    });
     $('saveSearchButton').onclick=openSaveSearchDialog;
     $('savedSearchSelect').onchange=event=>applySavedSearch(event.target.value);
     $('deleteSavedSearchButton').onclick=deleteSavedSearch;
@@ -11620,7 +11678,7 @@ async function nativeMediaPost(route,body,signal){
       if(chip)clearActiveGalleryFilter(chip.dataset.clearFilter);
     };
     $('clearGalleryFilters').onclick=()=>clearActiveGalleryFilter('all');
-    $('folderSearch').oninput=event=>{state.folderQuery=event.target.value;renderGallery();};
+    $('folderSearch').oninput=event=>{state.folderQuery=event.target.value;renderFolderPicker();};
     $('folderSelect').onchange=event=>{state.folder=event.target.value;state.activeSavedSearch='';state.page=1;renderGallery();};
     $('reviewQueueFilter').onchange=event=>{
       if(!['pending','deferred','reviewed','all'].includes(event.target.value))return;

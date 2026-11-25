@@ -1,5 +1,17 @@
 # Jack's Image Vault — Windows image and media library
 
+## v2.2.9 — Phase 9: Faster Search Without Extra Controls
+
+Typing in the main gallery search now coalesces a burst of keystrokes into
+one gallery render after a brief 125 ms pause; clearing, Enter, and completed
+IME composition update immediately. The search state stays current for saved
+searches, sorting and filtering, while navigation cancels stale pending
+renders. Typing in the existing folder picker now redraws only its small
+option list, leaving visible thumbnails and virtual scroll state intact.
+No new UI panels, changes to tile sizes, Drive or Sheet writes, Google
+permissions, playback, stored album formats or Jump Navigator.
+See [Phase 9](docs/v2.2-phase9-faster-gallery-search.md).
+
 ## v2.2.8 — Phase 8: Gallery Action Layout Repair and Smooth Favorites
 
 Favorite/unfavorite actions in ordinary gallery views now update only the
