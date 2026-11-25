@@ -1,6 +1,6 @@
 # Jack's Image Vault — Windows image and media library
 
-## v2.2.8 — Phase 8: Smooth Favorites and Large Manual Albums
+## v2.2.8 — Phase 8: Gallery Action Layout Repair and Smooth Favorites
 
 Favorite/unfavorite actions in ordinary gallery views now update only the
 clicked heart, preserving visible thumbnails, keyboard focus and loading
@@ -10,6 +10,12 @@ uses the same safe update path. Manual Album filtering now checks membership
 once with a Set instead of repeatedly scanning lists for each loaded file,
 improving responsiveness on large collections. No new UI panels, sliders,
 Google permissions or remote writes; the v2.2.6 Jump Navigator stays retired.
+**Gallery repair:** The Compare text was overflowing tiny tile footers. Micro,
+Ultra Compact and Compact now show its existing icon-only button (with the
+same accessible name) and keep More/Favorite inside each tile. In selection
+mode, the existing checkbox sits at the top-right of a dense tile rather
+than crowding the footer. Desktop and mobile browser layout tests cover all
+five densities, including a 320px viewport.
 See [Phase 8](docs/v2.2-phase8-smooth-favorites-albums.md).
 
 ## v2.2.7 — Gallery Cleanup and Keyboard Polish
