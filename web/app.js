@@ -9689,6 +9689,10 @@
   }
   function filterImages() {
     const parsed=searchEngine.parseSearchQuery(state.search);
+    // Build membership once. Large manual albums can contain 10,000 file IDs,
+    // so checking an array for every Drive media file would be quadratic.
+    const manualIds=state.view==='manual-results'?
+      new Set(currentAlbum()?.ids||[]):null;
     const scored=[];
     for(const image of state.images){
       const kind=folderKind(image.folder);
@@ -9702,7 +9706,7 @@
         if(state.reviewFilter==='reviewed'&&stage!=='reviewed')continue;
       }
       if(state.view==='smart-results'&&!smartFor(image).matched)continue;
-      if(state.view==='manual-results'&&!currentAlbum()?.ids.includes(image.id))continue;
+      if(manualIds&&!manualIds.has(image.id))continue;
       if(state.view==='memory-results'&&!memoryEngine.memoryMatches(image,state.memorySelection,new Date()))continue;
       if(state.folder!=='all'&&image.folder!==state.folder)continue;
       if(state.mediaType!=='all'&&mediaKind(image)!==state.mediaType)continue;
@@ -9796,7 +9800,7 @@
     for(const btn of previews)btn.addEventListener('click',()=>openImage(btn.dataset.openImage,btn));
     $('galleryGrid').querySelectorAll('[data-bulk-id]').forEach(x=>x.onchange=()=>bulkChoose(x.dataset.bulkId,x.checked));
     for(const btn of hearts)btn.addEventListener('click',e=>{
-      e.preventDefault();toggleFavorite(btn.dataset.favorite);renderGallery();
+      e.preventDefault();favoriteAction(btn.dataset.favorite,{origin:btn});
     });
     const grid=$('galleryGrid');
     if(typeof grid?.querySelectorAll==='function')
@@ -10304,6 +10308,41 @@
     try {localStorage.setItem(FAVORITES_STORAGE,JSON.stringify([...state.favorites]));}
     catch {/* Browser storage may be disabled. */}
     if(state.activeImage?.id===id)updateFavoriteButton();
+  }
+  // Phase 8: a favorite click should never discard the entire gallery's
+  // thumbnail nodes or lose its keyboard focus when membership is unchanged.
+  // Favorites views, Smart Collections, and searches may depend on this
+  // flag and must still recalculate the complete result set.
+  function favoriteAction(id,{origin=null}={}){
+    if(!safeId(id))return;
+    toggleFavorite(id);
+    const stableView=['all','memes','photos','review','memory-results',
+      'manual-results'].includes(state.view)&&!state.search.trim();
+    if(stableView){
+      const favorite=state.favorites.has(id);
+      for(const button of $('galleryGrid').querySelectorAll('[data-favorite]')){
+        if(button.dataset.favorite!==id)continue;
+        button.classList.toggle('on',favorite);
+        button.textContent=favorite?'♥':'♡';
+        button.setAttribute('aria-label',favorite?'Remove from favorites':'Add to favorites');
+      }
+      return;
+    }
+    renderGallery();
+    // The full viewer may have been opened from a tile that was replaced.
+    // Relink its return target when the same file is still displayed.
+    const grid=$('galleryGrid');
+    const findById=selector=>[...grid.querySelectorAll(selector)].find(btn=>
+      (btn.dataset.favorite||btn.dataset.openImage)===id);
+    if(state.returnFocus&&!state.returnFocus.isConnected){
+      state.returnFocus=findById('[data-open-image]')||grid;
+      if(state.returnFocus===grid)grid.setAttribute('tabindex','-1');
+    }
+    if(origin){
+      const replacement=findById('[data-favorite]')||grid;
+      if(replacement===grid)grid.setAttribute('tabindex','-1');
+      replacement.focus({preventScroll:true});
+    }
   }
   // Phase 4: ephemeral selection, limited to two IDs in the currently
   // loaded account. Nothing is persisted, uploaded, renamed or deleted.
@@ -11667,7 +11706,7 @@ async function nativeMediaPost(route,body,signal){
     $('playVideoButton').onclick=playVideo;
     $('viewOriginalButton').onclick=()=>void viewOriginalImage();
     $('generatePosterButton').onclick=generateVideoThumbnail;
-    $('favoriteImage').onclick=()=>{if(!state.activeImage?.demo){toggleFavorite(state.activeImage.id);renderGallery();}};
+    $('favoriteImage').onclick=()=>{if(!state.activeImage?.demo)favoriteAction(state.activeImage.id);};
     $('retryPreview').onclick=()=>{if(state.activeImage){requestThumb(state.activeImage,{priority:true,force:true});renderModalPicture();}};
     $('retryFailedButton').onclick=()=>{const visible=state.turboEnabled?state.filtered.slice(state.turboStart,state.turboEnd):state.filtered.slice(0,state.page*state.pageSize);for(const item of visible){if(state.thumbErrors.has(item.id))requestThumb(item,{force:true});}updatePreviewStats();};
     $('imageDialog').addEventListener('cancel',event=>{

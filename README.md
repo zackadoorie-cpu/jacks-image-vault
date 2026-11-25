@@ -1,5 +1,17 @@
 # Jack's Image Vault — Windows image and media library
 
+## v2.2.8 — Phase 8: Smooth Favorites and Large Manual Albums
+
+Favorite/unfavorite actions in ordinary gallery views now update only the
+clicked heart, preserving visible thumbnails, keyboard focus and loading
+progress. Favorites, Smart Collections and search results still re-filter
+immediately when a favorite changes membership. The full details viewer
+uses the same safe update path. Manual Album filtering now checks membership
+once with a Set instead of repeatedly scanning lists for each loaded file,
+improving responsiveness on large collections. No new UI panels, sliders,
+Google permissions or remote writes; the v2.2.6 Jump Navigator stays retired.
+See [Phase 8](docs/v2.2-phase8-smooth-favorites-albums.md).
+
 ## v2.2.7 — Gallery Cleanup and Keyboard Polish
 
 Retires the v2.2.6 Jump Navigator entirely (markup, JavaScript, styles and

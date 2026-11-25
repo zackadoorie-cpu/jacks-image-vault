@@ -1022,6 +1022,30 @@ async function main(){
     assert.equal(initial.virtual,true);
     assert.ok(initial.mounted<=180,'10k-media initial DOM must stay bounded: '+initial.mounted);
     assert.equal(initial.windowStart,0);
+    // Phase 8: large manual albums avoid quadratic membership checks.
+    // Replacing includes on this one fixture array catches accidental
+    // reintroduction of per-file linear album scans.
+    const albumBench=await p.evaluate(()=>{
+      const h=window.__turboBench;
+      const ids=h.state.images.filter((_,i)=>i%2===0).map(x=>x.id);
+      ids.includes=()=>{throw new Error('Per-file linear scan of 5,000 album IDs');};
+      h.state.manualAlbums=[{id:'phase8-local-benchmark',name:'Synthetic selection',ids,
+        createdAt:Date.now(),updatedAt:Date.now()}];
+      h.state.manualAlbumId='phase8-local-benchmark';
+      h.state.view='manual-results';h.state.page=1;
+      const start=performance.now();h.renderGallery();
+      const snapshot={matched:h.state.filtered.length,virtual:h.state.turboEnabled,
+        mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length,
+        elapsedMs:performance.now()-start};
+      h.state.manualAlbumId='';h.state.manualAlbums=[];
+      h.state.view='all';h.state.page=1;h.renderGallery();
+      return snapshot;
+    });
+    assert.equal(albumBench.matched,5000,'Manual album returns exact membership');
+    assert.equal(albumBench.virtual,true,'Large manual albums retain virtual rendering');
+    assert.ok(albumBench.mounted<=180,'Manual album mounts only visible tile rows');
+    assert.equal(await p.locator('#galleryJump').count(),0,
+      'Phase 8 must not restore the unwanted navigation panel');
     // 10,000-file virtualization still has bounded DOM with denser columns.
     await setDensity(p,'ultra-compact');
     const dense=await p.evaluate(()=>{
@@ -1113,6 +1137,44 @@ async function main(){
     const browserErrors=[];
     p.on('pageerror',err=>browserErrors.push(err.message));
     await p.locator('[data-view="all"]').click();
+    // Phase 8: favorites in unfiltered galleries update in place, without
+    // discarding loaded preview DOM, keyboard focus, or batch progress.
+    const favoriteBaseline=connected.requests.filter(method=>method!=='GET').length;
+    const originalRevision=await p.evaluate(()=>window.__uiBench.state.galleryRevision);
+    await p.evaluate(()=>{
+      window.__phase8Preview=document.querySelector('#galleryGrid [data-open-image="fixture_image_123456789"]');
+    });
+    const heart=p.locator('#galleryGrid [data-favorite="'+id+'"]');
+    await heart.focus();
+    await p.keyboard.press('Enter');
+    assert.equal(await heart.innerText(),'♥');
+    assert.equal(await heart.getAttribute('aria-label'),'Remove from favorites');
+    assert.equal(await p.evaluate(()=>window.__uiBench.state.galleryRevision),originalRevision,
+      'Favoriting in All media should not rebuild the entire gallery');
+    assert.equal(await p.evaluate(()=>document.querySelector('#galleryGrid [data-open-image="fixture_image_123456789"]')===window.__phase8Preview),true,
+      'Previously rendered preview must survive a favorite action');
+    assert.equal(await heart.evaluate(btn=>document.activeElement===btn),true,
+      'Favorite keeps keyboard focus');
+    // The Favorites gallery depends on this flag, so removal must refilter.
+    await p.locator('[data-view="favorites"]').click();
+    assert.equal(await p.locator('#galleryGrid [data-open-image="'+id+'"]').count(),1);
+    await p.locator('#galleryGrid [data-favorite="'+id+'"]').click();
+    assert.equal(await p.locator('#galleryGrid [data-open-image="'+id+'"]').count(),0,
+      'Removal from Favorites must actually remove the tile');
+    assert.equal(await p.locator('#galleryGrid').evaluate(el=>document.activeElement===el),true,
+      'When a filtered tile disappears, focus moves to the gallery landmark');
+    await p.locator('[data-view="all"]').click();
+    assert.equal(await p.locator('#galleryGrid [data-favorite="'+id+'"]').innerText(),'♡');
+    // favorite:true is a reactive query; it cannot use the fast path.
+    await p.locator('#galleryGrid [data-favorite="'+id+'"]').click();
+    await p.locator('#searchInput').fill('favorite:true');
+    assert.equal(await p.locator('#galleryGrid [data-open-image="'+id+'"]').count(),1);
+    await p.locator('#galleryGrid [data-favorite="'+id+'"]').click();
+    assert.equal(await p.locator('#galleryGrid [data-open-image="'+id+'"]').count(),0);
+    await p.locator('#searchInput').fill('');
+    assert.equal(await p.locator('#galleryGrid [data-open-image]').count(),2);
+    assert.equal(connected.requests.filter(method=>method!=='GET').length,favoriteBaseline,
+      'Local favorites must never write to Drive or Sheets');
     // In-app playback should start at the visible stage, regardless of poster state.
     const videoButton=p.locator('#galleryGrid [data-open-image="'+vid+'"]');
     await videoButton.click();
