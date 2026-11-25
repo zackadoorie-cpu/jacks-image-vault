@@ -1,0 +1,48 @@
+# Guarded one-time publisher for v2.2.8 compact gallery overflow repair.
+name: Publish v2.2.8 Gallery Layout Repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v228-gallery-layout.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v2.2.8 compact gallery action layout repair')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify compact gallery overflow repair merged and release tag unused
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          if gh release view v2.2.8 --repo "$REPO" >/dev/null 2>&1; then
+            echo "::notice::v2.2.8 is already published; skipping duplicate dispatch."
+            exit 0
+          fi
+          if ! gh pr view 127 --repo "$REPO" --json state,mergedAt \
+            --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .; then
+            echo "::error::Cleanup PR #127 must be merged before publishing."
+            exit 1
+          fi
+          STATUS="$(gh api "repos/$REPO/compare/5f22281d39650278c3d9639b10440b635d1ff524...$GITHUB_SHA" --jq '.status')"
+          if [[ "$STATUS" != "ahead" && "$STATUS" != "identical" ]]; then
+            echo "::error::Release source must include verified layout repair commit."
+            exit 1
+          fi
+          if gh api "repos/$REPO/git/ref/tags/v2.2.8" >/dev/null 2>&1; then
+            echo "::error::v2.2.8 tag already exists."
+            exit 1
+          fi
+          gh workflow run release.yml --repo "$REPO" --ref main -f version=2.2.7
+          echo "Dispatched independent v2.2.8 release validation."
