@@ -119,6 +119,48 @@ async function setDensity(page,name){
   await page.waitForFunction(expected=>
     document.querySelector('#galleryGrid')?.dataset.density===expected,name,{timeout:8000});
 }
+// Dense gallery regression guard: keep every existing action inside its
+// card on desktop and narrow mobile. Visible SVG icons replace Compare text
+// in the three dense grids, while accessible names remain intact.
+async function assertTileActionsFit(page,{iconOnly=false,bulk=false}={}){
+ const measured=await page.locator('#galleryGrid .image-tile').first().evaluate(tile=>{
+   const card=tile.getBoundingClientRect();
+   const controls=['.tile-compare','.tile-more','.tiny-heart'].map(selector=>{
+     const el=tile.querySelector(selector),rect=el?.getBoundingClientRect();
+     return {selector,left:rect?.left,right:rect?.right,top:rect?.top,
+       bottom:rect?.bottom,width:rect?.width,aria:el?.getAttribute('aria-label'),
+       visible:!!el&&getComputedStyle(el).display!=='none'};
+   });
+   const selection=tile.querySelector('.tile-bulk'),checkbox=selection?.querySelector('input');
+   const rect=selection?.getBoundingClientRect();
+   return {card:{left:card.left,right:card.right,top:card.top,bottom:card.bottom},
+     controls,iconOnly:getComputedStyle(tile.querySelector('.tile-compare span')).display==='none',
+     selection:selection?{left:rect.left,right:rect.right,top:rect.top,
+       bottom:rect.bottom,checked:!!checkbox,aria:checkbox?.getAttribute('aria-label')}:null};
+ });
+ assert.equal(measured.iconOnly,iconOnly,'Compare text visibility must match density');
+ const card=measured.card;
+ for(let i=0;i<measured.controls.length;i++){
+   const item=measured.controls[i];
+   assert.equal(item.visible,true,item.selector+' should remain visible');
+   assert.ok(item.aria?.length>3,item.selector+' must remain accessible');
+   assert.ok(item.width>=16,item.selector+' must remain clickable');
+   assert.ok(item.left>=card.left-.75&&item.right<=card.right+.75,
+     item.selector+' must fit inside tile ('+JSON.stringify(measured)+')');
+   if(i>0)assert.ok(item.left>=measured.controls[i-1].right-1,
+     item.selector+' overlaps previous action');
+ }
+ if(bulk){
+   assert.ok(measured.selection?.checked,'Album selection checkbox must remain present');
+   assert.ok(measured.selection.aria?.startsWith('Select '),
+     'Album selection checkbox retains accessible file name');
+   assert.ok(measured.selection.left>=card.left-.75&&
+     measured.selection.right<=card.right+.75&&
+     measured.selection.top>=card.top-.75&&
+     measured.selection.bottom<=card.bottom+.75,
+     'Album selection checkbox must stay inside tile');
+ }
+}
 async function main(){
  const {server:host,url}=await server();let browser;
  try{
@@ -1022,6 +1064,30 @@ async function main(){
     assert.equal(initial.virtual,true);
     assert.ok(initial.mounted<=180,'10k-media initial DOM must stay bounded: '+initial.mounted);
     assert.equal(initial.windowStart,0);
+    // Phase 8: large manual albums avoid quadratic membership checks.
+    // Replacing includes on this one fixture array catches accidental
+    // reintroduction of per-file linear album scans.
+    const albumBench=await p.evaluate(()=>{
+      const h=window.__turboBench;
+      const ids=h.state.images.filter((_,i)=>i%2===0).map(x=>x.id);
+      ids.includes=()=>{throw new Error('Per-file linear scan of 5,000 album IDs');};
+      h.state.manualAlbums=[{id:'phase8-local-benchmark',name:'Synthetic selection',ids,
+        createdAt:Date.now(),updatedAt:Date.now()}];
+      h.state.manualAlbumId='phase8-local-benchmark';
+      h.state.view='manual-results';h.state.page=1;
+      const start=performance.now();h.renderGallery();
+      const snapshot={matched:h.state.filtered.length,virtual:h.state.turboEnabled,
+        mounted:document.querySelectorAll('#galleryGrid [data-open-image]').length,
+        elapsedMs:performance.now()-start};
+      h.state.manualAlbumId='';h.state.manualAlbums=[];
+      h.state.view='all';h.state.page=1;h.renderGallery();
+      return snapshot;
+    });
+    assert.equal(albumBench.matched,5000,'Manual album returns exact membership');
+    assert.equal(albumBench.virtual,true,'Large manual albums retain virtual rendering');
+    assert.ok(albumBench.mounted<=180,'Manual album mounts only visible tile rows');
+    assert.equal(await p.locator('#galleryJump').count(),0,
+      'Phase 8 must not restore the unwanted navigation panel');
     // 10,000-file virtualization still has bounded DOM with denser columns.
     await setDensity(p,'ultra-compact');
     const dense=await p.evaluate(()=>{
@@ -1113,6 +1179,44 @@ async function main(){
     const browserErrors=[];
     p.on('pageerror',err=>browserErrors.push(err.message));
     await p.locator('[data-view="all"]').click();
+    // Phase 8: favorites in unfiltered galleries update in place, without
+    // discarding loaded preview DOM, keyboard focus, or batch progress.
+    const favoriteBaseline=connected.requests.filter(method=>method!=='GET').length;
+    const originalRevision=await p.evaluate(()=>window.__uiBench.state.galleryRevision);
+    await p.evaluate(()=>{
+      window.__phase8Preview=document.querySelector('#galleryGrid [data-open-image="fixture_image_123456789"]');
+    });
+    const heart=p.locator('#galleryGrid [data-favorite="'+id+'"]');
+    await heart.focus();
+    await p.keyboard.press('Enter');
+    assert.equal(await heart.innerText(),'♥');
+    assert.equal(await heart.getAttribute('aria-label'),'Remove from favorites');
+    assert.equal(await p.evaluate(()=>window.__uiBench.state.galleryRevision),originalRevision,
+      'Favoriting in All media should not rebuild the entire gallery');
+    assert.equal(await p.evaluate(()=>document.querySelector('#galleryGrid [data-open-image="fixture_image_123456789"]')===window.__phase8Preview),true,
+      'Previously rendered preview must survive a favorite action');
+    assert.equal(await heart.evaluate(btn=>document.activeElement===btn),true,
+      'Favorite keeps keyboard focus');
+    // The Favorites gallery depends on this flag, so removal must refilter.
+    await p.locator('[data-view="favorites"]').click();
+    assert.equal(await p.locator('#galleryGrid [data-open-image="'+id+'"]').count(),1);
+    await p.locator('#galleryGrid [data-favorite="'+id+'"]').click();
+    assert.equal(await p.locator('#galleryGrid [data-open-image="'+id+'"]').count(),0,
+      'Removal from Favorites must actually remove the tile');
+    assert.equal(await p.locator('#galleryGrid').evaluate(el=>document.activeElement===el),true,
+      'When a filtered tile disappears, focus moves to the gallery landmark');
+    await p.locator('[data-view="all"]').click();
+    assert.equal(await p.locator('#galleryGrid [data-favorite="'+id+'"]').innerText(),'♡');
+    // favorite:true is a reactive query; it cannot use the fast path.
+    await p.locator('#galleryGrid [data-favorite="'+id+'"]').click();
+    await p.locator('#searchInput').fill('favorite:true');
+    assert.equal(await p.locator('#galleryGrid [data-open-image="'+id+'"]').count(),1);
+    await p.locator('#galleryGrid [data-favorite="'+id+'"]').click();
+    assert.equal(await p.locator('#galleryGrid [data-open-image="'+id+'"]').count(),0);
+    await p.locator('#searchInput').fill('');
+    assert.equal(await p.locator('#galleryGrid [data-open-image]').count(),2);
+    assert.equal(connected.requests.filter(method=>method!=='GET').length,favoriteBaseline,
+      'Local favorites must never write to Drive or Sheets');
     // In-app playback should start at the visible stage, regardless of poster state.
     const videoButton=p.locator('#galleryGrid [data-open-image="'+vid+'"]');
     await videoButton.click();
@@ -1207,9 +1311,11 @@ async function main(){
     // persist its existing density preference and avoid Google writes.
     const densityBaseline=connected.requests.filter(method=>method!=='GET').length;
     await setDensity(p,'compact');
+    await assertTileActionsFit(p,{iconOnly:true});
     const compactCols=await p.locator('#galleryGrid').evaluate(el=>
       getComputedStyle(el).gridTemplateColumns.split(/\s+/).filter(Boolean).length);
     await setDensity(p,'ultra-compact');
+    await assertTileActionsFit(p,{iconOnly:true});
     const ultraCols=await p.locator('#galleryGrid').evaluate(el=>
       getComputedStyle(el).gridTemplateColumns.split(/\s+/).filter(Boolean).length);
     assert.ok(ultraCols>compactCols,
@@ -1218,6 +1324,7 @@ async function main(){
     assert.equal(await p.evaluate(()=>localStorage.getItem('jack-vault-gallery-density-v1')),'ultra-compact');
     assert.equal(await p.locator('#densityValue').innerText(),'Ultra Compact');
     await setDensity(p,'micro');
+    await assertTileActionsFit(p,{iconOnly:true});
     const microCols=await p.locator('#galleryGrid').evaluate(el=>
       getComputedStyle(el).gridTemplateColumns.split(/\s+/).filter(Boolean).length);
     assert.ok(microCols>ultraCols,'Micro must fit more columns than Ultra Compact');
@@ -1231,6 +1338,16 @@ async function main(){
     assert.equal(await p.locator('#galleryGrid [data-favorite]').count(),2);
     assert.equal(await p.locator('#galleryGrid [data-tile-actions]').count(),2);
     assert.equal(await p.locator('#galleryGrid [data-open-image]').first().getAttribute('aria-label')!==null,true);
+    await p.locator('#bulkToggle').click();
+    await assertTileActionsFit(p,{iconOnly:true,bulk:true});
+    await p.locator('#galleryGrid .tile-bulk input').first().check();
+    assert.match(await p.locator('#bulkCount').innerText(),/1 selected/);
+    await p.locator('#bulkToggle').click();
+    await setDensity(p,'comfortable');
+    await assertTileActionsFit(p,{iconOnly:false});
+    await setDensity(p,'large');
+    await assertTileActionsFit(p,{iconOnly:false});
+    await setDensity(p,'micro');
     await openDisclosure(p,'#sidebarAppMenu');
     await p.locator('#sidebarPreferences').click();
     assert.equal(await p.locator('#prefDensity').inputValue(),'micro');
@@ -2042,7 +2159,10 @@ async function main(){
     assert.ok(overflow<=1,'Unexpected horizontal overflow: '+overflow);
     assert.equal(await p.evaluate(()=>getComputedStyle(document.documentElement).scrollBehavior),'auto');
     await p.locator('[data-view="all"]').first().click();
+    await setDensity(p,'ultra-compact');
+    await assertTileActionsFit(p,{iconOnly:true});
     await setDensity(p,'micro');
+    await assertTileActionsFit(p,{iconOnly:true});
     const mobileExcess=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
     assert.ok(mobileExcess<=1,'Micro slider/gallery causes mobile horizontal overflow: '+mobileExcess);
   }finally{await mobile.ctx.close();}
@@ -2057,7 +2177,12 @@ async function main(){
       const excess=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
       assert.ok(excess<=1,'320px viewport overflows '+view+' by '+excess+'px');
       if(view==='all'){
+        await setDensity(p,'compact');
+        await assertTileActionsFit(p,{iconOnly:true});
+        await setDensity(p,'ultra-compact');
+        await assertTileActionsFit(p,{iconOnly:true});
         await setDensity(p,'micro');
+        await assertTileActionsFit(p,{iconOnly:true});
         const microExcess=await p.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
         assert.ok(microExcess<=1,'Micro slider overflows 320px layout: '+microExcess);
       }

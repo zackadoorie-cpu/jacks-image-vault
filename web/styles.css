@@ -1840,3 +1840,52 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:de
 /* v2.2.7: existing progress stays compact while digits change. */
 .browse-progress{font-variant-numeric:tabular-nums}
 .load-more .btn:focus-visible{outline:2px solid var(--purple);outline-offset:3px}
+
+/* v2.2.8 hotfix: compact gallery action fit. The text Compare button added
+   after the density styles was wider than a Micro/Ultra tile footer, pushing
+   nearby controls outside the card. Use the existing icon and aria-label in
+   dense grids; do not alter full-size or list view controls. */
+.image-grid[data-density="compact"]:not(.list) .tile-compare span,
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-compare span,
+.image-grid[data-density="micro"]:not(.list) .tile-compare span{display:none}
+.image-grid[data-density="compact"]:not(.list) .tile-footer{gap:3px}
+.image-grid[data-density="compact"]:not(.list) :is(.tile-compare,.tile-more,.tiny-heart){
+  box-sizing:border-box;flex:0 0 25px;width:25px;min-width:25px;
+  height:27px;min-height:27px;padding:1px;line-height:1;
+}
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-footer{gap:2px}
+.image-grid[data-density="ultra-compact"]:not(.list) :is(.tile-compare,.tile-more,.tiny-heart){
+  box-sizing:border-box;flex:0 0 23px;width:23px;min-width:23px;
+  height:26px;min-height:26px;padding:1px;line-height:1;
+}
+.image-grid[data-density="micro"]:not(.list) .tile-footer{gap:1px;min-width:0}
+.image-grid[data-density="micro"]:not(.list) :is(.tile-compare,.tile-more,.tiny-heart){
+  box-sizing:border-box;flex:0 1 20px;width:20px;min-width:0;
+  height:23px;min-height:23px;padding:0;line-height:1;
+}
+.image-grid[data-density="micro"]:not(.list) .tile-compare .vault-icon{
+  width:12px;height:12px;flex:none;
+}
+/* Selection remains available without adding a fourth wide footer control.
+   Position the existing accessible checkbox above the image, opposite the
+   status badge. Do not hide or remove the selection input. */
+.image-grid[data-density="compact"]:not(.list) .image-tile,
+.image-grid[data-density="ultra-compact"]:not(.list) .image-tile,
+.image-grid[data-density="micro"]:not(.list) .image-tile{position:relative}
+.image-grid[data-density="compact"]:not(.list) .tile-bulk,
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-bulk,
+.image-grid[data-density="micro"]:not(.list) .tile-bulk{
+  box-sizing:border-box;position:absolute;top:5px;right:5px;z-index:3;
+  width:24px;height:24px;min-height:24px;padding:0;gap:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:0;line-height:0;overflow:hidden;
+  background:var(--surface);box-shadow:0 1px 5px #0006;
+}
+.image-grid[data-density="micro"]:not(.list) .tile-bulk{
+  top:3px;right:3px;width:22px;height:22px;min-height:22px;
+}
+.image-grid[data-density="compact"]:not(.list) .tile-bulk input,
+.image-grid[data-density="ultra-compact"]:not(.list) .tile-bulk input,
+.image-grid[data-density="micro"]:not(.list) .tile-bulk input{
+  flex:0 0 15px;width:15px;height:15px;margin:0;
+}
