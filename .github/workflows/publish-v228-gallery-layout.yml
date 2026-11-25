@@ -32,7 +32,7 @@ jobs:
           fi
           if ! gh pr view 127 --repo "$REPO" --json state,mergedAt \
             --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .; then
-            echo "::error::Cleanup PR #127 must be merged before publishing."
+            echo "::error::Gallery repair PR #127 must be merged before publishing."
             exit 1
           fi
           STATUS="$(gh api "repos/$REPO/compare/5f22281d39650278c3d9639b10440b635d1ff524...$GITHUB_SHA" --jq '.status')"
@@ -44,5 +44,5 @@ jobs:
             echo "::error::v2.2.8 tag already exists."
             exit 1
           fi
-          gh workflow run release.yml --repo "$REPO" --ref main -f version=2.2.7
+          gh workflow run release.yml --repo "$REPO" --ref main -f version=2.2.8
           echo "Dispatched independent v2.2.8 release validation."
