@@ -1246,16 +1246,19 @@
   <dialog id="updatesDialog" class="dialog updates-dialog" aria-labelledby="updatesTitle">
     <div class="dialog-header"><div><p class="eyebrow">YOUR APP, YOUR UPDATES</p><h2 id="updatesTitle">App updates</h2></div><button class="icon-button" id="updatesClose" type="button" aria-label="Close updates">×</button></div>
     <p class="dialog-copy">Apply a patch ZIP made here in ChatGPT, or use a public GitHub release. Every update is checked before installation. No Google tokens or images are sent to GitHub.</p>
-    <div class="update-version"><span>Installed version</span><strong id="appVersion">Checking…</strong></div>
+    <div class="update-version"><span>Gallery UI version</span><strong id="appVersion">Checking…</strong></div>
+    <div class="update-version"><span>Native Windows engine</span><strong id="nativeEngineVersion">Checking…</strong></div>
+    <p class="field-help" id="nativeVersionWarning" role="status"></p>
     <p class="update-message" id="updateStatusMessage" role="status">Checking update system…</p>
     <div class="update-section">
       <h3>GitHub release updates</h3>
       <label class="field-label" for="updateRepo">Public repository (owner/repo)</label>
       <input class="field" id="updateRepo" type="text" autocomplete="off" spellcheck="false" placeholder="yourusername/jacks-image-vault">
       <p class="field-help">The app checks this repository about once a day, but never installs an update without asking you. Release assets must be named <code>jacks-image-vault-patch.zip</code>.</p>
-      <div class="update-buttons"><button class="btn quiet" id="saveRepoButton" type="button">Save repository</button><button class="btn outline" id="updateCheckButton" type="button">Check GitHub</button><button class="btn primary" id="githubInstallButton" type="button" disabled>Install update</button></div>
+      <div class="update-buttons"><button class="btn quiet" id="saveRepoButton" type="button">Save repository</button><button class="btn outline" id="updateCheckButton" type="button">Check GitHub</button><button class="btn primary" id="githubInstallButton" type="button" disabled>Install UI patch</button></div>
       <p class="update-note" id="releaseStatus">No GitHub release checked yet.</p>
-      <p class="update-note"><a id="manualReleaseLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Open public GitHub releases to download the ZIP manually</a></p>
+      <p class="update-note"><a id="manualReleaseLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Open public GitHub releases and choose the appropriate asset</a></p>
+      <div class="update-section"><h3>Windows engine upgrade</h3><p class="field-help" id="nativeReleaseStatus">Check the official repository for native releases. Desktop bundle users should download the full bundle and extract both executables together.</p><div class="update-buttons"><a class="btn outline" id="nativeExeLink" target="_blank" rel="noopener noreferrer" hidden>Download Windows EXE</a><a class="btn outline" id="nativeBundleLink" target="_blank" rel="noopener noreferrer" hidden>Download desktop bundle</a><button class="btn primary" id="stageNativeButton" type="button" disabled>Stage verified standalone EXE</button></div><p class="field-help" id="nativeStageStatus" role="status" style="overflow-wrap:anywhere"></p><p class="field-help">After staging, close all Vault windows, launch the displayed EXE, then use Install app → Set up Windows shortcuts if needed. Old executables are retained for manual recovery. No automatic process termination.</p></div>
       <p class="field-help">A local ZIP updates the gallery interface, not the Windows launcher. If GitHub API HTTP 403 persists, install a newer Windows EXE when published to receive the native updater fix.</p>
     </div>
     <div class="update-section">

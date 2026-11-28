@@ -11103,6 +11103,47 @@ async function nativeMediaPost(route,body,signal){
       return /^v?\d+\.\d+\.\d+$/.test(tag)?url.href:'';
     }catch{return '';}
   }
+  const OFFICIAL_NATIVE_REPO='zackadoorie-cpu/jacks-image-vault';
+  function nativeVersionCompare(a,b){
+    const parts=v=>/^v?\d+\.\d+\.\d+$/.test(String(v||''))?String(v).replace(/^v/,'').split('.').map(x=>x.replace(/^0+(?=\d)/,'')):null;
+    const x=parts(a),y=parts(b);if(!x||!y)return null;
+    for(let i=0;i<3;i++){if(x[i].length!==y[i].length)return x[i].length>y[i].length?1:-1;if(x[i]!==y[i])return x[i]>y[i]?1:-1;}
+    return 0;
+  }
+  function nativeAssetLink(repo,tag,value,bundle=false){
+    if(String(repo).toLowerCase()!==OFFICIAL_NATIVE_REPO||nativeVersionCompare(tag,tag)!==0)return '';
+    const version=String(tag).replace(/^v/,''),name=bundle?'Jacks_Image_Vault_Desktop_Bundle_v'+version+'.zip':'Jacks_Image_Vault_'+version+'.exe';
+    const expected='https://github.com/'+OFFICIAL_NATIVE_REPO+'/releases/download/'+tag+'/'+name;
+    return value===expected?expected:'';
+  }
+  function nativeSetLink(id,url){const e=$(id);if(!e)return;e.hidden=!url;if(url)e.href=url;else e.removeAttribute('href');}
+  function renderNativeVersions(status){
+    const e=$('nativeEngineVersion'),w=$('nativeVersionWarning');if(!e||!w)return;
+    const native=status?.builtinVersion,ui=status?.version;
+    e.textContent=nativeVersionCompare(native,native)===0?'v'+String(native).replace(/^v/,''):'Unknown';
+    w.textContent=nativeVersionCompare(ui,native)===1?'UI is newer than the native engine. Native features may not work until you install the matching Windows executable.':nativeVersionCompare(ui,native)===null?'Native version could not be verified.':'Native engine and gallery UI are aligned.';
+  }
+  function renderNativeRelease(repo,data){
+    const e=$('nativeReleaseStatus'),btn=$('stageNativeButton');if(!e||!btn)return;
+    const native=data?.nativeVersion||state.updater?.builtinVersion;
+    const newer=data&&String(repo).toLowerCase()===OFFICIAL_NATIVE_REPO&&nativeVersionCompare(data.releaseVersion,native)===1;
+    nativeSetLink('nativeExeLink',data?nativeAssetLink(repo,data.releaseVersion,data.nativeDownloadURL):'');
+    nativeSetLink('nativeBundleLink',data?nativeAssetLink(repo,data.releaseVersion,data.desktopBundleURL,true):'');
+    btn.disabled=!(newer&&data.nativeStageAvailable===true&&nativeAssetLink(repo,data.releaseVersion,data.nativeDownloadURL));
+    e.textContent=newer?'Windows engine update '+data.releaseVersion+' available, even if the UI is current. '+(data.nativeStageAvailable?'Stage the standalone EXE or download the desktop bundle.':'Use the official release page to download the full bundle or EXE.'):'No newer official Windows engine confirmed. Check GitHub for updates.';
+    return !!newer;
+  }
+  async function stageNativeUpdate(){
+    const data=state.remoteRelease,repo=updateRepoValue(),button=$('stageNativeButton');
+    if(!data||!data.nativeStageAvailable||!nativeAssetLink(repo,data.releaseVersion,data.nativeDownloadURL))return;
+    if(!confirm('Download and verify the official standalone Windows EXE '+data.releaseVersion+'? It will not be launched or replace your current executable.'))return;
+    button.disabled=true;$('nativeStageStatus').textContent='Downloading and verifying SHA-256…';
+    try{
+      const result=await updateRequest('/__vault_update/stage-native',{body:JSON.stringify({Version:data.releaseVersion})});
+      $('nativeStageStatus').textContent=result.message+' Path: '+result.path;
+    }catch(e){$('nativeStageStatus').textContent='Native staging failed: '+e.message+' Use the official release link.';}
+    finally{renderNativeRelease(repo,state.remoteRelease);}
+  }
   function setManualReleaseLink(repo, value){
     const link=$('manualReleaseLink');
     if(!link)return;
@@ -11114,7 +11155,7 @@ async function nativeMediaPost(route,body,signal){
     try {
       const res=await fetch('/__vault_update/status',{cache:'no-store'});
       if(!res.ok)throw new Error('Update engine unavailable');
-      const status=await res.json();state.updater=status;
+      const status=await res.json();state.updater=status;renderNativeVersions(status);
       $('appVersion').textContent=`v${status.version.replace(/^v/,'')} · ${status.source}`;
       $('rollbackButton').disabled=!status.canRollback;
       $('resetButton').disabled=status.source==='built-in';
@@ -11122,18 +11163,19 @@ async function nativeMediaPost(route,body,signal){
       return status;
     }catch{
       showUpdateMessage('Update controls work only with the new Windows v2 EXE.',true);
-      $('appVersion').textContent='No native updater';return null;
+      $('appVersion').textContent='No native updater';renderNativeVersions(null);return null;
     }
   }
   async function openUpdates(){
     $('updateRepo').value=state.updateRepo;
     setManualReleaseLink(state.updateRepo,publicReleasesURL(state.updateRepo));
+    renderNativeRelease(state.updateRepo,null);
     $('updatesDialog').showModal();await getUpdateStatus();
   }
   function saveUpdateRepo(){
     const repo=updateRepoValue();
     if(repo&&!validRepo(repo)){showUpdateMessage('Enter a GitHub repository as owner/repo.',true);return false;}
-    state.updateRepo=repo;state.remoteRelease=null;$('githubInstallButton').disabled=true;
+    state.updateRepo=repo;state.remoteRelease=null;$('githubInstallButton').disabled=true;renderNativeRelease(repo,null);
     setManualReleaseLink(repo,publicReleasesURL(repo));
     try {if(repo)localStorage.setItem(REPO_STORAGE,repo);else localStorage.removeItem(REPO_STORAGE);localStorage.removeItem(UPDATE_CHECK_STORAGE);}
     catch {showUpdateMessage('Browser storage unavailable; repository saved only until reload.',true);return false;}
@@ -11148,7 +11190,7 @@ async function nativeMediaPost(route,body,signal){
     const btn=$('updateCheckButton');
     btn.disabled=true;
     $('githubInstallButton').disabled=true;
-    state.remoteRelease=null;
+    state.remoteRelease=null;renderNativeRelease(repo,null);
     // Manual recovery must remain visible even if native discovery fails.
     setManualReleaseLink(repo,publicReleasesURL(repo));
     try{
@@ -11156,28 +11198,29 @@ async function nativeMediaPost(route,body,signal){
       const data=await res.json();
       if(!res.ok)throw new Error(data.error||('GitHub returned HTTP '+res.status));
       state.remoteRelease=data;
+      const nativeNewer=renderNativeRelease(repo,data);
       setManualReleaseLink(repo,data.releaseURL||publicReleasesURL(repo));
       const unlisted=data.lookupSource==='public-release-page'&&!data.patchListed;
       $('releaseStatus').textContent=!data.hasPatch?
         'Latest release '+data.releaseVersion+' does not contain a confirmed ZIP patch.':
         'Latest release: '+data.releaseVersion+'. '+
-        (data.available?'A newer version was found.':'You are up to date.')+
+        (nativeNewer?'A newer Windows engine is available.':data.available?'A newer UI patch was found.':'No newer UI patch found.')+
         (unlisted?' Public release-page fallback: the ZIP was not independently listed.':'');
       $('githubInstallButton').disabled=!data.available;
-      if(data.available){
+      if(data.available||nativeNewer){
         $('updatesButton').classList.add('update-available');
         $('updatesButton').title='Update '+data.releaseVersion+' available';
       }else{
         $('updatesButton').classList.remove('update-available');
       }
-      showUpdateMessage(data.available?
+      showUpdateMessage(nativeNewer?'Native engine update '+data.releaseVersion+' available. Install the full Windows release, not just a UI patch.':data.available?
         'Update '+data.releaseVersion+' found.'+
         (unlisted?' ZIP availability is unconfirmed; installation will validate it.':'')+
         ' You can also download it manually.':
         'No newer GitHub patch detected. The manual releases link remains available.');
       try{localStorage.setItem(UPDATE_CHECK_STORAGE,String(Date.now()));}catch{}
     }catch(error){
-      state.remoteRelease=null;
+      state.remoteRelease=null;renderNativeRelease(repo,null);
       $('githubInstallButton').disabled=true;
       $('releaseStatus').textContent='Automatic release discovery is unavailable. Open public releases and choose the ZIP under Assets.';
       if(!automatic)showUpdateMessage('GitHub check failed: '+error.message+'. Manual ZIP installation is still available.',true);
@@ -11198,7 +11241,7 @@ async function nativeMediaPost(route,body,signal){
   async function installGithub(){
     const repo=updateRepoValue();
     if(!validRepo(repo)||!state.remoteRelease?.available){showUpdateMessage('Check the latest release first.',true);return;}
-    if(!confirm(`Install the approved public GitHub release ${state.remoteRelease.releaseVersion}? Your Google Drive files will not be changed.`))return;
+    if(!confirm(`Install the UI-only patch ${state.remoteRelease.releaseVersion}? This does not update the native Windows engine. Your Google Drive files will not be changed.`))return;
     $('githubInstallButton').disabled=true;showUpdateMessage('Downloading, checking SHA-256 hashes and installing…');
     try{await updateRequest('/__vault_update/install-github',{body:JSON.stringify({repo})});await reloadAfterPatch();}
     catch(error){showUpdateMessage(`Update failed: ${error.message}. If GitHub blocks automated downloads, use the release link below to download the ZIP, then choose Verify & install ZIP.`,true);$('githubInstallButton').disabled=false;}
@@ -11488,6 +11531,7 @@ async function nativeMediaPost(route,body,signal){
     $('updatesClose').onclick=()=>$('updatesDialog').close();
     $('saveRepoButton').onclick=saveUpdateRepo;$('updateCheckButton').onclick=()=>checkGithub();
     $('githubInstallButton').onclick=installGithub;$('localInstallButton').onclick=installLocalPatch;
+    if($('stageNativeButton'))$('stageNativeButton').onclick=stageNativeUpdate;
     $('rollbackButton').onclick=()=>recoveryAction('rollback');$('resetButton').onclick=()=>recoveryAction('reset');
     $('settingsClose').onclick=()=>$('settingsDialog').close();$('cancelSettings').onclick=()=>$('settingsDialog').close();
     $('clientIdInput').oninput=()=>$('clientIdInput').setCustomValidity('');
@@ -11876,7 +11920,7 @@ async function nativeMediaPost(route,body,signal){
     if(!anchor||typeof anchor.after!=='function'||!document.body||typeof document.body.append!=='function')return;
     const btn=document.createElement('button');btn.type='button';btn.className='side-settings';btn.textContent='✧ AI Studio';anchor.after(btn);
     const dlg=document.createElement('dialog');dlg.className='dialog settings-dialog';dlg.setAttribute('aria-label','AI Studio');
-    dlg.innerHTML='<div class="dialog-header"><div><p class="eyebrow">OPTIONAL · GEMINI</p><h2>AI Studio</h2></div><button type="button" class="icon-button" data-ai="close" aria-label="Close">×</button></div><p class="dialog-copy">Cloud analysis is optional. The Windows app encrypts your API key. This test never edits Drive or Sheets.</p><label class="field-label">Gemini API key<input data-ai="key" class="field" type="password" autocomplete="off" placeholder="Paste AQ. authorization key or legacy key"></label><label class="field-label">Model<select data-ai="model" class="field"><option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option><option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option></select></label><div class="dialog-actions"><button type="button" class="btn outline" data-ai="forget">Forget key</button><button type="button" class="btn primary" data-ai="save">Save AI settings</button></div><p data-ai="message" role="status" aria-live="polite" style="overflow-wrap:anywhere"></p><p data-ai="budget" role="status"></p><p class="field-help">Estimated standard API costs, UTC calendar month. $8 app-only limit; not a Google billing limit. Unknown charges retain their reservation.</p><div class="preference-section"><button type="button" class="btn outline" data-ai="test">Test Gemini connection (paid request)</button><label class="field-label">Local image test (JPEG or PNG, resized locally)<input type="file" data-ai="file" accept="image/jpeg,image/png" class="field"></label><button type="button" class="btn outline" data-ai="image">Analyze selected image</button><hr><label class="field-label">Find a catalog image<input data-ai="search" type="search" class="field" placeholder="Filter by filename or folder"></label><label class="field-label">Choose a Drive image<select data-ai="drive" class="field"></select></label><p class="field-help">Only JPEG, PNG and WebP still images up to 20 MiB. Choose an exact file; a resized copy is sent only after approval. Suggestions do not change your library.</p><button type="button" class="btn outline" data-ai="inspect">Inspect Drive image</button><p data-ai="meta" role="status"></p><pre data-ai="result" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><details><summary>Recent estimated usage</summary><pre data-ai="history" style="white-space:pre-wrap"></pre></details></div>';
+    dlg.innerHTML='<div class="dialog-header"><div><p class="eyebrow">OPTIONAL · GEMINI</p><h2>AI Studio</h2></div><button type="button" class="icon-button" data-ai="close" aria-label="Close">×</button></div><p data-ai="engine" class="field-help" role="status"></p><p class="dialog-copy">Cloud analysis is optional. The Windows app encrypts your API key. This test never edits Drive or Sheets.</p><label class="field-label">Gemini API key<input data-ai="key" class="field" type="password" autocomplete="off" placeholder="Paste AQ. authorization key or legacy key"></label><label class="field-label">Model<select data-ai="model" class="field"><option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option><option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option></select></label><div class="dialog-actions"><button type="button" class="btn outline" data-ai="forget">Forget key</button><button type="button" class="btn primary" data-ai="save">Save AI settings</button></div><p data-ai="message" role="status" aria-live="polite" style="overflow-wrap:anywhere"></p><p data-ai="budget" role="status"></p><p class="field-help">Estimated standard API costs, UTC calendar month. $8 app-only limit; not a Google billing limit. Unknown charges retain their reservation.</p><div class="preference-section"><button type="button" class="btn outline" data-ai="test">Test Gemini connection (paid request)</button><label class="field-label">Local image test (JPEG or PNG, resized locally)<input type="file" data-ai="file" accept="image/jpeg,image/png" class="field"></label><button type="button" class="btn outline" data-ai="image">Analyze selected image</button><hr><label class="field-label">Find a catalog image<input data-ai="search" type="search" class="field" placeholder="Filter by filename or folder"></label><label class="field-label">Choose a Drive image<select data-ai="drive" class="field"></select></label><p class="field-help">Only JPEG, PNG and WebP still images up to 20 MiB. Choose an exact file; a resized copy is sent only after approval. Suggestions do not change your library.</p><button type="button" class="btn outline" data-ai="inspect">Inspect Drive image</button><p data-ai="meta" role="status"></p><pre data-ai="result" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><details><summary>Recent estimated usage</summary><pre data-ai="history" style="white-space:pre-wrap"></pre></details></div>';
     document.body.append(dlg);
     const el=n=>dlg.querySelector('[data-ai="'+n+'"]');
     let nonce='', busy=false, configured=false, requestEpoch=0;
@@ -11899,7 +11943,7 @@ async function nativeMediaPost(route,body,signal){
       if(d.result!==undefined)el('result').textContent=d.result;
     }
     async function call(action,extra={}){
-      if(!nonce){const res=await fetch('/__vault_update/status',{cache:'no-store'});if(!res.ok)throw Error('Install the new Windows executable.');nonce=(await res.json()).nonce;}
+      if(!nonce){const res=await fetch('/__vault_update/status',{cache:'no-store'});if(!res.ok)throw Error('Install the new Windows executable.');const status=await res.json();el('engine').textContent='Native engine: '+(status.builtinVersion||'unknown')+' · UI: '+(status.version||'unknown');if(nativeVersionCompare(status.builtinVersion,'3.0.1')===null||nativeVersionCompare(status.builtinVersion,'3.0.1')<0)throw Error('Gemini requires Windows engine 3.0.1 or newer. Install the full executable or desktop bundle, not a UI ZIP.');nonce=status.nonce;}
       const res=await fetch('/__vault_gemini',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Vault-Nonce':nonce},body:JSON.stringify({Action:action,...extra})});
       let d;try{d=await res.json()}catch{throw Error('AI Studio needs the new Windows executable.')}
       if(!res.ok)throw Error(d.error||'AI request failed');

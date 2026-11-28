@@ -713,12 +713,14 @@ func (v *vault) handleCheck(w http.ResponseWriter, r *http.Request) {
 	v.mu.RLock()
 	current := v.currentVersion
 	v.mu.RUnlock()
-	response(w, 200, map[string]any{"currentVersion": current, "releaseVersion": rls.Tag, "available": compareVersions(rls.Tag, current) > 0 && aerr == nil, "hasPatch": aerr == nil, "patchListed": rls.AssetListKnown && aerr == nil, "lookupSource": rls.Discovery, "assetName": archiveName, "releaseURL": rls.HTMLURL, "publishedAt": rls.PublishedAt, "notes": rls.Body, "downloadURL": func() string {
+	details := map[string]any{"currentVersion": current, "releaseVersion": rls.Tag, "available": compareVersions(rls.Tag, current) > 0 && aerr == nil, "hasPatch": aerr == nil, "patchListed": rls.AssetListKnown && aerr == nil, "lookupSource": rls.Discovery, "assetName": archiveName, "releaseURL": rls.HTMLURL, "publishedAt": rls.PublishedAt, "notes": rls.Body, "downloadURL": func() string {
 		if aerr == nil {
 			return asset
 		}
 		return ""
-	}()})
+	}()}
+	for key, value := range nativeReleaseDetails(rls,repo) { details[key]=value }
+	response(w,200,details)
 }
 func (v *vault) handleLocal(w http.ResponseWriter, r *http.Request) {
 	if !v.guard(w, r, true) {
@@ -874,6 +876,7 @@ func (v *vault) handler() http.Handler {
 		w.Write([]byte(marker))
 	})
 	mux.HandleFunc("/__vault_update/status", v.handleStatus)
+	mux.HandleFunc("/__vault_update/stage-native", v.handleNativeStage)
 	mux.HandleFunc("/__vault_update/check", v.handleCheck)
 	mux.HandleFunc("/__vault_update/install-local", v.handleLocal)
 	mux.HandleFunc("/__vault_update/install-github", v.handleGithub)
