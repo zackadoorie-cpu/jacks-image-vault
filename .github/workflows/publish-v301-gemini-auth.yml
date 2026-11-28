@@ -1,0 +1,40 @@
+# One-time publisher for the verified Gemini authorization key fix.
+name: Publish v3.0.1 Gemini authorization key hotfix
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v301-gemini-auth.yml'
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v3.0.1 Gemini')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify merged PR, successful CI, and exact approved source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          if gh release view v3.0.1 --repo "$REPO" >/dev/null 2>&1; then
+            echo "v3.0.1 already published."
+            exit 0
+          fi
+          if gh api "repos/$REPO/git/ref/tags/v3.0.1" >/dev/null 2>&1; then
+            echo "::error::Tag already exists"
+            exit 1
+          fi
+          gh pr view 135 --repo "$REPO" --json state,mergedAt --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .
+          test "$(gh api "repos/$REPO/actions/runs/46141019727" --jq .conclusion)" = success
+          test "$(gh api "repos/$REPO/actions/runs/46141019727" --jq .head_sha)" = 2af4f411a234b6df99d5d8f8457a116527e12125
+          test "$(gh api "repos/$REPO/commits/$GITHUB_SHA" --jq '.parents[0].sha')" = 5e98110f733320b6c6d5940904c3131a13f3915b
+          test "$(gh api "repos/$REPO/branches/main" --jq .commit.sha)" = "$GITHUB_SHA"
+          gh workflow run release.yml --repo "$REPO" --ref main -f version=3.0.1
