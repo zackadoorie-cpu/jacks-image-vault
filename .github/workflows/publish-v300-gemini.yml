@@ -1,0 +1,45 @@
+# One-time publisher for the verified Gemini foundation and inspector.
+name: Publish v3.0.0 Gemini foundation and inspector
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v300-gemini.yml'
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v3.0.0 Gemini')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify both merged PRs, successful CI, and exact approved source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          if gh release view v3.0.0 --repo "$REPO" >/dev/null 2>&1; then
+            echo "v3.0.0 already published."
+            exit 0
+          fi
+          if gh api "repos/$REPO/git/ref/tags/v3.0.0" >/dev/null 2>&1; then
+            echo "::error::Tag already exists"
+            exit 1
+          fi
+          for PR in 132 133; do
+            gh pr view "$PR" --repo "$REPO" --json state,mergedAt --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .
+          done
+          for RUN in 46138090557 46138176756; do
+            test "$(gh api "repos/$REPO/actions/runs/$RUN" --jq .conclusion)" = success
+          done
+          test "$(gh api "repos/$REPO/actions/runs/46138090557" --jq .head_sha)" = 3aa97e1660d8169046971ba1e64a862bdff4a1b5
+          test "$(gh api "repos/$REPO/actions/runs/46138176756" --jq .head_sha)" = 897987dd765a3d317675fba360e692ab2e351bf3
+          test "$(gh api "repos/$REPO/commits/$GITHUB_SHA" --jq '.parents[0].sha')" = c9883891494a6aa0fe7cb0746dba63f71a1faf86
+          test "$(gh api "repos/$REPO/branches/main" --jq .commit.sha)" = "$GITHUB_SHA"
+          gh workflow run release.yml --repo "$REPO" --ref main -f version=3.0.0
