@@ -1,0 +1,40 @@
+# One-time publisher for the verified native-aware updater.
+name: Publish v3.0.2 native-aware Windows updater
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v302-native-updater.yml'
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'zackadoorie-cpu/jacks-image-vault' &&
+      startsWith(github.event.head_commit.message, 'release: v3.0.2 native')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify merged PR, successful CI, and exact approved source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          if gh release view v3.0.2 --repo "$REPO" >/dev/null 2>&1; then
+            echo "v3.0.2 already published."
+            exit 0
+          fi
+          if gh api "repos/$REPO/git/ref/tags/v3.0.2" >/dev/null 2>&1; then
+            echo "::error::Tag already exists"
+            exit 1
+          fi
+          gh pr view 136 --repo "$REPO" --json state,mergedAt --jq 'select(.state == "MERGED" and .mergedAt != null) | .mergedAt' | grep -q .
+          test "$(gh api "repos/$REPO/actions/runs/46142324304" --jq .conclusion)" = success
+          test "$(gh api "repos/$REPO/actions/runs/46142324304" --jq .head_sha)" = 278556d99c09b16e977c7c734a2da69d85cd67ea
+          test "$(gh api "repos/$REPO/commits/$GITHUB_SHA" --jq '.parents[0].sha')" = 709810bd512cd3d2855b581c1adcef968f2100dc
+          test "$(gh api "repos/$REPO/branches/main" --jq .commit.sha)" = "$GITHUB_SHA"
+          gh workflow run release.yml --repo "$REPO" --ref main -f version=3.0.2
