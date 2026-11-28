@@ -11870,7 +11870,6 @@ async function nativeMediaPost(route,body,signal){
     });
     start();
   }
-
   // Optional AI panel: native endpoint only, no Drive or Sheets access.
   function initGeminiFoundation(){
     const anchor=$('sidebarUpdates');
@@ -11883,44 +11882,8 @@ async function nativeMediaPost(route,body,signal){
     let nonce='', busy=false, configured=false;
     function show(d){
       configured=d.configured;el('model').value=d.model;
-      el('budget').textContent=(configured?'Key configured':'No key saved')+' · 
-    if(IN_NATIVE_DESKTOP){
-      document.documentElement.classList.add('vault-desktop-host');
-      // The WebView2 profile is intentionally independent of Edge/Chrome.
-      // Keep the user on the external-browser Desktop PKCE flow only.
-      state.autoReconnect=false;
-    }
-    startNativeWindowLifecycle();
-    applyVaultTheme(state.theme);
-    buildFolderIndex();initEvents();powerToolsInit();enableBackdropDismissal();updateStatus();render();$('originText').textContent=location.origin;
-    if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){
-      navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(()=>{});
-    }
-    if(location.protocol==='file:')alertUser('This is a design preview. Launch the Windows EXE to connect Google Drive.');
-    autoCheckOnStartup();
-    tryAutoReconnect();
-  }
-  init();
-})();+(d.spentNanoUSD/1e9).toFixed(4)+' / $8.00 estimated · '+d.month+' UTC';
-      el('history').textContent=(d.history||[]).slice().reverse().map(x=>x.At+' · '+x.Model+' · '+x.Status+' · '+x.Input+'/'+x.Output+' tokens · 
-    if(IN_NATIVE_DESKTOP){
-      document.documentElement.classList.add('vault-desktop-host');
-      // The WebView2 profile is intentionally independent of Edge/Chrome.
-      // Keep the user on the external-browser Desktop PKCE flow only.
-      state.autoReconnect=false;
-    }
-    startNativeWindowLifecycle();
-    applyVaultTheme(state.theme);
-    buildFolderIndex();initEvents();powerToolsInit();enableBackdropDismissal();updateStatus();render();$('originText').textContent=location.origin;
-    if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){
-      navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(()=>{});
-    }
-    if(location.protocol==='file:')alertUser('This is a design preview. Launch the Windows EXE to connect Google Drive.');
-    autoCheckOnStartup();
-    tryAutoReconnect();
-  }
-  init();
-})();+(x.NanoUSD/1e9).toFixed(6)).join('\n');
+      el('budget').textContent=(configured?'Key configured':'No key saved')+' · '+(d.spentNanoUSD/1e9).toFixed(4)+' / $8.00 estimated · '+d.month+' UTC';
+      el('history').textContent=(d.history||[]).slice().reverse().map(x=>x.At+' · '+x.Model+' · '+x.Status+' · '+x.Input+'/'+x.Output+' tokens · '+(x.NanoUSD/1e9).toFixed(6)).join('\n');
       if(d.result!==undefined)el('result').textContent=d.result;
     }
     async function call(action,extra={}){
