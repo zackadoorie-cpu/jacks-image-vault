@@ -28,7 +28,9 @@ const geminiOutput = 512
 type geminiRate struct { In, Out int64 }
 var geminiRates = map[string]geminiRate{"gemini-3.1-flash-lite":{250,1500},"gemini-3.5-flash-lite":{300,2500}}
 var geminiMu sync.Mutex
-var geminiKeyPattern = regexp.MustCompile("^[A-Za-z0-9_-]{20,200}$")
+// AI Studio authorization keys use AQ. followed by a URL-safe credential.
+// Accept legacy keys as well; never allow whitespace or HTTP header controls.
+var geminiKeyPattern = regexp.MustCompile("^(?:[A-Za-z0-9_-]{20,200}|AQ[.][A-Za-z0-9_-]{20,197})$")
 type geminiEntry struct {
  At time.Time
  Model, Status string
@@ -135,7 +137,7 @@ func (v *vault) handleGemini(w http.ResponseWriter,r *http.Request){
  case "save":
   if _,ok:=geminiRates[q.Model];!ok{fail(w,400,"Unsupported model");return}
   if q.Key!=""{
-   if !geminiKeyPattern.MatchString(q.Key){fail(w,400,"Invalid API key format");return}
+   if !geminiKeyPattern.MatchString(q.Key){fail(w,400,"Invalid Gemini key format. Copy the complete AQ. authorization key or legacy API key from AI Studio, without quotes or spaces.");return}
    if geminiStoreKey(path,q.Key)!=nil{fail(w,500,"Could not protect API key");return};key=q.Key
   }
   l.Model=q.Model

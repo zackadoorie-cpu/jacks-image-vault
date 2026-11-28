@@ -11,11 +11,11 @@ func TestGeminiBudgetAndPersistence(t *testing.T){
 }
 func TestGeminiMockHTTP(t *testing.T){
  s:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
- if r.Header.Get("x-goog-api-key")!="test-key"||r.URL.RawQuery!=""||!strings.HasSuffix(r.URL.Path,":countTokens"){t.Error("bad request")}
+ if r.Header.Get("x-goog-api-key")!="AQ.synthetic_fixture_not_a_real_key_123456789"||r.URL.RawQuery!=""||!strings.HasSuffix(r.URL.Path,":countTokens"){t.Error("bad request")}
  w.Write([]byte("{\"totalTokens\":123}"))
  }));defer s.Close()
  var result map[string]int
- if err:=geminiCall(context.Background(),geminiHTTPClient(),s.URL,"test-key","gemini-3.1-flash-lite","countTokens",map[string]any{},&result);err!=nil||result["totalTokens"]!=123{t.Fatal(err,result)}
+ if err:=geminiCall(context.Background(),geminiHTTPClient(),s.URL,"AQ.synthetic_fixture_not_a_real_key_123456789","gemini-3.1-flash-lite","countTokens",map[string]any{},&result);err!=nil||result["totalTokens"]!=123{t.Fatal(err,result)}
 }
 func TestGeminiConcurrentBudget(t *testing.T){
  l:=geminiLedger{Model:"gemini-3.5-flash-lite"};now:=time.Now();var mu sync.Mutex;var wg sync.WaitGroup
@@ -27,5 +27,14 @@ func TestGeminiGuard(t *testing.T){
  for _,origin:=range []string{"https://evil.example",""}{
  r:=httptest.NewRequest("POST","http://localhost:8765/__vault_gemini",strings.NewReader("{}"));r.Header.Set("Origin",origin)
  w:=httptest.NewRecorder();v.handler().ServeHTTP(w,r);if w.Code!=403{t.Fatal(w.Code)}
+ }
+}
+
+func TestGeminiKeyFormats(t *testing.T){
+ for _,key:=range []string{"AQ.synthetic_fixture_not_a_real_key_123456789","AIzaSyntheticFixtureNotARealKey_123456","fake-test-key-123456789012345"}{
+  if !geminiKeyPattern.MatchString(key){t.Fatal("valid fixture rejected")}
+ }
+ for _,key:=range []string{"AQ.","AQ.short","XX.synthetic_fixture_not_a_real_key_123456789","AQ.synthetic_fixture_not_a_real_key\n123456789"," AQ.synthetic_fixture_not_a_real_key_123456789","AQ.synthetic_fixture_not_a_real_key_123456789 ","AQ.synthetic.fixture_not_a_real_key_123456789","\"AQ.synthetic_fixture_not_a_real_key_123456789\""}{
+  if geminiKeyPattern.MatchString(key){t.Fatal("invalid fixture accepted")}
  }
 }
