@@ -3934,7 +3934,7 @@
     const changed = clientId !== state.config.clientId || sheetId !== state.config.sheetId;
     if (changed && state.connected) disconnect();
     if(changed){
-      clearAutoBinding();state.autoReconnect=false;state.authEpoch++;
+      clearAutoBinding();state.autoReconnect=false;state.authEpoch++;aiCloseForAuth();
       try{localStorage.setItem(APP_PREFS_STORAGE,JSON.stringify({...readPreferences(),autoReconnect:false}));}catch{}
     }
     state.config = {clientId, sheetId};
@@ -4010,7 +4010,7 @@
     const id=desktopFlowId;
     if(!id)return;
     desktopFlowId='';
-    state.authEpoch++;
+    state.authEpoch++;aiCloseForAuth();
     state.authMode='idle';
     $('desktopAuthCancelButton').disabled=true;
     $('desktopAuthConnectButton').disabled=false;
@@ -6037,7 +6037,7 @@
       const flow=driveRenameFlowId;driveRenameFlowId='';
       void desktopAuthPost('cancel',{flowId:flow}).catch(()=>{});
     }
-    state.authEpoch++;
+    state.authEpoch++;aiCloseForAuth();
     state.authMode='idle';
     state.autoReconnect=false;
     state.autoReconnectStatus='';
@@ -11914,17 +11914,184 @@ async function nativeMediaPost(route,body,signal){
     });
     start();
   }
-  // Optional AI panel: explicit read-only Drive fetches; no Drive or Sheets writes.
+  // Phase 3.0C first slice: local proposals, never a cloud write grant.
+  const AI_REVIEW_LIMIT=100, AI_REVIEW_BYTES=500000;
+  const AI_REVIEW_CATEGORIES=['illustration','photograph','comic','screenshot','document','other'];
+  let aiCloseForAuth=()=>{};
+  function aiReviewText(v,max,required=false){
+    if(typeof v!=='string'||v.length>max||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v)||(required&&!v.trim()))throw Error('Invalid AI proposal text.');
+    return v;
+  }
+  function aiReviewID(v){return typeof v==='string'&&/^[A-Za-z0-9_-]{10,100}$/.test(v);}
+  function aiReviewRow(row){return Number.isSafeInteger(row)&&row>=2&&row<=100000;}
+  function aiReviewName(name,original){
+    const ext=s=>(/\.(?:jpe?g|png|webp)$/i.exec(s||'')||[''])[0].toLowerCase();
+    if(!ext(original)||ext(name)!==ext(original)||name.length>96||name.trim()!==name||
+       !/^[A-Za-z0-9][A-Za-z0-9_-]*\.[A-Za-z]+$/.test(name)||
+       /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])\./i.test(name))throw Error('Use a Windows-safe filename, up to 96 characters, with the original extension.');
+    return name;
+  }
+  function aiReviewNormalize(p){
+    if(!p||!aiReviewID(p.id)||!aiReviewRow(p.row)||!['image/jpeg','image/png','image/webp'].includes(p.mime)||
+       !Number.isSafeInteger(p.size)||p.size<1||p.size>20*1024*1024||
+       typeof p.version!=='string'||!/^\d{1,30}$/.test(p.version)||
+       !Number.isSafeInteger(p.at)||p.at<1||!['gemini-3.1-flash-lite','gemini-3.5-flash-lite'].includes(p.model))
+      throw Error('Invalid AI proposal identity.');
+    const original=aiReviewText(p.original,300,true),folder=aiReviewText(p.folder,1000);
+    const before=p.before;
+    if(!before||before.fileId!==p.id)throw Error('Invalid Manifest baseline.');
+    const baseline={fileId:p.id,description:aiReviewText(before.description,2000),tags:aiReviewText(before.tags,400),review:aiReviewText(before.review,500)};
+    if([baseline.description,baseline.tags,baseline.review].some(x=>x.startsWith('=')))throw Error('Manifest formula targets cannot be staged.');
+    let note=null;
+    if(p.note!==null){
+      const n=p.note;
+      if(!n||!['draft','deferred','reviewed'].includes(n.status)||!Number.isSafeInteger(n.updatedAt)||n.updatedAt<0)throw Error('Invalid local review baseline.');
+      note={description:aiReviewText(n.description,2000),tags:aiReviewText(n.tags,400),status:n.status,updatedAt:n.updatedAt};
+    }
+    if(!AI_REVIEW_CATEGORIES.includes(p.category))throw Error('Invalid AI category.');
+    return {id:p.id,row:p.row,original,folder,mime:p.mime,size:p.size,version:p.version,at:p.at,model:p.model,before:baseline,note,
+      filename:aiReviewName(aiReviewText(p.filename,96,true),original),description:aiReviewText(p.description,2000,true),
+      tags:aiReviewText(p.tags,400),category:p.category};
+  }
+  function aiReviewParse(raw,ctx){
+    if(!ctx||!aiReviewID(ctx.account)||!aiReviewID(ctx.sheetId))throw Error('Connect the verified Drive account and inventory first.');
+    if(raw===null||raw==='')return [];
+    if(typeof raw!=='string'||raw.length>AI_REVIEW_BYTES)throw Error('AI proposal storage is too large.');
+    let obj;try{obj=JSON.parse(raw)}catch{throw Error('Saved AI proposals are unreadable; storage was not changed.');}
+    if(!obj||obj.schema!==1||obj.account!==ctx.account||obj.sheetId!==ctx.sheetId||!Array.isArray(obj.items)||obj.items.length>AI_REVIEW_LIMIT)throw Error('AI proposals do not match this workspace.');
+    const items=obj.items.map(aiReviewNormalize);
+    if(new Set(items.map(x=>x.id)).size!==items.length)throw Error('Duplicate AI proposal IDs.');
+    return items;
+  }
+  function aiReviewPayload(items,ctx){
+    const raw=JSON.stringify({schema:1,account:ctx.account,sheetId:ctx.sheetId,items:items.map(aiReviewNormalize)});
+    aiReviewParse(raw,ctx);return raw;
+  }
+  function aiReviewMatches(p,item,live,row,note){
+    if(!item||item.demo||item.newInDrive||item.id!==p.id||item.manifestRow!==p.row||item.name!==p.original||item.folder!==p.folder||item.mime!==p.mime||item.size!==p.size)return false;
+    if(!live||live.id!==p.id||live.name!==p.original||live.mimeType!==p.mime||Number(live.size)!==p.size||String(live.version)!==p.version||live.trashed!==false)return false;
+    if(!row||['fileId','description','tags','review'].some(k=>row[k]!==p.before[k]))return false;
+    const n=p.note;
+    if(!n||!note)return !n&&!note;
+    return ['description','tags','status','updatedAt'].every(k=>n[k]===note[k]);
+  }
+  function aiReviewWorkspace(){
+    const ctx=state.connected?activityContext():null;
+    if(!ctx||!aiReviewID(ctx.account)||!aiReviewID(ctx.sheetId))throw Error('Connect the verified Drive account and inventory first.');
+    return ctx;
+  }
+  function aiReviewKey(ctx){return 'jack-vault-ai-proposals-v1-'+ctx.account+'-'+ctx.sheetId;}
+  function aiReviewRead(ctx){return aiReviewParse(localStorage.getItem(aiReviewKey(ctx)),ctx);}
+  function aiReviewWrite(ctx,items){
+    const current=aiReviewWorkspace();
+    if(current.account!==ctx.account||current.sheetId!==ctx.sheetId)throw Error('Workspace changed.');
+    const raw=aiReviewPayload(items,ctx);
+    try{localStorage.setItem(aiReviewKey(ctx),raw);}catch{throw Error('AI proposal storage unavailable or full. Export existing proposals first.');}
+  }
+  function aiReviewUpsert(ctx,p,replace=false){
+    const items=aiReviewRead(ctx),i=items.findIndex(x=>x.id===p.id);
+    if(i>=0&&!replace)throw Error('A proposal already exists. Delete it explicitly before re-inspecting.');
+    if(i>=0)items[i]=p;else{if(items.length>=AI_REVIEW_LIMIT)throw Error('AI proposal inbox is full (100). Export or delete entries first.');items.push(p);}
+    aiReviewWrite(ctx,items);
+  }
+
+  // Optional AI panel: read-only inspection and local proposal handoff.
   function initGeminiFoundation(){
     const anchor=$('sidebarUpdates');
     if(!anchor||typeof anchor.after!=='function'||!document.body||typeof document.body.append!=='function')return;
     const btn=document.createElement('button');btn.type='button';btn.className='side-settings';btn.textContent='✧ AI Studio';anchor.after(btn);
     const dlg=document.createElement('dialog');dlg.className='dialog settings-dialog';dlg.setAttribute('aria-label','AI Studio');
-    dlg.innerHTML='<div class="dialog-header"><div><p class="eyebrow">OPTIONAL · GEMINI</p><h2>AI Studio</h2></div><button type="button" class="icon-button" data-ai="close" aria-label="Close">×</button></div><p data-ai="engine" class="field-help" role="status"></p><p class="dialog-copy">Cloud analysis is optional. The Windows app encrypts your API key. This test never edits Drive or Sheets.</p><label class="field-label">Gemini API key<input data-ai="key" class="field" type="password" autocomplete="off" placeholder="Paste AQ. authorization key or legacy key"></label><label class="field-label">Model<select data-ai="model" class="field"><option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option><option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option></select></label><div class="dialog-actions"><button type="button" class="btn outline" data-ai="forget">Forget key</button><button type="button" class="btn primary" data-ai="save">Save AI settings</button></div><p data-ai="message" role="status" aria-live="polite" style="overflow-wrap:anywhere"></p><p data-ai="budget" role="status"></p><p class="field-help">Estimated standard API costs, UTC calendar month. $8 app-only limit; not a Google billing limit. Unknown charges retain their reservation.</p><div class="preference-section"><button type="button" class="btn outline" data-ai="test">Test Gemini connection (paid request)</button><label class="field-label">Local image test (JPEG or PNG, resized locally)<input type="file" data-ai="file" accept="image/jpeg,image/png" class="field"></label><button type="button" class="btn outline" data-ai="image">Analyze selected image</button><hr><label class="field-label">Find a catalog image<input data-ai="search" type="search" class="field" placeholder="Filter by filename or folder"></label><label class="field-label">Choose a Drive image<select data-ai="drive" class="field"></select></label><p class="field-help">Only JPEG, PNG and WebP still images up to 20 MiB. Choose an exact file; a resized copy is sent only after approval. Suggestions do not change your library.</p><button type="button" class="btn outline" data-ai="inspect">Inspect Drive image</button><p data-ai="meta" role="status"></p><pre data-ai="result" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><details><summary>Recent estimated usage</summary><pre data-ai="history" style="white-space:pre-wrap"></pre></details></div>';
+    dlg.innerHTML='<div class="dialog-header"><div><p class="eyebrow">OPTIONAL · GEMINI</p><h2>AI Studio</h2></div><button type="button" class="icon-button" data-ai="close" aria-label="Close">×</button></div><p data-ai="engine" class="field-help" role="status"></p><p class="dialog-copy">Cloud analysis is optional. The Windows app encrypts your API key. AI suggestions are private drafts. Drive and Sheet writes still require your separate existing approvals.</p><label class="field-label">Gemini API key<input data-ai="key" class="field" type="password" autocomplete="off" placeholder="Paste AQ. authorization key or legacy key"></label><label class="field-label">Model<select data-ai="model" class="field"><option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option><option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option></select></label><div class="dialog-actions"><button type="button" class="btn outline" data-ai="forget">Forget key</button><button type="button" class="btn primary" data-ai="save">Save AI settings</button></div><p data-ai="message" role="status" aria-live="polite" style="overflow-wrap:anywhere"></p><p data-ai="budget" role="status"></p><p class="field-help">Estimated standard API costs, UTC calendar month. $8 app-only limit; not a Google billing limit. Unknown charges retain their reservation.</p><div class="preference-section"><button type="button" class="btn outline" data-ai="test">Test Gemini connection (paid request)</button><label class="field-label">Local image test (JPEG or PNG, resized locally)<input type="file" data-ai="file" accept="image/jpeg,image/png" class="field"></label><button type="button" class="btn outline" data-ai="image">Analyze selected image</button><hr><label class="field-label">Find a catalog image<input data-ai="search" type="search" class="field" placeholder="Filter by filename or folder"></label><label class="field-label">Choose a Drive image<select data-ai="drive" class="field"></select></label><p class="field-help">Only JPEG, PNG and WebP still images up to 20 MiB. Choose an exact file; a resized copy is sent only after approval. Suggestions do not change your library.</p><button type="button" class="btn outline" data-ai="inspect">Inspect Drive image</button><p data-ai="meta" role="status"></p><pre data-ai="result" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><details open><summary>AI proposal inbox · local only</summary><p class="field-help">Drive inspections with a stable Manifest row are saved here. Local file tests are not added. Filename and category are draft-only in this stage.</p><label class="field-label">Saved proposal<select class="field" data-ai="queue"></select></label><p data-ai="baseline" class="field-help" style="white-space:pre-wrap;overflow-wrap:anywhere"></p><label class="field-label">Proposed filename<input class="field" data-ai="qname" maxlength="96"></label><label class="field-label">Description<textarea class="field" data-ai="qdesc" maxlength="2000" rows="4"></textarea></label><label class="field-label">Tags<input class="field" data-ai="qtags" maxlength="400"></label><label class="field-label">Category<select class="field" data-ai="qcat"><option>illustration</option><option>photograph</option><option>comic</option><option>screenshot</option><option>document</option><option>other</option></select></label><div class="dialog-actions"><button class="btn outline" type="button" data-ai="qsave">Save proposal edits</button><button class="btn outline" type="button" data-ai="qdelete">Delete proposal</button><button class="btn outline" type="button" data-ai="qexport">Export proposals</button></div><label><input type="checkbox" data-ai="usedesc" checked> Use proposed description</label><label><input type="checkbox" data-ai="usetags" checked> Use proposed tags</label><button class="btn primary" type="button" data-ai="handoff">Open in human review editor</button><p class="field-help">Rechecks Drive version, exact Manifest cells and local review before opening. Nothing is saved as reviewed until you inspect and approve in the existing editor. Then use Sheet Approvals to synchronize.</p><p data-ai="qstatus" role="status" style="overflow-wrap:anywhere"></p></details><details><summary>Recent estimated usage</summary><pre data-ai="history" style="white-space:pre-wrap"></pre></details></div>';
     document.body.append(dlg);
     const el=n=>dlg.querySelector('[data-ai="'+n+'"]');
     let nonce='', busy=false, configured=false, requestEpoch=0;
     const eligible=i=>!i.demo&&['image/jpeg','image/png','image/webp'].includes(i.mime)&&Number.isSafeInteger(i.size)&&i.size>0&&i.size<=20*1024*1024;
+    const qfields=['qname','qdesc','qtags','qcat','usedesc','usetags','qsave','qdelete','handoff'];
+    let queueContext=null;
+    function clearQueue(){
+      queueContext=null;el('queue').replaceChildren(new Option('No proposal selected',''));
+      el('baseline').textContent='';el('qname').value='';el('qdesc').value='';el('qtags').value='';el('qcat').value='other';
+      el('usedesc').checked=true;el('usetags').checked=true;
+      for(const n of qfields)el(n).disabled=true;el('qexport').disabled=true;el('qstatus').textContent='';
+    }
+    function fillQueue(preferred=''){
+      clearQueue();
+      try{
+        const ctx=aiReviewWorkspace(),items=aiReviewRead(ctx);queueContext=ctx;
+        for(const p of items)el('queue').append(new Option(p.original+' · '+new Date(p.at).toLocaleDateString(),p.id));
+        el('qexport').disabled=!items.length;
+        if(items.some(p=>p.id===preferred))el('queue').value=preferred;
+        el('qstatus').textContent=items.length+' / 100 private proposals';
+        loadQueueSelection();
+      }catch(e){el('qstatus').textContent=e.message;}
+    }
+    function selectedProposal(){
+      const ctx=aiReviewWorkspace();
+      if(!queueContext||ctx.account!==queueContext.account||ctx.sheetId!==queueContext.sheetId)throw Error('Workspace changed. Reopen AI Studio.');
+      const p=aiReviewRead(ctx).find(x=>x.id===el('queue').value);
+      if(!p)throw Error('Select a saved proposal.');
+      return {ctx,p};
+    }
+    function loadQueueSelection(){
+      el('baseline').textContent='';el('qname').value='';el('qdesc').value='';el('qtags').value='';el('qcat').value='other';
+      for(const n of qfields)el(n).disabled=true;
+      if(!el('queue').value)return;
+      try{
+        const {p}=selectedProposal();
+        el('baseline').textContent='Original: '+p.original+'\nFolder: '+p.folder+'\nDrive version: '+p.version+' · Manifest row '+p.row+'\nCurrent Sheet review: '+p.before.review+'\nExisting description: '+(p.note?.description??p.before.description)+'\nExisting tags: '+(p.note?.tags??p.before.tags)+(p.note?' \nExisting personal review: '+p.note.status:'');
+        el('qname').value=p.filename;el('qdesc').value=p.description;el('qtags').value=p.tags;el('qcat').value=p.category;
+        el('usedesc').checked=true;el('usetags').checked=true;
+        for(const n of qfields)el(n).disabled=busy;
+      }catch(e){el('qstatus').textContent=e.message;}
+    }
+    function editedProposal(p){return aiReviewNormalize({...p,filename:el('qname').value.trim(),description:el('qdesc').value.trim(),tags:el('qtags').value.trim(),category:el('qcat').value});}
+    async function queueAction(action){
+      if(busy)return;busy=true;
+      const ticket=++requestEpoch,epoch=state.authEpoch;
+      for(const n of [...qfields,'qexport','queue','save','forget','test','image','inspect','model','key','file','search','drive'])el(n).disabled=true;
+      try{
+        if(action==='qexport'){
+          const ctx=aiReviewWorkspace(),items=aiReviewRead(ctx);
+          const url=URL.createObjectURL(new Blob([aiReviewPayload(items,ctx)],{type:'application/json'})),link=document.createElement('a');
+          link.href=url;link.download='image-vault-ai-proposals.json';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
+          el('qstatus').textContent='Private proposal backup exported.';return;
+        }
+        const {ctx,p}=selectedProposal();
+        if(action==='qdelete'){
+          if(!confirm('Delete this local proposal? No Drive or Sheet data will change.'))return;
+          aiReviewWrite(ctx,aiReviewRead(ctx).filter(x=>x.id!==p.id));fillQueue();return;
+        }
+        const edited=editedProposal(p);
+        if(action==='qsave'){aiReviewUpsert(ctx,edited,true);fillQueue(p.id);el('qstatus').textContent='Proposal edits saved locally.';return;}
+        const useDescription=el('usedesc').checked,useTags=el('usetags').checked;
+        if(!useDescription&&!useTags)throw Error('Select description or tags to bring into the human editor.');
+        const active=()=>dlg.open&&ticket===requestEpoch&&epoch===state.authEpoch&&state.connected&&state.driveIdentity===ctx.account&&state.config.sheetId===ctx.sheetId&&el('queue').value===p.id;
+        const check=()=>{if(!active())throw Error('Workspace or selection changed. Nothing was handed off.');};
+        if(!confirm('Open these AI suggestions in the human review editor? Existing review data is not changed until you explicitly save there. Inspect the actual image before marking it reviewed.'))return;
+        const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(p.id)+'?fields=id,name,mimeType,size,version,trashed&supportsAllDrives=true';
+        const live=await googleGet(url);check();
+        const row=await sheetWriteReadRow(p.row,state.accessToken);check();
+        const item=state.images.find(x=>x.id===p.id);
+        if(!aiReviewMatches(p,item,live,row,state.reviewEdits.get(p.id)||null))throw Error('Drive file, Manifest row or personal review changed. Delete and re-inspect this proposal.');
+        if(JSON.stringify(aiReviewRead(ctx).find(x=>x.id===p.id))!==JSON.stringify(p))throw Error('Proposal changed in another window.');
+        aiReviewUpsert(ctx,edited,true);
+        if($('imageDialog').open)throw Error('Close the existing image review before opening another.');
+        dlg.close();stopVideo();state.returnFocus=btn;state.activeImage=item;populateImageDialog();
+        if(useDescription)$('reviewDescription').value=edited.description;
+        if(useTags)$('reviewTags').value=edited.tags;
+        state.reviewDirty=true;
+        $('reviewEditorStatus').textContent='AI suggestions loaded as unsaved edits. Inspect the image, then explicitly save a draft or mark reviewed. Sheet approval is separate.';
+        $('imageDialog').showModal();requestThumb(item,{priority:true});
+      }catch(e){el('qstatus').textContent=e.message;}
+      finally{
+        busy=false;for(const n of ['qexport','queue','save','forget','test','image','inspect','model','key','file','search','drive'])el(n).disabled=false;
+        // Do not reload fields here: keep unsaved edits and error text intact.
+        if(dlg.open&&queueContext&&el('queue').value)for(const n of qfields)el(n).disabled=false;
+      }
+    }
+    el('queue').addEventListener('change',loadQueueSelection);
+    for(const n of ['qsave','qdelete','qexport','handoff'])el(n).addEventListener('click',()=>void queueAction(n));
+    aiCloseForAuth=()=>{requestEpoch++;if(dlg.open)dlg.close();clearQueue();el('result').textContent='';el('meta').textContent='';};
     function fillDrive(){
       const prev=el('drive').value, query=el('search').value.trim().toLowerCase();
       el('drive').replaceChildren(new Option('Select an image…',''));
@@ -11952,7 +12119,7 @@ async function nativeMediaPost(route,body,signal){
     }
     async function run(action){
       if(busy)return;busy=true;
-      for(const n of ['save','forget','test','image','inspect','model','key','file','search','drive'])el(n).disabled=true;
+      for(const n of [...qfields,'qexport','queue','save','forget','test','image','inspect','model','key','file','search','drive'])el(n).disabled=true;
       el('message').textContent='Working…';
       try{
         if(action==='save'){const key=el('key').value.trim();el('key').value='';await call(action,{Key:key,Model:el('model').value});}
@@ -11969,6 +12136,17 @@ async function nativeMediaPost(route,body,signal){
           if(!confirm('Send a resized copy of "'+selected.name+'" to Gemini for paid analysis? No file or Sheet changes.'))return;
           const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(selected.id);
           const fields='?fields=id,name,mimeType,size,version,trashed&supportsAllDrives=true';
+          let proposalCtx=null,proposalBefore=null,proposalNote=null,proposalRow=null,proposalFolder='';
+          if(!item.newInDrive&&aiReviewRow(item.manifestRow)){
+            proposalCtx=aiReviewWorkspace();proposalRow=item.manifestRow;proposalFolder=String(item.folder||'');
+            const prior=aiReviewRead(proposalCtx);
+            if(prior.some(x=>x.id===selected.id))throw Error('A saved proposal already exists for this image. Edit or delete it before paying for another inspection.');
+            if(prior.length>=AI_REVIEW_LIMIT)throw Error('AI proposal inbox is full. Export or delete entries first.');
+            proposalNote=state.reviewEdits.get(selected.id)||null;
+            if(proposalNote)proposalNote={...proposalNote};
+            proposalBefore=await sheetWriteReadRow(proposalRow,state.accessToken);check();
+            if(proposalBefore.fileId!==selected.id||[proposalBefore.description,proposalBefore.tags,proposalBefore.review].some(x=>x.startsWith('=')))throw Error('Manifest row identity or formula target is unsafe.');
+          }
           const before=await googleGet(url+fields);check();
           if(before.id!==selected.id||before.name!==selected.name||before.mimeType!==selected.mime||Number(before.size)!==selected.size||before.trashed===true||!before.version)throw Error('Drive metadata changed. Sync the catalog before analysis.');
           const blob=await googleGet(url+'?alt=media&supportsAllDrives=true',{blob:true,maxBytes:20*1024*1024});check();
@@ -11992,6 +12170,14 @@ async function nativeMediaPost(route,body,signal){
           const ext=selected.mime==='image/jpeg'?(/\.jpeg$/i.test(selected.name)?'.jpeg':'.jpg'):selected.mime==='image/png'?'.png':'.webp';
           el('meta').textContent=selected.name+' · '+width+' × '+height+' decoded pixels · '+selected.size.toLocaleString()+' bytes · '+selected.mime+' · version '+before.version;
           el('result').textContent='AI suggestion (not verified)\nFilename: '+p.filename+ext+'\nCategory: '+p.category+'\nDescription: '+p.description+'\nTags: '+p.tags.join(', ');
+          if(proposalCtx){
+            const currentRow=await sheetWriteReadRow(proposalRow,state.accessToken);check();
+            const record=aiReviewNormalize({id:selected.id,row:proposalRow,original:selected.name,folder:proposalFolder,mime:selected.mime,size:selected.size,version:String(before.version),at:Date.now(),model:result.model,before:proposalBefore,note:proposalNote,filename:p.filename.slice(0,96-ext.length)+ext,description:p.description,tags:p.tags.join(', '),category:p.category});
+            const indexed=state.images.find(x=>x.id===selected.id);
+            if(!aiReviewMatches(record,indexed,final,currentRow,state.reviewEdits.get(selected.id)||null))throw Error('Source changed during analysis. Suggestions were not saved.');
+            aiReviewUpsert(proposalCtx,record);fillQueue(record.id);el('qstatus').textContent='New unverified AI proposal saved locally. No Drive or Sheet changes.';
+          }else el('qstatus').textContent='Preview only: no stable Manifest row. Reconcile the catalog first.';
+
         }
         else if(action==='image'){
           if(!configured)throw Error('Save a Gemini API key first.');
@@ -12005,11 +12191,11 @@ async function nativeMediaPost(route,body,signal){
         }else await call(action);
         el('message').textContent=action==='save'?(configured?'AI key saved securely. Test Gemini connection next.':'Model saved. Enter an API key to connect.'):'Ready.';
       }catch(e){el('message').textContent=e.message; if(action==='test'||action==='image'||action==='inspect')try{await call('status')}catch{}}
-      finally{busy=false;for(const n of ['save','forget','test','image','inspect','model','key','file','search','drive'])el(n).disabled=false;if(el('message').textContent==='Working…')el('message').textContent='Cancelled.';}
+      finally{busy=false;for(const n of ['queue','save','forget','test','image','inspect','model','key','file','search','drive'])el(n).disabled=false;if(dlg.open){if(queueContext&&el('queue').value)for(const n of qfields)el(n).disabled=false;try{el('qexport').disabled=!queueContext||!aiReviewRead(queueContext).length;}catch{el('qexport').disabled=true;}}if(el('message').textContent==='Working…')el('message').textContent='Cancelled.';}
     }
-    btn.addEventListener('click',()=>{fillDrive();dlg.showModal();void run('status')});
+    btn.addEventListener('click',()=>{fillDrive();fillQueue();dlg.showModal();void run('status')});
     el('close').addEventListener('click',()=>dlg.close());
-    dlg.addEventListener('close',()=>{requestEpoch++;el('key').value='';el('file').value='';el('result').textContent='';el('meta').textContent='';el('drive').value='';el('search').value='';});
+    dlg.addEventListener('close',()=>{requestEpoch++;clearQueue();el('key').value='';el('file').value='';el('result').textContent='';el('meta').textContent='';el('drive').value='';el('search').value='';});
     for(const n of ['save','forget','test','image','inspect'])el(n).addEventListener('click',()=>void run(n));
   }
 
