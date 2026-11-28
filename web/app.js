@@ -11873,7 +11873,7 @@ async function nativeMediaPost(route,body,signal){
   // Optional AI panel: native endpoint only, no Drive or Sheets access.
   function initGeminiFoundation(){
     const anchor=$('sidebarUpdates');
-    if(!anchor)return;
+    if(!anchor||typeof anchor.after!=='function'||!document.body||typeof document.body.append!=='function')return;
     const btn=document.createElement('button');btn.type='button';btn.className='side-settings';btn.textContent='✧ AI Studio';anchor.after(btn);
     const dlg=document.createElement('dialog');dlg.className='dialog settings-dialog';dlg.setAttribute('aria-label','AI Studio');
     dlg.innerHTML='<div class="dialog-header"><div><p class="eyebrow">OPTIONAL · GEMINI</p><h2>AI Studio</h2></div><button type="button" class="icon-button" data-ai="close" aria-label="Close">×</button></div><p class="dialog-copy">Cloud analysis is optional. The Windows app encrypts your API key. This test never edits Drive or Sheets.</p><label class="field-label">Gemini API key<input data-ai="key" class="field" type="password" autocomplete="off" placeholder="Enter a new key only to replace it"></label><label class="field-label">Model<select data-ai="model" class="field"><option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option><option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option></select></label><div class="dialog-actions"><button type="button" class="btn outline" data-ai="forget">Forget key</button><button type="button" class="btn primary" data-ai="save">Save AI settings</button></div><p data-ai="budget" role="status"></p><p class="field-help">Estimated standard API costs, UTC calendar month. $8 app-only limit; not a Google billing limit. Unknown charges retain their reservation.</p><div class="preference-section"><button type="button" class="btn outline" data-ai="test">Test Gemini connection (paid request)</button><label class="field-label">Local image test (JPEG or PNG, resized locally)<input type="file" data-ai="file" accept="image/jpeg,image/png" class="field"></label><button type="button" class="btn outline" data-ai="image">Analyze selected image</button><p data-ai="message" role="status"></p><pre data-ai="result" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><details><summary>Recent estimated usage</summary><pre data-ai="history" style="white-space:pre-wrap"></pre></details></div>';
@@ -11882,8 +11882,8 @@ async function nativeMediaPost(route,body,signal){
     let nonce='', busy=false, configured=false;
     function show(d){
       configured=d.configured;el('model').value=d.model;
-      el('budget').textContent=(configured?'Key configured':'No key saved')+' · '+(d.spentNanoUSD/1e9).toFixed(4)+' / $8.00 estimated · '+d.month+' UTC';
-      el('history').textContent=(d.history||[]).slice().reverse().map(x=>x.At+' · '+x.Model+' · '+x.Status+' · '+x.Input+'/'+x.Output+' tokens · '+(x.NanoUSD/1e9).toFixed(6)).join('\n');
+      el('budget').textContent=(configured?'Key configured':'No key saved')+' · USD '+(d.spentNanoUSD/1e9).toFixed(4)+' / $8.00 estimated · '+d.month+' UTC';
+      el('history').textContent=(d.history||[]).slice().reverse().map(x=>x.At+' · '+x.Model+' · '+x.Status+' · '+x.Input+'/'+x.Output+' tokens · USD '+(x.NanoUSD/1e9).toFixed(6)).join('\n');
       if(d.result!==undefined)el('result').textContent=d.result;
     }
     async function call(action,extra={}){
