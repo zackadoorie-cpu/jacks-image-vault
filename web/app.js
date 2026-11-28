@@ -11870,16 +11870,28 @@ async function nativeMediaPost(route,body,signal){
     });
     start();
   }
-  // Optional AI panel: native endpoint only, no Drive or Sheets access.
+  // Optional AI panel: explicit read-only Drive fetches; no Drive or Sheets writes.
   function initGeminiFoundation(){
     const anchor=$('sidebarUpdates');
     if(!anchor||typeof anchor.after!=='function'||!document.body||typeof document.body.append!=='function')return;
     const btn=document.createElement('button');btn.type='button';btn.className='side-settings';btn.textContent='✧ AI Studio';anchor.after(btn);
     const dlg=document.createElement('dialog');dlg.className='dialog settings-dialog';dlg.setAttribute('aria-label','AI Studio');
-    dlg.innerHTML='<div class="dialog-header"><div><p class="eyebrow">OPTIONAL · GEMINI</p><h2>AI Studio</h2></div><button type="button" class="icon-button" data-ai="close" aria-label="Close">×</button></div><p class="dialog-copy">Cloud analysis is optional. The Windows app encrypts your API key. This test never edits Drive or Sheets.</p><label class="field-label">Gemini API key<input data-ai="key" class="field" type="password" autocomplete="off" placeholder="Enter a new key only to replace it"></label><label class="field-label">Model<select data-ai="model" class="field"><option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option><option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option></select></label><div class="dialog-actions"><button type="button" class="btn outline" data-ai="forget">Forget key</button><button type="button" class="btn primary" data-ai="save">Save AI settings</button></div><p data-ai="budget" role="status"></p><p class="field-help">Estimated standard API costs, UTC calendar month. $8 app-only limit; not a Google billing limit. Unknown charges retain their reservation.</p><div class="preference-section"><button type="button" class="btn outline" data-ai="test">Test Gemini connection (paid request)</button><label class="field-label">Local image test (JPEG or PNG, resized locally)<input type="file" data-ai="file" accept="image/jpeg,image/png" class="field"></label><button type="button" class="btn outline" data-ai="image">Analyze selected image</button><p data-ai="message" role="status"></p><pre data-ai="result" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><details><summary>Recent estimated usage</summary><pre data-ai="history" style="white-space:pre-wrap"></pre></details></div>';
+    dlg.innerHTML='<div class="dialog-header"><div><p class="eyebrow">OPTIONAL · GEMINI</p><h2>AI Studio</h2></div><button type="button" class="icon-button" data-ai="close" aria-label="Close">×</button></div><p class="dialog-copy">Cloud analysis is optional. The Windows app encrypts your API key. This test never edits Drive or Sheets.</p><label class="field-label">Gemini API key<input data-ai="key" class="field" type="password" autocomplete="off" placeholder="Enter a new key only to replace it"></label><label class="field-label">Model<select data-ai="model" class="field"><option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option><option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option></select></label><div class="dialog-actions"><button type="button" class="btn outline" data-ai="forget">Forget key</button><button type="button" class="btn primary" data-ai="save">Save AI settings</button></div><p data-ai="budget" role="status"></p><p class="field-help">Estimated standard API costs, UTC calendar month. $8 app-only limit; not a Google billing limit. Unknown charges retain their reservation.</p><div class="preference-section"><button type="button" class="btn outline" data-ai="test">Test Gemini connection (paid request)</button><label class="field-label">Local image test (JPEG or PNG, resized locally)<input type="file" data-ai="file" accept="image/jpeg,image/png" class="field"></label><button type="button" class="btn outline" data-ai="image">Analyze selected image</button><hr><label class="field-label">Find a catalog image<input data-ai="search" type="search" class="field" placeholder="Filter by filename or folder"></label><label class="field-label">Choose a Drive image<select data-ai="drive" class="field"></select></label><p class="field-help">Only JPEG, PNG and WebP still images up to 20 MiB. Choose an exact file; a resized copy is sent only after approval. Suggestions do not change your library.</p><button type="button" class="btn outline" data-ai="inspect">Inspect Drive image</button><p data-ai="meta" role="status"></p><p data-ai="message" role="status"></p><pre data-ai="result" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><details><summary>Recent estimated usage</summary><pre data-ai="history" style="white-space:pre-wrap"></pre></details></div>';
     document.body.append(dlg);
     const el=n=>dlg.querySelector('[data-ai="'+n+'"]');
-    let nonce='', busy=false, configured=false;
+    let nonce='', busy=false, configured=false, requestEpoch=0;
+    const eligible=i=>!i.demo&&['image/jpeg','image/png','image/webp'].includes(i.mime)&&Number.isSafeInteger(i.size)&&i.size>0&&i.size<=20*1024*1024;
+    function fillDrive(){
+      const prev=el('drive').value, query=el('search').value.trim().toLowerCase();
+      el('drive').replaceChildren(new Option('Select an image…',''));
+      if(!state.connected)return;
+      const choices=state.images.filter(i=>eligible(i)&&(!query||String(i.name+' '+i.folder).toLowerCase().includes(query))).slice(0,100);
+      for(const i of choices)el('drive').append(new Option(String(i.name)+' · '+String(i.folder||''),i.id));
+      if(choices.some(i=>i.id===prev))el('drive').value=prev;
+    }
+    el('search').addEventListener('input',fillDrive);
+    el('drive').addEventListener('change',()=>{el('result').textContent='';el('meta').textContent='';});
+
     function show(d){
       configured=d.configured;el('model').value=d.model;
       el('budget').textContent=(configured?'Key configured':'No key saved')+' · USD '+(d.spentNanoUSD/1e9).toFixed(4)+' / $8.00 estimated · '+d.month+' UTC';
@@ -11892,15 +11904,51 @@ async function nativeMediaPost(route,body,signal){
       let d;try{d=await res.json()}catch{throw Error('AI Studio needs the new Windows executable.')}
       if(!res.ok)throw Error(d.error||'AI request failed');
       show(d);
+      return d;
     }
     async function run(action){
       if(busy)return;busy=true;
-      for(const n of ['save','forget','test','image','model','key','file'])el(n).disabled=true;
+      for(const n of ['save','forget','test','image','inspect','model','key','file','search','drive'])el(n).disabled=true;
       el('message').textContent='Working…';
       try{
         if(action==='save'){const key=el('key').value.trim();el('key').value='';await call(action,{Key:key,Model:el('model').value});}
         else if(action==='forget'){if(!confirm('Remove the protected Gemini key? Usage history stays.'))return;await call(action);}
         else if(action==='test'){if(!configured)throw Error('Save a Gemini API key first.');if(!confirm('Send a small paid text request to Google Gemini?'))return;await call(action,{Consent:true});}
+        else if(action==='inspect'){
+          if(!configured)throw Error('Save a Gemini API key first.');
+          const item=state.images.find(i=>i.id===el('drive').value);
+          if(!state.connected||!item||!eligible(item))throw Error('Choose an eligible Drive image first.');
+          const selected={id:item.id,name:item.name,mime:item.mime,size:item.size}, epoch=state.authEpoch, account=state.driveIdentity, sheet=state.config.sheetId, ticket=++requestEpoch;
+          const active=()=>dlg.open&&ticket===requestEpoch&&state.connected&&state.authEpoch===epoch&&state.driveIdentity===account&&state.config.sheetId===sheet&&el('drive').value===selected.id;
+          const check=()=>{if(!active())throw Error('Selection or account changed; discard result.');};
+          el('result').textContent='';el('meta').textContent='';
+          if(!confirm('Send a resized copy of "'+selected.name+'" to Gemini for paid analysis? No file or Sheet changes.'))return;
+          const url='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(selected.id);
+          const fields='?fields=id,name,mimeType,size,version,trashed&supportsAllDrives=true';
+          const before=await googleGet(url+fields);check();
+          if(before.id!==selected.id||before.name!==selected.name||before.mimeType!==selected.mime||Number(before.size)!==selected.size||before.trashed===true||!before.version)throw Error('Drive metadata changed. Sync the catalog before analysis.');
+          const blob=await googleGet(url+'?alt=media&supportsAllDrives=true',{blob:true,maxBytes:20*1024*1024});check();
+          if(blob.size!==selected.size)throw Error('Drive file length changed.');
+          const bmp=await createImageBitmap(blob);
+          let data='',width=bmp.width,height=bmp.height;
+          try{
+            if(width<1||height<1||width*height>40000000)throw Error('Image exceeds the safe decoding size.');
+            const scale=Math.min(1,1024/Math.max(width,height)),c=document.createElement('canvas');
+            c.width=Math.max(1,Math.round(width*scale));c.height=Math.max(1,Math.round(height*scale));
+            c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+            data=c.toDataURL('image/jpeg',0.85).split(',')[1];
+          }finally{bmp.close();}
+          check();
+          const after=await googleGet(url+fields);check();
+          if(after.id!==before.id||after.version!==before.version||after.name!==before.name||after.size!==before.size||after.mimeType!==before.mimeType||after.trashed===true)throw Error('Drive file changed; analysis cancelled.');
+          const result=await call(action,{Consent:true,Image:data});check();
+          const final=await googleGet(url+fields);check();
+          if(final.id!==before.id||final.version!==before.version||final.name!==before.name||final.size!==before.size||final.mimeType!==before.mimeType||final.trashed===true)throw Error('Drive file changed during analysis; result discarded.');
+          const p=result.proposal;if(!p)throw Error('No validated proposal returned.');
+          const ext=selected.mime==='image/jpeg'?(/\.jpeg$/i.test(selected.name)?'.jpeg':'.jpg'):selected.mime==='image/png'?'.png':'.webp';
+          el('meta').textContent=selected.name+' · '+width+' × '+height+' decoded pixels · '+selected.size.toLocaleString()+' bytes · '+selected.mime+' · version '+before.version;
+          el('result').textContent='AI suggestion (not verified)\nFilename: '+p.filename+ext+'\nCategory: '+p.category+'\nDescription: '+p.description+'\nTags: '+p.tags.join(', ');
+        }
         else if(action==='image'){
           if(!configured)throw Error('Save a Gemini API key first.');
           const f=el('file').files[0];if(!f||!['image/jpeg','image/png'].includes(f.type)||f.size>20*1024*1024)throw Error('Choose a JPEG or PNG under 20 MB.');
@@ -11912,13 +11960,13 @@ async function nativeMediaPost(route,body,signal){
           const data=c.toDataURL('image/jpeg',0.85).split(',')[1];await call(action,{Consent:true,Image:data});
         }else await call(action);
         el('message').textContent='Ready.';
-      }catch(e){el('message').textContent=e.message; if(action==='test'||action==='image')try{await call('status')}catch{}}
-      finally{busy=false;for(const n of ['save','forget','test','image','model','key','file'])el(n).disabled=false;if(el('message').textContent==='Working…')el('message').textContent='Cancelled.';}
+      }catch(e){el('message').textContent=e.message; if(action==='test'||action==='image'||action==='inspect')try{await call('status')}catch{}}
+      finally{busy=false;for(const n of ['save','forget','test','image','inspect','model','key','file','search','drive'])el(n).disabled=false;if(el('message').textContent==='Working…')el('message').textContent='Cancelled.';}
     }
-    btn.addEventListener('click',()=>{dlg.showModal();void run('status')});
+    btn.addEventListener('click',()=>{fillDrive();dlg.showModal();void run('status')});
     el('close').addEventListener('click',()=>dlg.close());
-    dlg.addEventListener('close',()=>{el('key').value='';el('file').value='';el('result').textContent='';});
-    for(const n of ['save','forget','test','image'])el(n).addEventListener('click',()=>void run(n));
+    dlg.addEventListener('close',()=>{requestEpoch++;el('key').value='';el('file').value='';el('result').textContent='';el('meta').textContent='';el('drive').value='';el('search').value='';});
+    for(const n of ['save','forget','test','image','inspect'])el(n).addEventListener('click',()=>void run(n));
   }
 
   function init() {
