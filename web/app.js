@@ -11870,7 +11870,96 @@ async function nativeMediaPost(route,body,signal){
     });
     start();
   }
+
+  // Optional AI panel: native endpoint only, no Drive or Sheets access.
+  function initGeminiFoundation(){
+    const anchor=$('sidebarUpdates');
+    if(!anchor)return;
+    const btn=document.createElement('button');btn.type='button';btn.className='side-settings';btn.textContent='✧ AI Studio';anchor.after(btn);
+    const dlg=document.createElement('dialog');dlg.className='dialog settings-dialog';dlg.setAttribute('aria-label','AI Studio');
+    dlg.innerHTML='<div class="dialog-header"><div><p class="eyebrow">OPTIONAL · GEMINI</p><h2>AI Studio</h2></div><button type="button" class="icon-button" data-ai="close" aria-label="Close">×</button></div><p class="dialog-copy">Cloud analysis is optional. The Windows app encrypts your API key. This test never edits Drive or Sheets.</p><label class="field-label">Gemini API key<input data-ai="key" class="field" type="password" autocomplete="off" placeholder="Enter a new key only to replace it"></label><label class="field-label">Model<select data-ai="model" class="field"><option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite</option><option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option></select></label><div class="dialog-actions"><button type="button" class="btn outline" data-ai="forget">Forget key</button><button type="button" class="btn primary" data-ai="save">Save AI settings</button></div><p data-ai="budget" role="status"></p><p class="field-help">Estimated standard API costs, UTC calendar month. $8 app-only limit; not a Google billing limit. Unknown charges retain their reservation.</p><div class="preference-section"><button type="button" class="btn outline" data-ai="test">Test Gemini connection (paid request)</button><label class="field-label">Local image test (JPEG or PNG, resized locally)<input type="file" data-ai="file" accept="image/jpeg,image/png" class="field"></label><button type="button" class="btn outline" data-ai="image">Analyze selected image</button><p data-ai="message" role="status"></p><pre data-ai="result" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><details><summary>Recent estimated usage</summary><pre data-ai="history" style="white-space:pre-wrap"></pre></details></div>';
+    document.body.append(dlg);
+    const el=n=>dlg.querySelector('[data-ai="'+n+'"]');
+    let nonce='', busy=false, configured=false;
+    function show(d){
+      configured=d.configured;el('model').value=d.model;
+      el('budget').textContent=(configured?'Key configured':'No key saved')+' · 
+    if(IN_NATIVE_DESKTOP){
+      document.documentElement.classList.add('vault-desktop-host');
+      // The WebView2 profile is intentionally independent of Edge/Chrome.
+      // Keep the user on the external-browser Desktop PKCE flow only.
+      state.autoReconnect=false;
+    }
+    startNativeWindowLifecycle();
+    applyVaultTheme(state.theme);
+    buildFolderIndex();initEvents();powerToolsInit();enableBackdropDismissal();updateStatus();render();$('originText').textContent=location.origin;
+    if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){
+      navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(()=>{});
+    }
+    if(location.protocol==='file:')alertUser('This is a design preview. Launch the Windows EXE to connect Google Drive.');
+    autoCheckOnStartup();
+    tryAutoReconnect();
+  }
+  init();
+})();+(d.spentNanoUSD/1e9).toFixed(4)+' / $8.00 estimated · '+d.month+' UTC';
+      el('history').textContent=(d.history||[]).slice().reverse().map(x=>x.At+' · '+x.Model+' · '+x.Status+' · '+x.Input+'/'+x.Output+' tokens · 
+    if(IN_NATIVE_DESKTOP){
+      document.documentElement.classList.add('vault-desktop-host');
+      // The WebView2 profile is intentionally independent of Edge/Chrome.
+      // Keep the user on the external-browser Desktop PKCE flow only.
+      state.autoReconnect=false;
+    }
+    startNativeWindowLifecycle();
+    applyVaultTheme(state.theme);
+    buildFolderIndex();initEvents();powerToolsInit();enableBackdropDismissal();updateStatus();render();$('originText').textContent=location.origin;
+    if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){
+      navigator.serviceWorker.register('./sw.js',{scope:'./'}).catch(()=>{});
+    }
+    if(location.protocol==='file:')alertUser('This is a design preview. Launch the Windows EXE to connect Google Drive.');
+    autoCheckOnStartup();
+    tryAutoReconnect();
+  }
+  init();
+})();+(x.NanoUSD/1e9).toFixed(6)).join('\n');
+      if(d.result!==undefined)el('result').textContent=d.result;
+    }
+    async function call(action,extra={}){
+      if(!nonce){const res=await fetch('/__vault_update/status',{cache:'no-store'});if(!res.ok)throw Error('Install the new Windows executable.');nonce=(await res.json()).nonce;}
+      const res=await fetch('/__vault_gemini',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Vault-Nonce':nonce},body:JSON.stringify({Action:action,...extra})});
+      let d;try{d=await res.json()}catch{throw Error('AI Studio needs the new Windows executable.')}
+      if(!res.ok)throw Error(d.error||'AI request failed');
+      show(d);
+    }
+    async function run(action){
+      if(busy)return;busy=true;
+      for(const n of ['save','forget','test','image','model','key','file'])el(n).disabled=true;
+      el('message').textContent='Working…';
+      try{
+        if(action==='save'){const key=el('key').value.trim();el('key').value='';await call(action,{Key:key,Model:el('model').value});}
+        else if(action==='forget'){if(!confirm('Remove the protected Gemini key? Usage history stays.'))return;await call(action);}
+        else if(action==='test'){if(!configured)throw Error('Save a Gemini API key first.');if(!confirm('Send a small paid text request to Google Gemini?'))return;await call(action,{Consent:true});}
+        else if(action==='image'){
+          if(!configured)throw Error('Save a Gemini API key first.');
+          const f=el('file').files[0];if(!f||!['image/jpeg','image/png'].includes(f.type)||f.size>20*1024*1024)throw Error('Choose a JPEG or PNG under 20 MB.');
+          if(!confirm('Send a resized copy of this selected image to Google Gemini for paid analysis? No Drive or Sheets changes.'))return;
+          const bmp=await createImageBitmap(f);
+          const scale=Math.min(1,1024/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');
+          c.width=Math.max(1,Math.round(bmp.width*scale));c.height=Math.max(1,Math.round(bmp.height*scale));
+          c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);bmp.close();
+          const data=c.toDataURL('image/jpeg',0.85).split(',')[1];await call(action,{Consent:true,Image:data});
+        }else await call(action);
+        el('message').textContent='Ready.';
+      }catch(e){el('message').textContent=e.message; if(action==='test'||action==='image')try{await call('status')}catch{}}
+      finally{busy=false;for(const n of ['save','forget','test','image','model','key','file'])el(n).disabled=false;if(el('message').textContent==='Working…')el('message').textContent='Cancelled.';}
+    }
+    btn.addEventListener('click',()=>{dlg.showModal();void run('status')});
+    el('close').addEventListener('click',()=>dlg.close());
+    dlg.addEventListener('close',()=>{el('key').value='';el('file').value='';el('result').textContent='';});
+    for(const n of ['save','forget','test','image'])el(n).addEventListener('click',()=>void run(n));
+  }
+
   function init() {
+    initGeminiFoundation();
     if(IN_NATIVE_DESKTOP){
       document.documentElement.classList.add('vault-desktop-host');
       // The WebView2 profile is intentionally independent of Edge/Chrome.

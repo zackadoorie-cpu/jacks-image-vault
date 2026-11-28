@@ -896,6 +896,7 @@ func (v *vault) handler() http.Handler {
     mux.HandleFunc("/__vault_media/stream/", v.handleMediaStream)
     mux.HandleFunc("/__vault_window/heartbeat", v.handleWindowHeartbeat)
     mux.HandleFunc("/__vault_window/leave", v.handleWindowLeave)
+	mux.HandleFunc("/__vault_gemini", v.handleGemini)
 	mux.HandleFunc("/", v.handleFile)
 	return mux
 }
